@@ -5,7 +5,7 @@ class SupabaseConfig {
   static const String url = 'https://hnilivakkwvnvgyblmss.supabase.co';
   
   // A vossa chave pública (Anon Key)
-  static const String anonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodmlsaXZha2t3dm52Z3libG1zcy5zdXBhYmFzZS5jbyIsImlhdCI6MTcxNjE6IkpX...'; // Coloquem aqui a vossa chave completa que estava no main.dart
+  static const String anonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhuaWxpdmFra3d2bnZneWJsbXNzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMwOTMwNjMsImV4cCI6MjA5ODY2OTA2M30.O9MyaphRWKH1WE94giJdbmCSYA-NQIbZJFPy3Ldm04Y'; // Coloquem aqui a vossa chave completa que estava no main.dart
 
   // Método centralizado para inicializar o Supabase no arranque da app
   static Future<void> init() async {

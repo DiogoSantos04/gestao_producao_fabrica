@@ -3,7 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'screens/login_screen.dart'; 
 import 'screens/criar_encomenda_screen.dart';
 import 'screens/terminal_operador_screen.dart'; 
-import 'screens/rastreio_cliente_screen.dart'; // Import do rastreio do cliente
+//import 'screens/rastreio_cliente_screen.dart'; // Import do rastreio do cliente
 import 'core/supabase_config.dart';
 
 Future<void> main() async {
