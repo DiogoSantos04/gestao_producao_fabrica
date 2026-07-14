@@ -5,6 +5,7 @@ import 'screens/criar_encomenda_screen.dart';
 import 'screens/terminal_operador_screen.dart'; 
 //import 'screens/rastreio_cliente_screen.dart'; // Import do rastreio do cliente
 import 'core/supabase_config.dart';
+import 'services/auth_service.dart'; // Import do teu novo serviço de autenticação
 
 Future<void> main() async {
   // Garante que o motor do Flutter está pronto antes de inicializar o Supabase
