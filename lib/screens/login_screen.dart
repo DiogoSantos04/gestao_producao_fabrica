@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../main.dart';
+import '../main.dart'; // Importa a classe MyHomePage que está no main.dart
+import 'rastreio_cliente_screen.dart'; // Importa o ecrã de rastreio público
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -21,7 +22,7 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  // Função para autenticar o utilizador no Supabase Auth
+  // Função para autenticar o utilizador no Supabase Auth nativo
   Future<void> _fazerLogin() async {
     if (_emailController.text.trim().isEmpty || _passwordController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -36,7 +37,7 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _isLoading = true);
     
     try {
-      // Comunicação direta com o Supabase Auth
+      // Comunicação direta com o motor de autenticação do Supabase
       await Supabase.instance.client.auth.signInWithPassword(
         email: _emailController.text.trim(),
         password: _passwordController.text.trim(),
@@ -50,7 +51,7 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         );
 
-        // Se o login for bem-sucedido, avançamos para a página com a lista de encomendas (antiga MyHomePage)
+        // Redireciona para o Painel de Controlo Principal (MyHomePage)
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(
             builder: (context) => const MyHomePage(title: 'Painel de Encomendas'),
@@ -89,7 +90,7 @@ class _LoginScreenState extends State<LoginScreen> {
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24.0),
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 400), // Mantém o layout responsivo e limpo para Web
+            constraints: const BoxConstraints(maxWidth: 400), // Desenho limpo para ecrãs Web/Desktop
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -110,6 +111,8 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                 ),
                 const SizedBox(height: 32),
+                
+                // Campo de E-mail
                 TextField(
                   controller: _emailController,
                   decoration: const InputDecoration(
@@ -120,6 +123,8 @@ class _LoginScreenState extends State<LoginScreen> {
                   keyboardType: TextInputType.emailAddress,
                 ),
                 const SizedBox(height: 16),
+                
+                // Campo de Password
                 TextField(
                   controller: _passwordController,
                   decoration: const InputDecoration(
@@ -130,6 +135,8 @@ class _LoginScreenState extends State<LoginScreen> {
                   obscureText: true,
                 ),
                 const SizedBox(height: 24),
+                
+                // Botão de Entrar
                 ElevatedButton(
                   onPressed: _isLoading ? null : _fazerLogin,
                   style: ElevatedButton.styleFrom(
@@ -150,6 +157,21 @@ class _LoginScreenState extends State<LoginScreen> {
                           'Entrar',
                           style: TextStyle(fontSize: 16),
                         ),
+                ),
+                const SizedBox(height: 16),
+                
+                // Botão de Atalho para Rastreio Público do Cliente (Sem necessidade de autenticação)
+                TextButton.icon(
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(builder: (context) => const RastreioClienteScreen()),
+                    );
+                  },
+                  icon: const Icon(Icons.search, color: Colors.deepPurple),
+                  label: const Text(
+                    'Consultar código de rastreio público',
+                    style: TextStyle(color: Colors.deepPurple, fontWeight: FontWeight.bold),
+                  ),
                 ),
               ],
             ),

@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'screens/login_screen.dart'; // 1. Import do ecrã de login
+import 'screens/login_screen.dart'; 
+import 'screens/criar_encomenda_screen.dart';
+import 'screens/terminal_operador_screen.dart'; 
+import 'screens/rastreio_cliente_screen.dart'; // Import do rastreio do cliente
 
 Future<void> main() async {
   // Garante que o motor do Flutter está pronto antes de inicializar o Supabase
@@ -24,15 +27,15 @@ class MyApp extends StatelessWidget {
       title: 'Controlo de Produção',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple), // Sintaxe corrigida aqui
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         useMaterial3: true,
       ),
-      home: const LoginScreen(), // 2. A app agora arranca na página de Login
+      home: const LoginScreen(), // A app arranca na página de Login
     );
   }
 }
 
-// Mantemos o teu ecrã de listagem no main.dart para testar a transição pós-login
+// Ecrã de listagem de encomendas (Painel de Controlo Principal)
 class MyHomePage extends StatefulWidget {
   const MyHomePage({super.key, required this.title});
   final String title;
@@ -76,10 +79,20 @@ class _MyHomePageState extends State<MyHomePage> {
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         title: Text(widget.title),
         actions: [
+          // Botão para abrir o Terminal do Operador
+          IconButton(
+            icon: const Icon(Icons.computer, color: Colors.deepPurple),
+            tooltip: 'Abrir Terminal Operador',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (context) => const TerminalOperadorScreen()),
+              );
+            },
+          ),
+          // Botão de Logout
           IconButton(
             icon: const Icon(Icons.logout),
             onPressed: () async {
-              // Função para fazer logout e voltar ao login
               await Supabase.instance.client.auth.signOut();
               if (mounted) {
                 Navigator.of(context).pushReplacement(
@@ -105,6 +118,23 @@ class _MyHomePageState extends State<MyHomePage> {
                     );
                   },
                 ),
+      // Botão para abrir o formulário de nova encomenda (Administrador)
+      floatingActionButton: FloatingActionButton(
+        backgroundColor: Colors.deepPurple,
+        foregroundColor: Colors.white,
+        onPressed: () async {
+          final result = await Navigator.of(context).push(
+            MaterialPageRoute(builder: (context) => const CriarEncomendaScreen()),
+          );
+          if (result == true) {
+            setState(() {
+              _isLoading = true;
+            });
+            _buscarEncomendas();
+          }
+        },
+        child: const Icon(Icons.add),
+      ),
     );
   }
 }
