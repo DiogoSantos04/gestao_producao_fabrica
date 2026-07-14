@@ -4,16 +4,14 @@ import 'screens/login_screen.dart';
 import 'screens/criar_encomenda_screen.dart';
 import 'screens/terminal_operador_screen.dart'; 
 import 'screens/rastreio_cliente_screen.dart'; // Import do rastreio do cliente
+import 'core/supabase_config.dart';
 
 Future<void> main() async {
   // Garante que o motor do Flutter está pronto antes de inicializar o Supabase
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Inicializa o Supabase com as vossas credenciais do projeto
-  await Supabase.initialize(
-    url: 'https://hnilivakkwvnvgyblmss.supabase.co',
-    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhuaWxpdmFra3d2bnZneWJsbXNzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMwOTMwNjMsImV4cCI6MjA5ODY2OTA2M30.O9MyaphRWKH1WE94giJdbmCSYA-NQIbZJFPy3Ldm04Y',
-  );
+  // Inicializa o Supabase usando a vossa nova classe centralizada
+  await SupabaseConfig.init();
 
   runApp(const MyApp());
 }
