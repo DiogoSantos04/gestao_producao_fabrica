@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'popups/bloquear_tarefa_screen.dart';
+import '../login_screen.dart'; // Import adicionado para redirecionamento após logout
 
 class TerminalOperadorScreen extends StatefulWidget {
   const TerminalOperadorScreen({super.key});
@@ -22,7 +23,6 @@ class _TerminalOperadorScreenState extends State<TerminalOperadorScreen> {
 
   Future<void> _carregarFilaTrabalho() async {
     try {
-      // Nome exato da tabela no singular: tipos_produto
       final data = await _supabase
           .from('encomendas')
           .select('''
@@ -34,7 +34,6 @@ class _TerminalOperadorScreenState extends State<TerminalOperadorScreen> {
             fases_padrao!fase_atual_id ( id, nome_fase_padrao, ordem, tipos_produto_id )
           ''');
 
-      // Buscar incidências ativas correlacionando com o histórico
       final incidenciasData = await _supabase
           .from('incidencias')
           .select('historico_producao ( encomenda_id )');
@@ -130,6 +129,26 @@ class _TerminalOperadorScreenState extends State<TerminalOperadorScreen> {
       appBar: AppBar(
         title: const Text('Terminal do Operador - Chão de Fábrica'),
         backgroundColor: Colors.orange.shade50,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Atualizar Tarefas',
+            onPressed: _carregarFilaTrabalho,
+          ),
+          // ADICIONADO: Botão de Logout seguro para o operador
+          IconButton(
+            icon: const Icon(Icons.logout, color: Colors.redAccent),
+            tooltip: 'Terminar Sessão',
+            onPressed: () async {
+              await _supabase.auth.signOut();
+              if (mounted) {
+                Navigator.of(context).pushReplacement(
+                  MaterialPageRoute(builder: (context) => const LoginScreen()),
+                );
+              }
+            },
+          )
+        ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())

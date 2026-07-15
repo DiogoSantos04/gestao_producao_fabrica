@@ -14,8 +14,6 @@ class _RegistoScreenState extends State<RegistoScreen> {
   final _nomeController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  
-  String _perfilDesejado = 'Operador';
   bool _isLoading = false;
 
   @override
@@ -32,7 +30,7 @@ class _RegistoScreenState extends State<RegistoScreen> {
     setState(() => _isLoading = true);
 
     try {
-      // 1. Criar o utilizador no sistema de Autenticação nativo do Supabase
+      // 1. Cria a credencial no Auth do Supabase
       final AuthResponse res = await Supabase.instance.client.auth.signUp(
         email: _emailController.text.trim(),
         password: _passwordController.text.trim(),
@@ -41,16 +39,14 @@ class _RegistoScreenState extends State<RegistoScreen> {
       final user = res.user;
 
       if (user != null) {
-        // 2. Inserir na vossa tabela 'utilizadores' com o estado de aprovação pendente
-        // NOTA: Ajustem os nomes das colunas de acordo com a vossa tabela real se necessário
+        // 2. CORREÇÃO: Insere na tabela 'utilizadores' definindo o perfil fixo como 'Pendente'
+        // Garante que o utilizador não consegue autodeclarar privilégios no sistema
         await Supabase.instance.client.from('utilizadores').insert({
           'utilizador_id': user.id,
           'nome_utilizador': _nomeController.text.trim(),
           'email': _emailController.text.trim(),
-          'perfil': _perfilDesejado,
-          // Se tiverem adicionado a coluna 'aprovado' (boolean) na tabela, enviamos false. 
-          // Se usarem o próprio texto do perfil, podem enviar ex: 'Pendente_Operador'
-          'password': _passwordController.text.trim(), 
+          'perfil': 'Pendente',
+          'password': _passwordController.text.trim(),
         });
 
         if (mounted) {
@@ -66,7 +62,7 @@ class _RegistoScreenState extends State<RegistoScreen> {
                 ],
               ),
               content: const Text(
-                'A sua conta foi pré-registada com sucesso! Por motivos de segurança, deverá aguardar que um Administrador aprove o seu acesso antes de conseguir iniciar sessão.',
+                'A sua conta foi pré-registada com sucesso! Deverá aguardar que um Administrador aprove o seu acesso e lhe atribua a função adequada antes de conseguir iniciar sessão.',
               ),
               actions: [
                 ElevatedButton(
@@ -132,16 +128,6 @@ class _RegistoScreenState extends State<RegistoScreen> {
                     decoration: const InputDecoration(labelText: 'Palavra-passe', prefixIcon: Icon(Icons.lock)),
                     obscureText: true,
                     validator: (val) => val!.length < 6 ? 'Mínimo 6 caracteres' : null,
-                  ),
-                  const SizedBox(height: 16),
-                  DropdownButtonFormField<String>(
-                    value: _perfilDesejado,
-                    decoration: const InputDecoration(labelText: 'Função no Sistema', prefixIcon: Icon(Icons.badge)),
-                    items: const [
-                      DropdownMenuItem(value: 'Operador', child: Text('Operador / Chão de Fábrica')),
-                      DropdownMenuItem(value: 'Cliente', child: Text('Cliente Comercial')),
-                    ],
-                    onChanged: (val) => setState(() => _perfilDesejado = val!),
                   ),
                   const SizedBox(height: 24),
                   ElevatedButton(

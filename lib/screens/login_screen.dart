@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'dashboard_admin/painel_controlo_screen.dart'; 
-import 'portal_cliente/rastreio_cliente_screen.dart'; 
-import 'registo_screen.dart'; // Import do novo ecrã de registo
+import '../core/temas_cores.dart';
+import 'dashboard_admin/painel_controlo_screen.dart';
+import 'terminal_operador/fila_trabalho_screen.dart';
+import 'portal_cliente/historico_cliente_screen.dart';
+import 'portal_cliente/rastreio_cliente_screen.dart';
+import 'registo_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -24,58 +27,103 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _fazerLogin() async {
-    if (_emailController.text.trim().isEmpty || _passwordController.text.trim().isEmpty) {
+    final email = _emailController.text.trim();
+    final password = _passwordController.text.trim();
+
+    if (email.isEmpty || password.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Por favor, preencha todos os campos.'), backgroundColor: Colors.orange),
+        const SnackBar(
+          content: Text('Por favor, preencha todos os campos.'),
+          backgroundColor: Colors.orange,
+        ),
       );
       return;
     }
 
     setState(() => _isLoading = true);
+    debugPrint('--- INÍCIO DO PROCESSO DE LOGIN ---');
+    debugPrint('Tentativa de login para o e-mail: $email');
     
     try {
-      // 1. Efetua o login normal no Auth do Supabase
+      // 1. Autenticação no Supabase Auth nativo
       final res = await Supabase.instance.client.auth.signInWithPassword(
-        email: _emailController.text.trim(),
-        password: _passwordController.text.trim(),
+        email: email,
+        password: password,
       );
 
-      // 2. Validação de segurança extra (Aprovação):
-      // Vamos verificar se o utilizador já está ativado na vossa tabela 'utilizadores'
+      final user = res.user;
+      if (user == null) {
+        throw const AuthException('Não foi possível obter os dados da sessão do utilizador.');
+      }
+
+      debugPrint('Autenticação Supabase Auth realizada com sucesso. UID: ${user.id}');
+
+      // 2. Consulta a tabela pública 'utilizadores'
       final perfilData = await Supabase.instance.client
           .from('utilizadores')
           .select('perfil')
-          .eq('utilizador_id', res.user!.id)
+          .eq('utilizador_id', user.id)
           .maybeSingle();
 
-      // Regra de negócio exemplo: Se o perfil começar por "Pendente", barramos o login na App
-      if (perfilData != null && perfilData['perfil'].toString().startsWith('Pendente')) {
-        await Supabase.instance.client.auth.signOut(); // Desconecta imediatamente
+      if (perfilData == null) {
+        debugPrint('ERRO: UID ${user.id} existe no Auth mas não tem correspondência na tabela pública "utilizadores".');
+        await Supabase.instance.client.auth.signOut();
+        throw const AuthException('Registo de perfil do utilizador não encontrado no sistema.');
+      }
+
+      final String perfilOriginal = perfilData['perfil'].toString();
+      // Normalização da string para evitar falhas de grafia ou maiúsculas/minúsculas
+      final String perfilNormalizado = perfilOriginal.trim().toLowerCase();
+
+      debugPrint('Perfil encontrado na base de dados: "$perfilOriginal" (Normalizado: "$perfilNormalizado")');
+
+      // 3. Validação de Contas Pendentes de Aprovação
+      if (perfilNormalizado.startsWith('pendente')) {
+        debugPrint('LOGIN RECUSADO: Conta com perfil pendente de aprovação.');
+        await Supabase.instance.client.auth.signOut();
         throw const AuthException('A sua conta ainda não foi aprovada por um administrador.');
       }
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Login efetuado com sucesso!'), backgroundColor: Colors.green),
-        );
+      if (!mounted) return;
 
+      // 4. Redirecionamento Dinâmico Inteligente
+      if (perfilNormalizado == 'admin' || perfilNormalizado == 'administrador') {
+        debugPrint('Redirecionando para: PainelControloScreen (Admin)');
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(builder: (context) => const PainelControloScreen()),
         );
+      } else if (perfilNormalizado == 'operador' || perfilNormalizado == 'funcionario' || perfilNormalizado == 'funcionário') {
+        debugPrint('Redirecionando para: TerminalOperadorScreen (Operador)');
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (context) => const TerminalOperadorScreen()),
+        );
+      } else if (perfilNormalizado == 'cliente') {
+        debugPrint('Redirecionando para: HistoricoClienteScreen (Cliente)');
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (context) => const HistoricoClienteScreen()),
+        );
+      } else {
+        debugPrint('ERRO: Perfil normalizado "$perfilNormalizado" não foi mapeado no Router.');
+        await Supabase.instance.client.auth.signOut();
+        throw const AuthException('O seu perfil de acesso é inválido ou desconhecido.');
       }
+
     } on AuthException catch (erro) {
+      debugPrint('Erro detetado (AuthException): ${erro.message}');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(erro.message), backgroundColor: Colors.red),
+          SnackBar(content: Text(erro.message), backgroundColor: TemasCores.vermelhoErro),
         );
       }
     } catch (erro) {
+      debugPrint('Erro sistémico inesperado: $erro');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Ocorreu um erro inesperado.'), backgroundColor: Colors.red),
+          SnackBar(content: Text('Erro inesperado: $erro'), backgroundColor: TemasCores.vermelhoErro),
         );
       }
     } finally {
+      debugPrint('--- FIM DO PROCESSO DE LOGIN ---');
       if (mounted) setState(() => _isLoading = false);
     }
   }
@@ -124,8 +172,6 @@ class _LoginScreenState extends State<LoginScreen> {
                       : const Text('Entrar', style: TextStyle(fontSize: 16)),
                 ),
                 const SizedBox(height: 16),
-                
-                // Botão "Não tem conta? Criar Conta"
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
@@ -148,7 +194,10 @@ class _LoginScreenState extends State<LoginScreen> {
                     );
                   },
                   icon: const Icon(Icons.search, color: Colors.deepPurple),
-                  label: const Text('Consultar código de rastreio público', style: TextStyle(color: Colors.deepPurple, fontWeight: FontWeight.bold)),
+                  label: const Text(
+                    'Consultar código de rastreio público',
+                    style: TextStyle(color: Colors.deepPurple, fontWeight: FontWeight.bold),
+                  ),
                 ),
               ],
             ),

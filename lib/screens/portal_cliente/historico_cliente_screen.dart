@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../login_screen.dart'; // Import para redirecionamento após logout
 
 class HistoricoClienteScreen extends StatefulWidget {
   const HistoricoClienteScreen({super.key});
@@ -21,7 +22,6 @@ class _HistoricoClienteScreenState extends State<HistoricoClienteScreen> {
     _carregarHistorico();
   }
 
-  // RF013: Procura o histórico de encomendas do cliente autenticado em tempo real
   Future<void> _carregarHistorico() async {
     try {
       final user = _supabase.auth.currentUser;
@@ -33,7 +33,6 @@ class _HistoricoClienteScreenState extends State<HistoricoClienteScreen> {
         return;
       }
 
-      // 1. Ir à tabela 'utilizadores' buscar os dados associados ao UUID do Auth
       final utilizadorData = await _supabase
           .from('utilizadores')
           .select('nome_utilizador, email')
@@ -48,8 +47,6 @@ class _HistoricoClienteScreenState extends State<HistoricoClienteScreen> {
         return;
       }
 
-      // 2. Procurar na tabela 'clientes' pelo registo com o mesmo nome ou email
-      // (Ponte lógica entre utilizador autenticado e o registo de cliente)
       final clienteData = await _supabase
           .from('clientes')
           .select('id, nome_cliente')
@@ -59,7 +56,7 @@ class _HistoricoClienteScreenState extends State<HistoricoClienteScreen> {
       if (clienteData == null) {
         setState(() {
           _nomeCliente = utilizadorData['nome_utilizador'];
-          _encomendasCliente = []; // Cliente não tem encomendas vinculadas ainda
+          _encomendasCliente = [];
           _isLoading = false;
         });
         return;
@@ -67,7 +64,6 @@ class _HistoricoClienteScreenState extends State<HistoricoClienteScreen> {
 
       _nomeCliente = clienteData['nome_cliente'];
 
-      // 3. Procurar as encomendas associadas a este cliente
       final encomendasData = await _supabase
           .from('encomendas')
           .select('''
@@ -100,9 +96,23 @@ class _HistoricoClienteScreenState extends State<HistoricoClienteScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
+            tooltip: 'Atualizar dados',
             onPressed: () {
               setState(() => _isLoading = true);
               _carregarHistorico();
+            },
+          ),
+          // ADICIONADO: Botão de Logout seguro para o cliente
+          IconButton(
+            icon: const Icon(Icons.logout, color: Colors.redAccent),
+            tooltip: 'Terminar Sessão',
+            onPressed: () async {
+              await _supabase.auth.signOut();
+              if (mounted) {
+                Navigator.of(context).pushReplacement(
+                  MaterialPageRoute(builder: (context) => const LoginScreen()),
+                );
+              }
             },
           )
         ],
@@ -124,7 +134,6 @@ class _HistoricoClienteScreenState extends State<HistoricoClienteScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          // Cabeçalho de Boas-vindas personalizado
                           Card(
                             color: Colors.deepPurple.shade50,
                             elevation: 0,
@@ -167,8 +176,6 @@ class _HistoricoClienteScreenState extends State<HistoricoClienteScreen> {
                             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blueGrey),
                           ),
                           const SizedBox(height: 12),
-                          
-                          // Listagem das encomendas do cliente
                           Expanded(
                             child: _encomendasCliente.isEmpty
                                 ? const Center(
