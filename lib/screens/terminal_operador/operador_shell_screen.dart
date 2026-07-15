@@ -3,7 +3,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/temas_cores.dart';
 import '../login_screen.dart';
 import 'fila_trabalho_screen.dart';
-import 'fila_trabalho_screen.dart';
 import 'historico_operador_screen.dart'; 
 import 'relatorios_operador_screen.dart';
 

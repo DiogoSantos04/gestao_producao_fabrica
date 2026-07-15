@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import '../core/temas_cores.dart';
 import '../services/auth_service.dart'; // 👈 IMPORTADO: O teu serviço centralizado
 import 'dashboard_admin/dashboard_admin_shell.dart'; // 👈 IMPORTADO: A nova barra lateral
-import 'terminal_operador/fila_trabalho_screen.dart';
 import 'portal_cliente/historico_cliente_screen.dart';
 import 'portal_cliente/rastreio_cliente_screen.dart';
 import 'registo_screen.dart';
