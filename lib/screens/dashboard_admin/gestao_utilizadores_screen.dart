@@ -29,7 +29,7 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
       final data = await _supabase
           .from('utilizadores')
           .select('utilizador_id, nome_utilizador, email, perfil')
-          .eq('perfil', 'Pendente');
+          .eq('estado_conta', 'Pendente');
 
       setState(() {
         _pedidosPendentes = data;
@@ -59,7 +59,10 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
     try {
       await _supabase
           .from('utilizadores')
-          .update({'perfil': papelEscolhido})
+          .update({
+            'perfil': papelEscolhido,
+            'estado_conta': 'Ativo', // Atualiza a coluna certa para 'Ativo'
+          })
           .eq('utilizador_id', uid);
 
       if (mounted) {
