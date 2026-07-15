@@ -7,6 +7,7 @@ import 'dashboard_principal_screen.dart';
 import 'gestao_utilizadores_screen.dart';
 import 'criar_encomenda_screen.dart'; // Confirma se a classe se chama CriarEncomendaScreen
 import 'painel_controlo_screen.dart'; // Confirma se a classe se chama PainelControloScreen
+import 'gestao_fluxos_screen.dart';
 
 class DashboardAdminShell extends StatefulWidget {
   const DashboardAdminShell({super.key});
@@ -39,10 +40,10 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
     // IndexedStack é perfeito aqui porque mantém o estado de cada ecrã na memória!
     final List<Widget> _telas = [
       const DashboardPrincipalScreen(),
-      const PlaceholderScreen(titulo: 'Fluxos Produtivos', icone: Icons.schema_outlined),
+      const GestaoFluxosScreen(), // 👈 Ativado!
       const GestaoUtilizadoresScreen(),
-      const CriarEncomendaScreen(), // Ecrã já desenvolvido por ti
-      const PainelControloScreen(), // Ecrã já desenvolvido por ti
+      const CriarEncomendaScreen(),
+      const PainelControloScreen(),
       const PlaceholderScreen(titulo: 'Clientes', icone: Icons.business_center_outlined),
       const PlaceholderScreen(titulo: 'Relatórios', icone: Icons.analytics_outlined),
     ];
