@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import '../core/temas_cores.dart';
-import 'dashboard_admin/painel_controlo_screen.dart';
+import '../services/auth_service.dart'; // 👈 IMPORTADO: O teu serviço centralizado
+import 'dashboard_admin/dashboard_admin_shell.dart'; // 👈 IMPORTADO: A nova barra lateral
 import 'terminal_operador/fila_trabalho_screen.dart';
 import 'portal_cliente/historico_cliente_screen.dart';
 import 'portal_cliente/rastreio_cliente_screen.dart';
@@ -18,7 +18,15 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final AuthService _authService = AuthService(); // 👈 INSTANCIADO: Serviço de autenticação
   bool _isLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // ⚡ VERIFICAÇÃO AUTOMÁTICA: Faz auto-login se já existir uma sessão ativa
+    _verificarSessaoExistente();
+  }
 
   @override
   void dispose() {
@@ -27,6 +35,27 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
+  /// Verifica se o utilizador já tem sessão iniciada para saltar o login
+  Future<void> _verificarSessaoExistente() async {
+    // Aguarda um milissegundo para garantir que o contexto do Flutter está pronto
+    await Future.delayed(Duration.zero);
+    
+    setState(() => _isLoading = true);
+    
+    try {
+      final utilizador = await _authService.verificarSessaoAtiva();
+      if (mounted && utilizador != null) {
+        final String perfilNormalizado = utilizador.perfil.trim().toLowerCase();
+        _redirecionarPorPerfil(perfilNormalizado);
+      }
+    } catch (e) {
+      debugPrint('Erro ao verificar sessão existente: $e');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  /// Efetua o login seguro usando o AuthService
   Future<void> _fazerLogin() async {
     final email = _emailController.text.trim();
     final password = _passwordController.text.trim();
@@ -46,86 +75,68 @@ class _LoginScreenState extends State<LoginScreen> {
     debugPrint('Tentativa de login para o e-mail: $email');
     
     try {
-      // 1. Autenticação no Supabase Auth nativo
-      final res = await Supabase.instance.client.auth.signInWithPassword(
+      // ⚡ Chamas o teu AuthService que já valida se a conta está ativa ou pendente!
+      final utilizador = await _authService.login(
         email: email,
         password: password,
       );
 
-      final user = res.user;
-      if (user == null) {
-        throw const AuthException('Não foi possível obter os dados da sessão do utilizador.');
-      }
-
-      debugPrint('Autenticação Supabase Auth realizada com sucesso. UID: ${user.id}');
-
-      // 2. Consulta a tabela pública 'utilizadores'
-      final perfilData = await Supabase.instance.client
-          .from('utilizadores')
-          .select('perfil')
-          .eq('utilizador_id', user.id)
-          .maybeSingle();
-
-      if (perfilData == null) {
-        debugPrint('ERRO: UID ${user.id} existe no Auth mas não tem correspondência na tabela pública "utilizadores".');
-        await Supabase.instance.client.auth.signOut();
-        throw const AuthException('Registo de perfil do utilizador não encontrado no sistema.');
-      }
-
-      final String perfilOriginal = perfilData['perfil'].toString();
-      // Normalização da string para evitar falhas de grafia ou maiúsculas/minúsculas
-      final String perfilNormalizado = perfilOriginal.trim().toLowerCase();
-
-      debugPrint('Perfil encontrado na base de dados: "$perfilOriginal" (Normalizado: "$perfilNormalizado")');
-
-      // 3. Validação de Contas Pendentes de Aprovação
-      if (perfilNormalizado.startsWith('pendente')) {
-        debugPrint('LOGIN RECUSADO: Conta com perfil pendente de aprovação.');
-        await Supabase.instance.client.auth.signOut();
-        throw const AuthException('A sua conta ainda não foi aprovada por um administrador.');
+      if (utilizador == null) {
+        throw Exception('Não foi possível obter os dados do utilizador.');
       }
 
       if (!mounted) return;
 
-      // 4. Redirecionamento Dinâmico Inteligente
-      if (perfilNormalizado == 'admin' || perfilNormalizado == 'administrador') {
-        debugPrint('Redirecionando para: PainelControloScreen (Admin)');
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (context) => const PainelControloScreen()),
-        );
-      } else if (perfilNormalizado == 'operador' || perfilNormalizado == 'funcionario' || perfilNormalizado == 'funcionário') {
-        debugPrint('Redirecionando para: OperadorShellScreen (Operador Shell)');
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (context) => const OperadorShellScreen()), // Redirecionamento unificado
-        );
-      } else if (perfilNormalizado == 'cliente') {
-        debugPrint('Redirecionando para: HistoricoClienteScreen (Cliente)');
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (context) => const HistoricoClienteScreen()),
-        );
-      } else {
-        debugPrint('ERRO: Perfil normalizado "$perfilNormalizado" não foi mapeado no Router.');
-        await Supabase.instance.client.auth.signOut();
-        throw const AuthException('O seu perfil de acesso é inválido ou desconhecido.');
-      }
+      final String perfilNormalizado = utilizador.perfil.trim().toLowerCase();
+      debugPrint('Utilizador autenticado. Perfil: $perfilNormalizado');
 
-    } on AuthException catch (erro) {
-      debugPrint('Erro detetado (AuthException): ${erro.message}');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(erro.message), backgroundColor: TemasCores.vermelhoErro),
-        );
-      }
+      // Redireciona conforme as permissões
+      _redirecionarPorPerfil(perfilNormalizado);
+
     } catch (erro) {
-      debugPrint('Erro sistémico inesperado: $erro');
+      debugPrint('Erro detetado no Login: $erro');
       if (mounted) {
+        // Remove o prefixo "Exception: " para mostrar uma mensagem limpa ao utilizador
+        final mensagemLimpa = erro.toString().replaceAll('Exception: ', '');
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro inesperado: $erro'), backgroundColor: TemasCores.vermelhoErro),
+          SnackBar(
+            content: Text(mensagemLimpa), 
+            backgroundColor: TemasCores.vermelhoErro,
+          ),
         );
       }
     } finally {
       debugPrint('--- FIM DO PROCESSO DE LOGIN ---');
       if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  /// Centraliza as rotas de navegação de acordo com o nível de acesso do utilizador
+  void _redirecionarPorPerfil(String perfilNormalizado) {
+    if (perfilNormalizado == 'admin' || perfilNormalizado == 'administrador') {
+      debugPrint('Redirecionando para: DashboardAdminShell (Admin)');
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (context) => const DashboardAdminShell()), // 👈 ENTRA NA BARRA LATERAL INTEGRADA!
+      );
+    } else if (perfilNormalizado == 'operador' || perfilNormalizado == 'funcionario' || perfilNormalizado == 'funcionário') {
+        debugPrint('Redirecionando para: OperadorShellScreen (Operador Shell)');
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (context) => const OperadorShellScreen()), // Redirecionamento unificado
+        );
+    } else if (perfilNormalizado == 'cliente') {
+      debugPrint('Redirecionando para: HistoricoClienteScreen (Cliente)');
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (context) => const HistoricoClienteScreen()),
+      );
+    } else {
+      debugPrint('ERRO: Perfil normalizado "$perfilNormalizado" inválido.');
+      _authService.logout();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('O seu perfil de acesso é inválido ou desconhecido.'), 
+          backgroundColor: TemasCores.vermelhoErro,
+        ),
+      );
     }
   }
 
@@ -151,13 +162,23 @@ class _LoginScreenState extends State<LoginScreen> {
                 const SizedBox(height: 32),
                 TextField(
                   controller: _emailController,
-                  decoration: const InputDecoration(labelText: 'E-mail', border: OutlineInputBorder(), prefixIcon: Icon(Icons.email)),
+                  enabled: !_isLoading,
+                  decoration: const InputDecoration(
+                    labelText: 'E-mail', 
+                    border: OutlineInputBorder(), 
+                    prefixIcon: Icon(Icons.email),
+                  ),
                   keyboardType: TextInputType.emailAddress,
                 ),
                 const SizedBox(height: 16),
                 TextField(
                   controller: _passwordController,
-                  decoration: const InputDecoration(labelText: 'Palavra-passe', border: OutlineInputBorder(), prefixIcon: Icon(Icons.lock)),
+                  enabled: !_isLoading,
+                  decoration: const InputDecoration(
+                    labelText: 'Palavra-passe', 
+                    border: OutlineInputBorder(), 
+                    prefixIcon: Icon(Icons.lock),
+                  ),
                   obscureText: true,
                 ),
                 const SizedBox(height: 24),
@@ -169,7 +190,11 @@ class _LoginScreenState extends State<LoginScreen> {
                     foregroundColor: Colors.white,
                   ),
                   child: _isLoading
-                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                      ? const SizedBox(
+                          width: 20, 
+                          height: 20, 
+                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                        )
                       : const Text('Entrar', style: TextStyle(fontSize: 16)),
                 ),
                 const SizedBox(height: 16),
@@ -178,7 +203,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   children: [
                     const Text('Não tem conta?'),
                     TextButton(
-                      onPressed: () {
+                      onPressed: _isLoading ? null : () {
                         Navigator.of(context).push(
                           MaterialPageRoute(builder: (context) => const RegistoScreen()),
                         );
@@ -189,7 +214,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 const Divider(),
                 TextButton.icon(
-                  onPressed: () {
+                  onPressed: _isLoading ? null : () {
                     Navigator.of(context).push(
                       MaterialPageRoute(builder: (context) => const RastreioClienteScreen()),
                     );
