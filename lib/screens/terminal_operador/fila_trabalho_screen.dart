@@ -1,227 +1,296 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'popups/bloquear_tarefa_screen.dart';
-import '../login_screen.dart'; // Import adicionado para redirecionamento após logout
+import 'detalhe_tarefa_screen.dart'; // Será criado no próximo passo
 
-class TerminalOperadorScreen extends StatefulWidget {
-  const TerminalOperadorScreen({super.key});
+class FilaTrabalhoScreen extends StatefulWidget {
+  const FilaTrabalhoScreen({super.key});
 
   @override
-  State<TerminalOperadorScreen> createState() => _TerminalOperadorScreenState();
+  State<FilaTrabalhoScreen> createState() => _FilaTrabalhoScreenState();
 }
 
-class _TerminalOperadorScreenState extends State<TerminalOperadorScreen> {
+class _FilaTrabalhoScreenState extends State<FilaTrabalhoScreen> {
   final _supabase = Supabase.instance.client;
-  List<dynamic> _encomendasAtivas = [];
+  List<Map<String, dynamic>> _encomendasProcessadas = [];
   bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _carregarFilaTrabalho();
+    _carregarFilaDeTrabalho();
   }
 
-  Future<void> _carregarFilaTrabalho() async {
+  Future<void> _carregarFilaDeTrabalho() async {
     try {
-      final data = await _supabase
+      // 1. Busca encomendas ativas (fase_atual_id não é nulo)
+      final encomendasData = await _supabase
           .from('encomendas')
           .select('''
             id,
             codigo_rastreio,
             data_entrega,
-            clientes ( nome_cliente ),
+            tipos_produtos_id,
+            fase_atual_id,
             tipos_produto ( nome_tipo_produto ),
-            fases_padrao!fase_atual_id ( id, nome_fase_padrao, ordem, tipos_produto_id )
-          ''');
+            clientes ( nome_cliente )
+          ''')
+          .not('fase_atual_id', 'is', null);
 
-      final incidenciasData = await _supabase
-          .from('incidencias')
-          .select('historico_producao ( encomenda_id )');
-
-      final Set<int> idsBloqueados = {};
-      for (var inc in incidenciasData) {
-        if (inc['historico_producao'] != null) {
-          idsBloqueados.add(inc['historico_producao']['encomenda_id'] as int);
-        }
-      }
-
-      setState(() {
-        _encomendasAtivas = data.map((enc) {
-          final isBloqueada = idsBloqueados.contains(enc['id']);
-          return {...enc, 'bloqueada': isBloqueada};
-        }).toList();
-        _isLoading = false;
-      });
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erro ao carregar fila: $e'), backgroundColor: Colors.red),
-      );
-      setState(() => _isLoading = false);
-    }
-  }
-
-  Future<void> _concluirFase(Map<String, dynamic> encomenda) async {
-    final faseAtual = encomenda['fases_padrao'];
-    final ordemAtual = faseAtual['ordem'];
-    final tipoProdutoId = faseAtual['tipos_produto_id'];
-    final encomendaId = encomenda['id'];
-
-    setState(() => _isLoading = true);
-
-    try {
-      final proximaFaseData = await _supabase
+      // 2. Busca todas as fases padrão para calcularmos o progresso e estados corretos
+      final fasesData = await _supabase
           .from('fases_padrao')
-          .select('id, nome_fase_padrao')
-          .eq('tipos_produto_id', tipoProdutoId)
-          .eq('ordem', ordemAtual + 1)
-          .maybeSingle();
+          .select('id, ordem, tipos_produto_id')
+          .order('ordem', ascending: true);
 
-      final utilizadorId = _supabase.auth.currentUser?.id;
+      // 3. Cruzamento de dados na aplicação para obter métricas exatas por cartão
+      List<Map<String, dynamic>> listaFinal = [];
 
-      await _supabase.from('historico_producao').insert({
-        'encomenda_id': encomendaId,
-        'fase_concluida_id': faseAtual['id'],
-        'utilizador_id': utilizadorId,
-        'data_conclusao': DateTime.now().toIso8601String(),
-      });
+      for (var enc in encomendasData) {
+        final int tipoProdutoId = enc['tipos_produtos_id'];
+        final int? faseAtualId = enc['fase_atual_id'];
 
-      if (proximaFaseData != null) {
-        await _supabase
-            .from('encomendas')
-            .update({'fase_atual_id': proximaFaseData['id']})
-            .eq('id', encomendaId);
-      } else {
-        await _supabase
-            .from('encomendas')
-            .update({'fase_atual_id': null})
-            .eq('id', encomendaId);
+        // Filtrar todas as fases associadas a este produto específico
+        final fasesDoProduto = fasesData
+            .where((f) => f['tipos_produto_id'] == tipoProdutoId)
+            .toList();
+
+        final totalFases = fasesDoProduto.length;
+        int ordemAtual = 0;
+        
+        if (faseAtualId != null) {
+          final indexFase = fasesDoProduto.indexWhere((f) => f['id'] == faseAtualId);
+          if (indexFase != -indexFase) {
+            ordemAtual = fasesDoProduto[indexFase]['ordem'];
+          }
+        }
+
+        // Progresso = Fases anteriores concluídas / Total de Fases
+        double progresso = 0.0;
+        if (totalFases > 0 && ordemAtual > 0) {
+          progresso = (ordemAtual - 1) / totalFases;
+        }
+
+        // Determinação do Estado Visual (Figura 30)
+        String estado = 'Pronto a Iniciar';
+        Color corEstado = const Color(0xFF2563EB); // Azul
+
+        final dataEntrega = DateTime.tryParse(enc['data_entrega'] ?? '');
+        final hoje = DateTime.now();
+
+        if (dataEntrega != null && dataEntrega.isBefore(DateTime(hoje.year, hoje.month, hoje.day))) {
+          estado = 'Atrasado';
+          corEstado = const Color(0xFFDC2626); // Vermelho
+        } else if (progresso > 0) {
+          estado = 'Em Progresso';
+          corEstado = const Color(0xFFD97706); // Laranja
+        }
+
+        listaFinal.add({
+          'id': enc['id'],
+          'codigo_rastreio': enc['codigo_rastreio'],
+          'data_entrega': enc['data_entrega'],
+          'produto': enc['tipos_produto']?['nome_tipo_produto'] ?? 'Sem Produto',
+          'cliente': enc['clientes']?['nome_cliente'] ?? 'Sem Cliente',
+          'progresso': progresso,
+          'estado': estado,
+          'corEstado': corEstado,
+          'fase_atual_id': faseAtualId,
+        });
       }
 
-      _carregarFilaTrabalho();
+      if (mounted) {
+        setState(() {
+          _encomendasProcessadas = listaFinal;
+          _isLoading = false;
+        });
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erro ao evoluir fase: $e'), backgroundColor: Colors.red),
-      );
-      setState(() => _isLoading = false);
+      debugPrint('Erro ao construir fila de trabalho: $e');
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
-  }
-
-  void _abrirPopupIncidencia(Map<String, dynamic> encomenda) async {
-    final result = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => BloquearTarefaPopup(
-        encomendaId: encomenda['id'],
-        codigoRastreio: encomenda['codigo_rastreio'],
-        faseAtualId: encomenda['fases_padrao']['id'],
-      ),
-    );
-
-    if (result == true) _carregarFilaTrabalho();
   }
 
   @override
   Widget build(BuildContext context) {
-    final larguraEcra = MediaQuery.of(context).size.width;
-    final crossAxisCount = larguraEcra > 800 ? 2 : 1;
+    final largura = MediaQuery.of(context).size.width;
+    // Layout responsivo de 2 ou 3 colunas dependendo do espaço do ecrã
+    final colunas = largura > 1200 ? 3 : (largura > 800 ? 2 : 1);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Terminal do Operador - Chão de Fábrica'),
-        backgroundColor: Colors.orange.shade50,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            tooltip: 'Atualizar Tarefas',
-            onPressed: _carregarFilaTrabalho,
-          ),
-          // ADICIONADO: Botão de Logout seguro para o operador
-          IconButton(
-            icon: const Icon(Icons.logout, color: Colors.redAccent),
-            tooltip: 'Terminar Sessão',
-            onPressed: () async {
-              await _supabase.auth.signOut();
-              if (mounted) {
-                Navigator.of(context).pushReplacement(
-                  MaterialPageRoute(builder: (context) => const LoginScreen()),
-                );
-              }
-            },
-          )
-        ],
-      ),
+      backgroundColor: const Color(0xFFF8FAFC),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : _encomendasAtivas.isEmpty
-              ? const Center(child: Text('Nenhum trabalho pendente.'))
-              : GridView.builder(
-                  padding: const EdgeInsets.all(16),
-                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: crossAxisCount,
-                    crossAxisSpacing: 16,
-                    mainAxisSpacing: 16,
-                    mainAxisExtent: 240,
+          : Padding(
+              padding: const EdgeInsets.all(40.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Cabeçalho conforme Figura 30
+                  const Text(
+                    'Ordens de Produção',
+                    style: TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF0F172A),
+                    ),
                   ),
-                  itemCount: _encomendasAtivas.length,
-                  itemBuilder: (context, index) {
-                    final enc = _encomendasAtivas[index];
-                    final cliente = enc['clientes']?['nome_cliente'] ?? 'Sem Cliente';
-                    final produto = enc['tipos_produto']?['nome_tipo_produto'] ?? 'Sem Produto';
-                    final faseAtual = enc['fases_padrao']?['nome_fase_padrao'] ?? 'Finalizado';
-                    final isBloqueada = enc['bloqueada'] ?? false;
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Cartões atribuídos à sua fila de trabalho',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Color(0xFF64748B),
+                    ),
+                  ),
+                  const SizedBox(height: 32),
 
-                    return Card(
-                      color: isBloqueada ? Colors.red.shade50 : Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        side: isBloqueada ? BorderSide(color: Colors.red.shade300, width: 2) : BorderSide.none,
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.all(16.0),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text(enc['codigo_rastreio'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-                                Chip(
-                                  label: Text(isBloqueada ? 'BLOQUEADA' : faseAtual),
-                                  backgroundColor: isBloqueada ? Colors.red.shade100 : Colors.orange.shade100,
-                                ),
-                              ],
+                  Expanded(
+                    child: _encomendasProcessadas.isEmpty
+                        ? const Center(
+                            child: Text(
+                              'Não existem ordens de produção ativas de momento.',
+                              style: TextStyle(color: Colors.grey, fontSize: 16),
                             ),
-                            const Divider(),
-                            Text('Cliente: $cliente'),
-                            Text('Produto: $produto', style: const TextStyle(fontWeight: FontWeight.w500)),
-                            const Spacer(),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: OutlinedButton.icon(
-                                    onPressed: isBloqueada ? null : () => _abrirPopupIncidencia(enc),
-                                    style: OutlinedButton.styleFrom(foregroundColor: Colors.red, side: const BorderSide(color: Colors.red)),
-                                    icon: const Icon(Icons.report_problem),
-                                    label: const Text('Problema'),
+                          )
+                        : GridView.builder(
+                            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: colunas,
+                              crossAxisSpacing: 24,
+                              mainAxisSpacing: 24,
+                              mainAxisExtent: 250,
+                            ),
+                            itemCount: _encomendasProcessadas.length,
+                            itemBuilder: (context, index) {
+                              final enc = _encomendasProcessadas[index];
+                              final percentagem = (enc['progresso'] * 100).toInt();
+
+                              return Card(
+                                elevation: 0,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                  side: BorderSide(color: Colors.grey.shade200),
+                                ),
+                                color: Colors.white,
+                                child: Padding(
+                                  padding: const EdgeInsets.all(24.0),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      // ID da Ordem e Tipo de Produto
+                                      Text(
+                                        enc['codigo_rastreio'],
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 18,
+                                          color: Color(0xFF1E293B),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        'Tipo de Produto',
+                                        style: TextStyle(fontSize: 11, color: Colors.grey.shade400),
+                                      ),
+                                      Text(
+                                        enc['produto'],
+                                        style: const TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w500,
+                                          color: Color(0xFF475569),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 12),
+
+                                      // Chip de Estado customizado (Pronto a iniciar, progresso, atrasado)
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                        decoration: BoxDecoration(
+                                          color: (enc['corEstado'] as Color).withOpacity(0.1),
+                                          borderRadius: BorderRadius.circular(20),
+                                        ),
+                                        child: Text(
+                                          enc['estado'],
+                                          style: TextStyle(
+                                            color: enc['corEstado'],
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 11,
+                                          ),
+                                        ),
+                                      ),
+                                      const Spacer(),
+
+                                      // Indicador de Progresso e Percentagem
+                                      Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          const Text(
+                                            'Progresso',
+                                            style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
+                                          ),
+                                          Text(
+                                            '$percentagem%',
+                                            style: const TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.bold,
+                                              color: Color(0xFF334155),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 6),
+                                      ClipRRect(
+                                        borderRadius: BorderRadius.circular(4),
+                                        child: LinearProgressIndicator(
+                                          value: enc['progresso'],
+                                          backgroundColor: const Color(0xFFE2E8F0),
+                                          color: const Color(0xFF0F172A), // Barra escura profissional
+                                          minHeight: 6,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 16),
+
+                                      // Botão "Iniciar" estilizado
+                                      ElevatedButton.icon(
+                                        onPressed: () async {
+                                          final result = await Navigator.of(context).push(
+                                            MaterialPageRoute(
+                                              builder: (context) => DetalheTarefaScreen(
+                                                encomendaId: enc['id'],
+                                                codigoRastreio: enc['codigo_rastreio'],
+                                              ),
+                                            ),
+                                          );
+                                          if (result == true) {
+                                            setState(() => _isLoading = true);
+                                            _carregarFilaDeTrabalho();
+                                          }
+                                        },
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: const Color(0xFF111827), // Botão Dark Blue do mockup
+                                          foregroundColor: Colors.white,
+                                          minimumSize: const Size.fromHeight(40),
+                                          elevation: 0,
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(8),
+                                          ),
+                                        ),
+                                        icon: const Icon(Icons.play_arrow, size: 16),
+                                        label: const Text(
+                                          'Iniciar',
+                                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: ElevatedButton.icon(
-                                    onPressed: isBloqueada ? null : () => _concluirFase(enc),
-                                    style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
-                                    icon: const Icon(Icons.check_circle_outline),
-                                    label: const Text('Concluir'),
-                                  ),
-                                ),
-                              ],
-                            )
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                ),
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            ),
     );
   }
 }

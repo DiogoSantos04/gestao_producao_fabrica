@@ -6,6 +6,7 @@ import 'terminal_operador/fila_trabalho_screen.dart';
 import 'portal_cliente/historico_cliente_screen.dart';
 import 'portal_cliente/rastreio_cliente_screen.dart';
 import 'registo_screen.dart';
+import 'terminal_operador/operador_shell_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -93,9 +94,9 @@ class _LoginScreenState extends State<LoginScreen> {
           MaterialPageRoute(builder: (context) => const PainelControloScreen()),
         );
       } else if (perfilNormalizado == 'operador' || perfilNormalizado == 'funcionario' || perfilNormalizado == 'funcionário') {
-        debugPrint('Redirecionando para: TerminalOperadorScreen (Operador)');
+        debugPrint('Redirecionando para: OperadorShellScreen (Operador Shell)');
         Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (context) => const TerminalOperadorScreen()),
+          MaterialPageRoute(builder: (context) => const OperadorShellScreen()), // Redirecionamento unificado
         );
       } else if (perfilNormalizado == 'cliente') {
         debugPrint('Redirecionando para: HistoricoClienteScreen (Cliente)');
