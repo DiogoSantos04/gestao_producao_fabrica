@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../main.dart'; // Importa a classe MyHomePage que está no main.dart
-import 'rastreio_cliente_screen.dart'; // Importa o ecrã de rastreio público
+import 'dashboard_admin/painel_controlo_screen.dart'; 
+import 'portal_cliente/rastreio_cliente_screen.dart'; 
+import 'registo_screen.dart'; // Import do novo ecrã de registo
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -22,14 +23,10 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  // Função para autenticar o utilizador no Supabase Auth nativo
   Future<void> _fazerLogin() async {
     if (_emailController.text.trim().isEmpty || _passwordController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Por favor, preencha todos os campos.'),
-          backgroundColor: Colors.orange,
-        ),
+        const SnackBar(content: Text('Por favor, preencha todos os campos.'), backgroundColor: Colors.orange),
       );
       return;
     }
@@ -37,49 +34,49 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _isLoading = true);
     
     try {
-      // Comunicação direta com o motor de autenticação do Supabase
-      await Supabase.instance.client.auth.signInWithPassword(
+      // 1. Efetua o login normal no Auth do Supabase
+      final res = await Supabase.instance.client.auth.signInWithPassword(
         email: _emailController.text.trim(),
         password: _passwordController.text.trim(),
       );
 
+      // 2. Validação de segurança extra (Aprovação):
+      // Vamos verificar se o utilizador já está ativado na vossa tabela 'utilizadores'
+      final perfilData = await Supabase.instance.client
+          .from('utilizadores')
+          .select('perfil')
+          .eq('utilizador_id', res.user!.id)
+          .maybeSingle();
+
+      // Regra de negócio exemplo: Se o perfil começar por "Pendente", barramos o login na App
+      if (perfilData != null && perfilData['perfil'].toString().startsWith('Pendente')) {
+        await Supabase.instance.client.auth.signOut(); // Desconecta imediatamente
+        throw const AuthException('A sua conta ainda não foi aprovada por um administrador.');
+      }
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Login efetuado com sucesso!'),
-            backgroundColor: Colors.green,
-          ),
+          const SnackBar(content: Text('Login efetuado com sucesso!'), backgroundColor: Colors.green),
         );
 
-        // Redireciona para o Painel de Controlo Principal (MyHomePage)
         Navigator.of(context).pushReplacement(
-          MaterialPageRoute(
-            builder: (context) => const MyHomePage(title: 'Painel de Encomendas'),
-          ),
+          MaterialPageRoute(builder: (context) => const PainelControloScreen()),
         );
       }
     } on AuthException catch (erro) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Erro de Autenticação: ${erro.message}'),
-            backgroundColor: Colors.red,
-          ),
+          SnackBar(content: Text(erro.message), backgroundColor: Colors.red),
         );
       }
     } catch (erro) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Ocorreu um erro inesperado.'),
-            backgroundColor: Colors.red,
-          ),
+          const SnackBar(content: Text('Ocorreu um erro inesperado.'), backgroundColor: Colors.red),
         );
       }
     } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -90,53 +87,31 @@ class _LoginScreenState extends State<LoginScreen> {
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24.0),
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 400), // Desenho limpo para ecrãs Web/Desktop
+            constraints: const BoxConstraints(maxWidth: 400),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Icon(
-                  Icons.factory_outlined,
-                  size: 80,
-                  color: Colors.deepPurple,
-                ),
+                const Icon(Icons.factory_outlined, size: 80, color: Colors.deepPurple),
                 const SizedBox(height: 16),
                 const Text(
                   'Gestão de Produção',
                   textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.deepPurple,
-                  ),
+                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.deepPurple),
                 ),
                 const SizedBox(height: 32),
-                
-                // Campo de E-mail
                 TextField(
                   controller: _emailController,
-                  decoration: const InputDecoration(
-                    labelText: 'E-mail',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.email),
-                  ),
+                  decoration: const InputDecoration(labelText: 'E-mail', border: OutlineInputBorder(), prefixIcon: Icon(Icons.email)),
                   keyboardType: TextInputType.emailAddress,
                 ),
                 const SizedBox(height: 16),
-                
-                // Campo de Password
                 TextField(
                   controller: _passwordController,
-                  decoration: const InputDecoration(
-                    labelText: 'Palavra-passe',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.lock),
-                  ),
+                  decoration: const InputDecoration(labelText: 'Palavra-passe', border: OutlineInputBorder(), prefixIcon: Icon(Icons.lock)),
                   obscureText: true,
                 ),
                 const SizedBox(height: 24),
-                
-                // Botão de Entrar
                 ElevatedButton(
                   onPressed: _isLoading ? null : _fazerLogin,
                   style: ElevatedButton.styleFrom(
@@ -145,22 +120,27 @@ class _LoginScreenState extends State<LoginScreen> {
                     foregroundColor: Colors.white,
                   ),
                   child: _isLoading
-                      ? const SizedBox(
-                          height: 20,
-                          width: 20,
-                          child: CircularProgressIndicator(
-                            color: Colors.white,
-                            strokeWidth: 2,
-                          ),
-                        )
-                      : const Text(
-                          'Entrar',
-                          style: TextStyle(fontSize: 16),
-                        ),
+                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                      : const Text('Entrar', style: TextStyle(fontSize: 16)),
                 ),
                 const SizedBox(height: 16),
                 
-                // Botão de Atalho para Rastreio Público do Cliente (Sem necessidade de autenticação)
+                // Botão "Não tem conta? Criar Conta"
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Text('Não tem conta?'),
+                    TextButton(
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(builder: (context) => const RegistoScreen()),
+                        );
+                      },
+                      child: const Text('Solicitar acesso', style: TextStyle(fontWeight: FontWeight.bold)),
+                    ),
+                  ],
+                ),
+                const Divider(),
                 TextButton.icon(
                   onPressed: () {
                     Navigator.of(context).push(
@@ -168,10 +148,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     );
                   },
                   icon: const Icon(Icons.search, color: Colors.deepPurple),
-                  label: const Text(
-                    'Consultar código de rastreio público',
-                    style: TextStyle(color: Colors.deepPurple, fontWeight: FontWeight.bold),
-                  ),
+                  label: const Text('Consultar código de rastreio público', style: TextStyle(color: Colors.deepPurple, fontWeight: FontWeight.bold)),
                 ),
               ],
             ),
