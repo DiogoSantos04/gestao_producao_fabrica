@@ -25,13 +25,12 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
     _carregarTipologias();
   }
 
-  // --- FUNÇÕES DA BASE DE DADOS (SUPABASE - MAPEADAS PARA O TEU ESQUEMA) ---
+  // --- FUNÇÕES DA BASE DE DADOS (SUPABASE) ---
 
   Future<void> _carregarTipologias() async {
     try {
       setState(() => _isLoadingTipologias = true);
-      // ✅ MAPEADO: Tabela 'tipos_produto' ordenada por 'nome_tipo_produto'
-      final data = await _supabase.from('tipos_produto').select().order('nome_tipo_produto');
+      final data = await _supabase.from('tipos_produto').select().order('nome_tipo_produto', ascending: true);
       
       setState(() {
         _tipologias = data;
@@ -49,12 +48,14 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
   Future<void> _carregarFases(int tipoProdutoId) async {
     try {
       setState(() => _isLoadingFases = true);
-      // ✅ MAPEADO: Tabela 'fases_padrao' filtrada por 'tipos_produto_id' e ordenada por 'ordem'
+      
+      // 🥇 CORREÇÃO: Forçar explicitamente a ordenação ascendente (ascending: true)
+      // Isto garante que a Fase 1 fique sempre no topo (índice 0) e as novas fiquem em baixo
       final data = await _supabase
           .from('fases_padrao')
           .select()
           .eq('tipos_produto_id', tipoProdutoId)
-          .order('ordem');
+          .order('ordem', ascending: true);
 
       setState(() {
         _fases = data;
@@ -74,7 +75,6 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
 
   Future<void> _criarTipologia(String nome) async {
     try {
-      // ✅ MAPEADO: Insere na coluna 'nome_tipo_produto' da tabela 'tipos_produto'
       await _supabase.from('tipos_produto').insert({'nome_tipo_produto': nome});
       _carregarTipologias();
     } catch (e) {
@@ -106,7 +106,7 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
     try {
       if (_tipoProdutoSelecionado == null) return;
 
-      // ✅ MAPEADO: Chaves correspondentes às tuas colunas e às novas colunas do OEE
+      // Garantir que o cálculo da nova ordem é feito com base no tamanho atual da lista ordenada
       final dadosFase = {
         'tipos_produto_id': _tipoProdutoSelecionado!['id'],
         'nome_fase_padrao': nome,
@@ -149,7 +149,7 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
     });
 
     try {
-      // ✅ MAPEADO: Atualiza a ordenação das fases_padrao
+      // Atualiza sequencialmente na BD respeitando a nova ordenação visual do ecrã
       for (int i = 0; i < _fases.length; i++) {
         await _supabase
             .from('fases_padrao')
@@ -259,7 +259,6 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
                           color: eSelecionado ? Colors.blue.withOpacity(0.05) : Colors.transparent,
                         ),
                         child: ListTile(
-                          // ✅ MAPEADO: nome_tipo_produto
                           title: Text(
                             tipo['nome_tipo_produto'] ?? '',
                             style: TextStyle(
@@ -329,7 +328,6 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // ✅ MAPEADO: nome_tipo_produto
                     Text(
                       'Fluxo Produtivo: ${_tipoProdutoSelecionado!['nome_tipo_produto']}',
                       style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
@@ -416,7 +414,6 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
                                                 ),
                                               ),
                                               const SizedBox(width: 8),
-                                              // ✅ MAPEADO: nome_fase_padrao
                                               Text(
                                                 fase['nome_fase_padrao'] ?? '',
                                                 style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
@@ -517,7 +514,6 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: Text(
-                  // ✅ MAPEADO: nome_fase_padrao
                   'Fase ${index + 1}: ${f['nome_fase_padrao']}',
                   style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
                 ),
@@ -564,7 +560,6 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
   }
 
   void _abrirDialogFase({Map<String, dynamic>? faseExistente}) {
-    // ✅ MAPEADO: nome_fase_padrao
     final nomeController = TextEditingController(text: faseExistente?['nome_fase_padrao'] ?? '');
     final descController = TextEditingController(text: faseExistente?['descricao'] ?? '');
     final postoController = TextEditingController(text: faseExistente?['posto_trabalho'] ?? '');

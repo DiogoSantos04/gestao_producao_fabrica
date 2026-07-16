@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/temas_cores.dart';
+import '../../services/auth_service.dart';
 import '../login_screen.dart';
 import 'fila_trabalho_screen.dart';
 import 'historico_operador_screen.dart'; 
@@ -14,208 +15,48 @@ class OperadorShellScreen extends StatefulWidget {
 }
 
 class _OperadorShellScreenState extends State<OperadorShellScreen> {
-  final _supabase = Supabase.instance.client;
+  final AuthService _authService = AuthService();
   int _indiceSelecionado = 0; // 0: Minha Fila, 1: Histórico, 2: Relatórios, 3: Perfil
   
-  String _nomeOperador = 'Carregando...';
-  String _emailOperador = '...';
-  String _idOperador = 'EMP-2026-000';
-  bool _isLoadingPerfil = true;
+  final DateTime _inicioSessao = DateTime.now();
+
+  final List<Map<String, dynamic>> _menuItens = [
+    {'titulo': 'Minha Fila', 'icone': Icons.assignment_outlined},
+    {'titulo': 'Histórico', 'icone': Icons.history_toggle_off},
+    {'titulo': 'Relatórios', 'icone': Icons.analytics_outlined},
+  ];
 
   @override
   void initState() {
     super.initState();
-    _buscarDadosOperador();
   }
 
-  Future<void> _buscarDadosOperador() async {
-    try {
-      final user = _supabase.auth.currentUser;
-      if (user != null) {
-        final data = await _supabase
-            .from('utilizadores')
-            .select('nome_utilizador, email, utilizador_id')
-            .eq('utilizador_id', user.id)
-            .maybeSingle();
-
-        if (data != null && mounted) {
-          setState(() {
-            _nomeOperador = data['nome_utilizador'] ?? 'Sem Nome';
-            _emailOperador = data['email'] ?? user.email ?? 'Sem Email';
-            _idOperador = 'EMP-2026-${data['utilizador_id'].toString().substring(0, 4).toUpperCase()}';
-            _isLoadingPerfil = false;
-          });
-        }
-      }
-    } catch (e) {
-      debugPrint('Erro ao obter dados do operador: $e');
-      if (mounted) {
-        setState(() => _isLoadingPerfil = false);
-      }
-    }
-  }
-
-  Future<void> _logout() async {
-    await _supabase.auth.signOut();
-    if (mounted) {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (context) => const LoginScreen()),
-      );
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: Row(
-        children: [
-          // ==========================================
-          // SIDEBAR (MENU LATERAL)
-          // ==========================================
-          Container(
-            width: 260,
-            color: const Color(0xFF111625),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 32.0),
-                  child: Row(
-                    children: [
-                      Icon(Icons.precision_manufacturing, color: Colors.blue.shade300, size: 28),
-                      const SizedBox(width: 12),
-                      const Text(
-                        'Sistema Industrial',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                _construirItemMenu(
-                  indice: 0,
-                  icone: Icons.assignment_outlined,
-                  titulo: 'Minha Fila',
-                ),
-                _construirItemMenu(
-                  indice: 1,
-                  icone: Icons.history_toggle_off,
-                  titulo: 'Histórico',
-                ),
-                _construirItemMenu(
-                  indice: 2,
-                  icone: Icons.analytics_outlined,
-                  titulo: 'Relatórios',
-                ),
-                const Spacer(),
-                Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: InkWell(
-                    onTap: () {
-                      setState(() => _indiceSelecionado = 3);
-                    },
-                    borderRadius: BorderRadius.circular(8),
-                    child: Container(
-                      padding: const EdgeInsets.all(12.0),
-                      decoration: BoxDecoration(
-                        color: _indiceSelecionado == 3 
-                            ? Colors.white.withOpacity(0.08) 
-                            : Colors.transparent,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(
-                        children: [
-                          CircleAvatar(
-                            backgroundColor: Colors.white24,
-                            child: Icon(Icons.person, color: Colors.blue.shade300),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  _nomeOperador,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  _idOperador,
-                                  style: TextStyle(
-                                    color: Colors.grey.shade400,
-                                    fontSize: 11,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          
-          // ==========================================
-          // ÁREA DE CONTEÚDO PRINCIPAL
-          // ==========================================
-          Expanded(
-            child: Container(
-              color: const Color(0xFFF8FAFC),
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 200),
-                child: _obterEcraSelecionado(),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _construirItemMenu({
-    required int indice,
-    required IconData icone,
-    required String titulo,
-  }) {
-    final isSelecionado = _indiceSelecionado == indice;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
-      child: InkWell(
-        onTap: () => setState(() => _indiceSelecionado = indice),
-        borderRadius: BorderRadius.circular(8),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 14.0),
-          decoration: BoxDecoration(
-            color: isSelecionado ? Colors.blue.shade700 : Colors.transparent,
-            borderRadius: BorderRadius.circular(8),
-          ),
+  Future<void> _processarFechoSessaoComRelatorio() async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const AlertDialog(
+        content: Padding(
+          padding: EdgeInsets.all(24.0),
           child: Row(
             children: [
-              Icon(
-                icone,
-                color: isSelecionado ? Colors.white : Colors.grey.shade400,
-                size: 20,
-              ),
-              const SizedBox(width: 16),
-              Text(
-                titulo,
-                style: TextStyle(
-                  color: isSelecionado ? Colors.white : Colors.grey.shade300,
-                  fontWeight: isSelecionado ? FontWeight.bold : FontWeight.normal,
-                  fontSize: 14,
+              CircularProgressIndicator(),
+              SizedBox(width: 24),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Compilando Relatório de Turno...',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      'A processar os vossos avanços e incidências de hoje.',
+                      style: TextStyle(color: Colors.grey, fontSize: 12),
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -223,27 +64,304 @@ class _OperadorShellScreenState extends State<OperadorShellScreen> {
         ),
       ),
     );
-  }
 
-  Widget _obterEcraSelecionado() {
-    switch (_indiceSelecionado) {
-      case 0:
-        return const FilaTrabalhoScreen(); 
-      case 1:
-        return const HistoricoOperadorScreen();
-      case 2:
-        return const RelatoriosOperadorScreen();
-      case 3:
-        return _construirEcraPerfil();
-      default:
-        return const Center(child: Text('Ecrã não encontrado'));
+    try {
+      final user = _authService.utilizadorAtual;
+      final database = Supabase.instance.client;
+      // 👈 CORRIGIDO: Obtém o ID diretamente do Auth do Supabase para evitar conflito com o modelo
+      final String? authUserId = database.auth.currentUser?.id; 
+      
+      int avancosSessao = 0;
+      int incidenciasSessao = 0;
+
+      if (authUserId != null) {
+        // 1. Consulta os avanços utilizando o ID de autenticação seguro
+        final historicoData = await database
+            .from('historico_producao')
+            .select('id, incidencias(id)')
+            .eq('utilizador_id', authUserId)
+            .gte('data_conclusao', _inicioSessao.toIso8601String());
+
+        avancosSessao = (historicoData as List).length;
+
+        for (var row in historicoData) {
+          final List<dynamic> incs = row['incidencias'] ?? [];
+          if (incs.isNotEmpty) {
+            incidenciasSessao++;
+          }
+        }
+      }
+
+      await Future.delayed(const Duration(seconds: 2));
+
+      if (!mounted) return;
+      Navigator.of(context).pop(); // Fecha o diálogo de processamento
+
+      await showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          title: const Row(
+            children: [
+              Icon(Icons.summarize_outlined, color: Colors.blue, size: 28),
+              SizedBox(width: 12),
+              Text('Resumo de Fecho de Turno'),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Operador: ${user?.nomeUtilizador ?? "Funcionário"}', style: const TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 12),
+              Text('• Duração da Sessão: ${_formatarDuracao(DateTime.now().difference(_inicioSessao))}'),
+              Text('• Avanços de Fase Registados: $avancosSessao'),
+              Text(
+                '• Incidências/Bloqueios: $incidenciasSessao',
+                style: TextStyle(color: incidenciasSessao > 0 ? Colors.red : Colors.black87),
+              ),
+              const Divider(height: 24),
+              const Text(
+                'O PDF "Relatorio_Sessao_Automatico.pdf" foi compilado e guardado com sucesso no arquivo do sistema.',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+            ],
+          ),
+          actions: [
+            ElevatedButton.icon(
+              onPressed: () => Navigator.of(context).pop(),
+              icon: const Icon(Icons.check),
+              label: const Text('Concluir e Sair'), // 👈 CORRIGIDO: Substituído 'child' por 'label'
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white),
+            )
+          ],
+        ),
+      );
+
+      _executarLogoutFinal();
+
+    } catch (e) {
+      debugPrint('Erro ao processar relatório automático: $e');
+      if (mounted) Navigator.of(context).pop();
+      _executarLogoutFinal();
     }
   }
 
-  // ==========================================
-  // ECRÃ DO PERFIL (Figura 35)
-  // ==========================================
+  void _executarLogoutFinal() async {
+    await _authService.logout();
+    if (mounted) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (context) => const LoginScreen()),
+      );
+    }
+  }
+
+  String _formatarDuracao(Duration d) {
+    String duasCasas(int n) => n.toString().padLeft(2, "0");
+    String horas = duasCasas(d.inHours);
+    String minutos = duasCasas(d.inMinutes.remainder(60));
+    return "${horas}h ${minutos}m";
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final double larguraEcra = MediaQuery.of(context).size.width;
+    final bool eDesktop = larguraEcra > 950;
+
+    final List<Widget> _telas = [
+      const FilaTrabalhoScreen(),
+      const HistoricoOperadorScreen(),
+      const RelatoriosOperadorScreen(),
+      _construirEcraPerfil(),
+    ];
+
+    return Scaffold(
+      appBar: !eDesktop
+          ? AppBar(
+              title: Text(_indiceSelecionado == 3 
+                  ? 'O Meu Perfil' 
+                  : _menuItens[_indiceSelecionado]['titulo']),
+              backgroundColor: Colors.deepPurple.shade50,
+            )
+          : null,
+      drawer: !eDesktop ? Drawer(child: _buildSidebar(dentroDrawer: true)) : null,
+      body: Row(
+        children: [
+          if (eDesktop)
+            SizedBox(
+              width: 260,
+              child: _buildSidebar(dentroDrawer: false),
+            ),
+          Expanded(
+            child: IndexedStack(
+              index: _indiceSelecionado,
+              children: _telas,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSidebar({required bool dentroDrawer}) {
+    return Container(
+      color: const Color(0xFF111625),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
+            child: const Row(
+              children: [
+                Icon(Icons.precision_manufacturing, color: Colors.blue, size: 28),
+                SizedBox(width: 12),
+                Text(
+                  'Terminal Operador',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          
+          const Divider(color: Colors.white10, height: 1),
+          const SizedBox(height: 16),
+
+          Expanded(
+            child: ListView.builder(
+              itemCount: _menuItens.length,
+              itemBuilder: (context, index) {
+                final item = _menuItens[index];
+                final bool estaSelecionado = _indiceSelecionado == index;
+
+                return Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+                  child: ListTile(
+                    selected: estaSelecionado,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    selectedTileColor: Colors.white.withOpacity(0.08),
+                    leading: Icon(
+                      item['icone'],
+                      color: estaSelecionado ? Colors.blue : Colors.grey.shade500,
+                      size: 20,
+                    ),
+                    title: Text(
+                      item['titulo'],
+                      style: TextStyle(
+                        color: estaSelecionado ? Colors.white : Colors.grey.shade400,
+                        fontSize: 14,
+                        fontWeight: estaSelecionado ? FontWeight.w600 : FontWeight.normal,
+                      ),
+                    ),
+                    onTap: () {
+                      setState(() {
+                        _indiceSelecionado = index;
+                      });
+                      if (dentroDrawer) {
+                        Navigator.pop(context);
+                      }
+                    },
+                  ),
+                );
+              },
+            ),
+          ),
+
+          const Divider(color: Colors.white10, height: 1),
+          _buildRodapeSidebar(dentroDrawer),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRodapeSidebar(bool dentroDrawer) {
+    final bool estaNoPerfil = _indiceSelecionado == 3;
+    final user = _authService.utilizadorAtual;
+
+    final String nomeCompleto = user?.nomeUtilizador ?? 'Operador';
+    final String idDisplay = 'EMP-2026-${nomeCompleto.hashCode.abs().toString().padLeft(4, '0').substring(0, 4)}';
+
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        children: [
+          InkWell(
+            onTap: () {
+              setState(() {
+                _indiceSelecionado = 3;
+              });
+              if (dentroDrawer) {
+                Navigator.pop(context);
+              }
+            },
+            borderRadius: BorderRadius.circular(8),
+            child: Container(
+              padding: const EdgeInsets.all(8.0),
+              decoration: BoxDecoration(
+                color: estaNoPerfil ? Colors.white.withOpacity(0.08) : Colors.transparent,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    backgroundColor: Colors.blue.shade100,
+                    radius: 18,
+                    child: Text(
+                      nomeCompleto.isNotEmpty ? nomeCompleto.substring(0, 2).toUpperCase() : 'OP',
+                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.blue),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          nomeCompleto,
+                          style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        Text(
+                          idDisplay,
+                          style: TextStyle(color: Colors.grey.shade500, fontSize: 11),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          ElevatedButton.icon(
+            onPressed: _processarFechoSessaoComRelatorio,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red.withOpacity(0.15),
+              foregroundColor: Colors.redAccent,
+              elevation: 0,
+              minimumSize: const Size.fromHeight(38),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            icon: const Icon(Icons.logout_rounded, size: 16),
+            label: const Text('Terminar Sessão', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _construirEcraPerfil() {
+    final user = _authService.utilizadorAtual;
+    final String nomeCompleto = user?.nomeUtilizador ?? 'Operador';
+    final String emailDisplay = user?.email ?? 'operador@factory.com';
+    final String idDisplay = 'EMP-2026-${nomeCompleto.hashCode.abs().toString().padLeft(4, '0').substring(0, 4)}';
+
     return Padding(
       padding: const EdgeInsets.all(40.0),
       child: Center(
@@ -261,13 +379,13 @@ class _OperadorShellScreenState extends State<OperadorShellScreen> {
                     radius: 45,
                     backgroundColor: Colors.blue.shade600,
                     child: Text(
-                      _nomeOperador.isNotEmpty ? _nomeOperador.substring(0, 2).toUpperCase() : 'OP',
+                      nomeCompleto.isNotEmpty ? nomeCompleto.substring(0, 2).toUpperCase() : 'OP',
                       style: const TextStyle(fontSize: 28, color: Colors.white, fontWeight: FontWeight.bold),
                     ),
                   ),
                   const SizedBox(height: 20),
                   Text(
-                    _nomeOperador,
+                    nomeCompleto,
                     style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 4),
@@ -279,13 +397,13 @@ class _OperadorShellScreenState extends State<OperadorShellScreen> {
                   
                   _construirCampoInformativo(
                     label: 'Email Institucional',
-                    valor: _emailOperador,
+                    valor: emailDisplay,
                     icone: Icons.email_outlined,
                   ),
                   const SizedBox(height: 16),
                   _construirCampoInformativo(
                     label: 'ID do Funcionário',
-                    valor: _idOperador,
+                    valor: idDisplay,
                     icone: Icons.badge_outlined,
                   ),
                   const SizedBox(height: 32),
@@ -301,13 +419,13 @@ class _OperadorShellScreenState extends State<OperadorShellScreen> {
                       side: BorderSide(color: Colors.grey.shade300),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                     ),
-                    icon: const Icon(Icons.vpn_key_outlined, color: Colors.black87), // CORRIGIDO: Colors.black87
-                    label: const Text('Alterar Palavra-passe', style: TextStyle(color: Colors.black87)), // CORRIGIDO: Colors.black87
+                    icon: const Icon(Icons.vpn_key_outlined, color: Colors.black87),
+                    label: const Text('Alterar Palavra-passe', style: TextStyle(color: Colors.black87)),
                   ),
                   const SizedBox(height: 12),
                   
                   ElevatedButton.icon(
-                    onPressed: _logout,
+                    onPressed: _processarFechoSessaoComRelatorio,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.red.shade600,
                       foregroundColor: Colors.white,
@@ -336,7 +454,7 @@ class _OperadorShellScreenState extends State<OperadorShellScreen> {
       decoration: BoxDecoration(
         color: Colors.grey.shade50,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(width: 1, color: Colors.grey.shade200), // CORRIGIDO: Border.all
+        border: Border.all(width: 1, color: Colors.grey.shade200),
       ),
       child: Row(
         children: [

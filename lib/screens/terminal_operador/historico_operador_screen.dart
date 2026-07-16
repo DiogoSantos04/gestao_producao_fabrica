@@ -29,6 +29,7 @@ class _HistoricoOperadorScreenState extends State<HistoricoOperadorScreen> {
     super.dispose();
   }
 
+  // Consulta relacional que também busca os registos de incidências associados
   Future<void> _carregarHistorico() async {
     try {
       final user = _supabase.auth.currentUser;
@@ -47,6 +48,10 @@ class _HistoricoOperadorScreenState extends State<HistoricoOperadorScreen> {
             ),
             fases_padrao!fase_concluida_id (
               nome_fase_padrao
+            ),
+            incidencias (
+              id,
+              motivo
             )
           ''')
           .eq('utilizador_id', user.id)
@@ -114,7 +119,7 @@ class _HistoricoOperadorScreenState extends State<HistoricoOperadorScreen> {
                   ),
                   const SizedBox(height: 4),
                   const Text(
-                    'Consulte suas tarefas concluídas',
+                    'Consulte suas tarefas concluídas ou bloqueios registados',
                     style: TextStyle(
                       fontSize: 14,
                       color: Color(0xFF64748B),
@@ -156,7 +161,7 @@ class _HistoricoOperadorScreenState extends State<HistoricoOperadorScreen> {
                         borderRadius: BorderRadius.circular(12),
                         child: Column(
                           children: [
-                            // CORRIGIDO: Agora usa BoxDecoration para a cor e para a borda inferior
+                            // Cabeçalho da Tabela
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
                               decoration: BoxDecoration(
@@ -165,8 +170,8 @@ class _HistoricoOperadorScreenState extends State<HistoricoOperadorScreen> {
                                   bottom: BorderSide(color: Colors.grey.shade200),
                                 ),
                               ),
-                              child: Row(
-                                children: const [
+                              child: const Row(
+                                children: [
                                   Expanded(
                                     flex: 2,
                                     child: Text(
@@ -182,9 +187,9 @@ class _HistoricoOperadorScreenState extends State<HistoricoOperadorScreen> {
                                     ),
                                   ),
                                   Expanded(
-                                    flex: 2,
+                                    flex: 3, // Aumentado ligeiramente para caber o motivo
                                     child: Text(
-                                      'Fase Concluída',
+                                      'Ação / Fase',
                                       style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF64748B)),
                                     ),
                                   ),
@@ -224,6 +229,11 @@ class _HistoricoOperadorScreenState extends State<HistoricoOperadorScreen> {
                                         final fase = item['fases_padrao']?['nome_fase_padrao'] ?? 'N/A';
                                         final dataConclusao = _formatarData(item['data_conclusao']);
 
+                                        // Determinar se este registo de histórico é um bloqueio
+                                        final List<dynamic> incidencias = item['incidencias'] ?? [];
+                                        final bool isBloqueado = incidencias.isNotEmpty;
+                                        final String? motivoBloqueio = isBloqueado ? incidencias.first['motivo'] : null;
+
                                         return Container(
                                           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
                                           decoration: BoxDecoration(
@@ -245,11 +255,39 @@ class _HistoricoOperadorScreenState extends State<HistoricoOperadorScreen> {
                                                   style: const TextStyle(fontSize: 14, color: Color(0xFF475569)),
                                                 ),
                                               ),
+                                              // Coluna Ação / Fase (Com aviso de bloqueio em subtexto se aplicável)
                                               Expanded(
-                                                flex: 2,
-                                                child: Text(
-                                                  fase,
-                                                  style: const TextStyle(fontSize: 14, color: Color(0xFF475569)),
+                                                flex: 3,
+                                                child: Column(
+                                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                                  mainAxisAlignment: MainAxisAlignment.center,
+                                                  children: [
+                                                    Text(
+                                                      fase,
+                                                      style: const TextStyle(fontSize: 14, color: Color(0xFF1E293B), fontWeight: FontWeight.w500),
+                                                    ),
+                                                    if (isBloqueado && motivoBloqueio != null) ...[
+                                                      const SizedBox(height: 4),
+                                                      Row(
+                                                        children: [
+                                                          const Icon(Icons.warning_amber_rounded, size: 12, color: Colors.red),
+                                                          const SizedBox(width: 4),
+                                                          Expanded(
+                                                            child: Text(
+                                                              motivoBloqueio,
+                                                              maxLines: 1,
+                                                              overflow: TextOverflow.ellipsis,
+                                                              style: const TextStyle(
+                                                                fontSize: 11, 
+                                                                color: Colors.red, 
+                                                                fontWeight: FontWeight.w500,
+                                                              ),
+                                                            ),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    ]
+                                                  ],
                                                 ),
                                               ),
                                               Expanded(
@@ -259,19 +297,24 @@ class _HistoricoOperadorScreenState extends State<HistoricoOperadorScreen> {
                                                   style: const TextStyle(fontSize: 13, color: Color(0xFF64748B)),
                                                 ),
                                               ),
+                                              // Badge de Estado Dinâmico (Concluído vs Bloqueado)
                                               Expanded(
                                                 flex: 1,
                                                 child: Center(
                                                   child: Container(
                                                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                                                     decoration: BoxDecoration(
-                                                      color: const Color(0xFFD1FAE5),
+                                                      color: isBloqueado 
+                                                          ? const Color(0xFFFEE2E2) // Vermelho suave
+                                                          : const Color(0xFFD1FAE5), // Verde suave
                                                       borderRadius: BorderRadius.circular(20),
                                                     ),
-                                                    child: const Text(
-                                                      'Concluído',
+                                                    child: Text(
+                                                      isBloqueado ? 'Bloqueado' : 'Concluído',
                                                       style: TextStyle(
-                                                        color: Color(0xFF065F46),
+                                                        color: isBloqueado 
+                                                            ? const Color(0xFF991B1B) // Vermelho escuro
+                                                            : const Color(0xFF065F46), // Verde escuro
                                                         fontWeight: FontWeight.bold,
                                                         fontSize: 11,
                                                       ),

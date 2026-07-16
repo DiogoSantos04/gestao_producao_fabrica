@@ -13,28 +13,21 @@ class DashboardPrincipalScreen extends StatefulWidget {
 class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
   final SupabaseClient _supabase = Supabase.instance.client;
   
-  // Real-time channel para escutar alterações na fábrica
   RealtimeChannel? _factorySubscription;
   Timer? _everySecondTimer;
 
   bool _isLoading = true;
 
-  // KPIs de Produção & Fabrico.io Metrics
+  // KPIs de Produção & OEE
   int _encomendasAtivas = 0;
   int _encomendasAtrasadas = 0;
   int _concluidasHoje = 0;
-  double _disponibilidadeOEE = 100.0; // % de postos sem paragens ativas
+  double _disponibilidadeOEE = 100.0;
 
-  // Distribuição de Encomendas por Fase de Produção (Dados do Gráfico)
-  Map<String, int> _fasesDistribuicao = {
-    'Corte': 0,
-    'Montagem': 0,
-    'Acabamento': 0,
-    'Controlo': 0,
-    'Embalagem': 0,
-  };
+  // Distribuição de Encomendas por Fase (Ocupação Estrita por Posto)
+  Map<String, int> _fasesDistribuicao = {};
 
-  // Alertas de Incidência Ativos (Downtime Tickets à la Fabrico.io)
+  // Alertas de Incidência Ativos
   List<Map<String, dynamic>> _alertasIncidencias = [];
 
   @override
@@ -43,7 +36,6 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
     _carregarDadosDashboard();
     _inicializarSubscricaoTempoReal();
     
-    // Timer para atualizar o contador de tempo de downtime decorrido nos alertas
     _everySecondTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (mounted) setState(() {});
     });
@@ -58,7 +50,7 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
     super.dispose();
   }
 
-  /// ⚡ Liga o canal de escuta em tempo real às tabelas de encomendas e incidências do Supabase
+  /// ⚡ Liga o canal de escuta em tempo real às tabelas de encomendas e incidências
   void _inicializarSubscricaoTempoReal() {
     _factorySubscription = _supabase.channel('db-factory-changes')
       .onPostgresChanges(
@@ -66,7 +58,7 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
         schema: 'public',
         table: 'encomendas',
         callback: (payload) {
-          print('⚡ [Realtime] Encomendas atualizadas! Atualizando Dashboard...');
+          debugPrint('⚡ [Realtime] Encomendas alteradas! Recarregando...');
           _carregarDadosDashboard();
         },
       )
@@ -75,7 +67,7 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
         schema: 'public',
         table: 'incidencias',
         callback: (payload) {
-          print('⚡ [Realtime] Incidências reportadas! Atualizando Dashboard...');
+          debugPrint('⚡ [Realtime] Nova Incidência registada! Recarregando...');
           _carregarDadosDashboard();
         },
       );
@@ -83,21 +75,57 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
     _factorySubscription?.subscribe();
   }
 
-  /// Carrega e calcula todas as métricas necessárias para o painel de controlo
+  /// Carrega e calcula todas as métricas com base no teu esquema relacional real
   Future<void> _carregarDadosDashboard() async {
     try {
       if (!mounted) return;
 
-      // 1. Procurar Encomendas do Sistema
+      // 1. Carrega todas as fases padrão definidas no sistema (para estruturar o gráfico)
+      final List<dynamic> fasesPadrao = await _supabase
+          .from('fases_padrao')
+          .select('nome_fase_padrao')
+          .order('ordem');
+
+      Map<String, int> tempFases = {};
+      for (var f in fasesPadrao) {
+        final String nome = f['nome_fase_padrao'] ?? '';
+        if (nome.isNotEmpty) {
+          tempFases[nome] = 0; // Inicializa todos os postos de trabalho a zeros
+        }
+      }
+
+      if (tempFases.isEmpty) {
+        tempFases = {
+          'Corte': 0,
+          'Montagem': 0,
+          'Acabamento': 0,
+          'Controlo': 0,
+          'Embalagem': 0,
+        };
+      }
+
+      // 2. Carrega as encomendas trazendo o nome da fase onde se encontram atualmente
       final List<dynamic> encomendas = await _supabase
           .from('encomendas')
-          .select();
+          .select('*, fase_atual:fase_atual_id(nome_fase_padrao)');
 
-      // 2. Procurar Incidências Ativas (Falta de material, avaria, etc.)
-      final List<dynamic> incidenciasAtivas = await _supabase
+      // 3. Carrega as incidências usando as junções corretas (JOINs) do teu esquema relacional
+      final List<dynamic> incidenciasRaw = await _supabase
           .from('incidencias')
-          .select()
-          .eq('resolvida', false); // Filtrar apenas as não resolvidas
+          .select('''
+            id,
+            created_at,
+            motivo,
+            data_registo,
+            historico_producao_id,
+            historico_producao (
+              encomenda_id,
+              encomendas (codigo_rastreio),
+              fases_padrao (nome_fase_padrao, posto_trabalho),
+              utilizadores (nome_utilizador)
+            )
+          ''')
+          .order('created_at', ascending: false);
 
       if (!mounted) return;
 
@@ -105,80 +133,106 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
       int atrasadas = 0;
       int concluidasHoje = 0;
       
-      Map<String, int> tempFases = {
-        'Corte': 0,
-        'Montagem': 0,
-        'Acabamento': 0,
-        'Controlo': 0,
-        'Embalagem': 0,
-      };
-
       final DateTime hoje = DateTime.now();
+      final String hojeStr = "${hoje.year}-${hoje.month.toString().padLeft(2, '0')}-${hoje.day.toString().padLeft(2, '0')}";
 
+      // 4. Carrega o histórico de produção do dia para validar encomendas finalizadas hoje
+      final List<dynamic> historicoHoje = await _supabase
+          .from('historico_producao')
+          .select('encomenda_id')
+          .gte('data_conclusao', '${hojeStr}T00:00:00')
+          .lte('data_conclusao', '${hojeStr}T23:59:59');
+
+      final Set<int> encomendasAtivasHojeIds = historicoHoje
+          .map((h) => h['encomenda_id'] is int ? h['encomenda_id'] as int : int.tryParse(h['encomenda_id'].toString()) ?? 0)
+          .toSet();
+
+      // 5. Processamento posicional das encomendas
       for (var enc in encomendas) {
-        final String estado = enc['estado'] ?? 'Inativo';
-        final String faseAtual = enc['fase_atual'] ?? '';
+        final int? faseAtualId = enc['fase_atual_id'] as int?;
         final String? prazoStr = enc['data_entrega'];
-        
-        if (estado == 'Concluida') {
-          // Simplificação: Verifica se foi concluído hoje (comparando data de update)
-          final DateTime updatedAt = DateTime.parse(enc['updated_at'] ?? hoje.toIso8601String());
-          if (updatedAt.day == hoje.day && updatedAt.month == hoje.month && updatedAt.year == hoje.year) {
+        final int id = enc['id'] as int;
+
+        if (faseAtualId == null) {
+          // Encomenda Concluída (Não aparece em nenhuma barra ativa)
+          if (encomendasAtivasHojeIds.contains(id)) {
             concluidasHoje++;
           }
-        } else if (estado == 'Ativo') {
+        } else {
+          // Encomenda ATIVA!
           ativas++;
           
-          // Agrupa para o Gráfico de Barras Dinâmico
-          if (tempFases.containsKey(faseAtual)) {
-            tempFases[faseAtual] = (tempFases[faseAtual] ?? 0) + 1;
+          // 📊 LÓGICA DE POSIÇÃO ESTRITA: Soma +1 APENAS na barra da fase atual onde o produto está parado
+          final faseAtualData = enc['fase_atual'];
+          if (faseAtualData != null) {
+            final String nomeFase = faseAtualData['nome_fase_padrao'] ?? '';
+            if (nomeFase.isNotEmpty && tempFases.containsKey(nomeFase)) {
+              tempFases[nomeFase] = (tempFases[nomeFase] ?? 0) + 1;
+            }
           }
 
-          // Verifica se está atrasada (prazo expirado)
+          // Verifica se a encomenda ativa está atrasada
           if (prazoStr != null) {
-            final DateTime prazo = DateTime.parse(prazoStr);
-            if (prazo.isBefore(hoje)) {
-              atrasadas++;
-            }
+            try {
+              final DateTime prazo = DateTime.parse(prazoStr);
+              final hojeSemHoras = DateTime(hoje.year, hoje.month, hoje.day);
+              if (hojeSemHoras.isAfter(prazo)) {
+                atrasadas++;
+              }
+            } catch (_) {}
           }
         }
       }
 
-      // Cálculo de Disponibilidade de Máquinas (Métrica Fabrico.io)
-      // Se tivermos 5 postos principais ativos e 1 está parado por incidência ativa, disponibilidade = 80%
-      final int totalPostos = 5;
-      final int postosBloqueados = incidenciasAtivas.map((e) => e['posto_trabalho']).toSet().length;
-      final double disponibilidade = ((totalPostos - postosBloqueados) / totalPostos) * 100;
+      // 6. Cálculo da Disponibilidade de Postos de Trabalho (OEE)
+      final Set<String> postosBloqueados = {};
+      for (var inc in incidenciasRaw) {
+        final hist = inc['historico_producao'];
+        if (hist != null && hist['fases_padrao'] != null) {
+          final String? posto = hist['fases_padrao']['posto_trabalho'] as String?;
+          if (posto != null && posto.isNotEmpty) {
+            postosBloqueados.add(posto);
+          }
+        }
+      }
+
+      final int totalPostos = tempFases.length;
+      final double disponibilidade = totalPostos > 0
+          ? (((totalPostos - postosBloqueados.length) / totalPostos) * 100).clamp(0.0, 100.0)
+          : 100.0;
 
       setState(() {
         _encomendasAtivas = ativas;
         _encomendasAtrasadas = atrasadas;
         _concluidasHoje = concluidasHoje;
-        _disponibilidadeOEE = disponibilidade < 0 ? 0 : disponibilidade;
+        _disponibilidadeOEE = disponibilidade;
         _fasesDistribuicao = tempFases;
-        _alertasIncidencias = List<Map<String, dynamic>>.from(incidenciasAtivas);
+        _alertasIncidencias = List<Map<String, dynamic>>.from(incidenciasRaw);
         _isLoading = false;
       });
 
     } catch (e) {
-      print('❌ Erro ao processar dados do dashboard: $e');
+      debugPrint('❌ Erro ao processar dados do dashboard: $e');
       if (mounted) {
         setState(() => _isLoading = false);
       }
     }
   }
 
-  /// Calcula há quanto tempo uma paragem/incidência está ativa no chão de fábrica
   String _calcularTempoDowntime(String dataCriacaoStr) {
-    final DateTime dataCriacao = DateTime.parse(dataCriacaoStr);
-    final Duration diferenca = DateTime.now().difference(dataCriacao);
+    try {
+      final DateTime dataCriacao = DateTime.parse(dataCriacaoStr);
+      final Duration diferenca = DateTime.now().difference(dataCriacao);
 
-    if (diferenca.inMinutes < 60) {
-      return '${diferenca.inMinutes}m atrás';
-    } else if (diferenca.inHours < 24) {
-      return '${diferenca.inHours}h ${diferenca.inMinutes % 60}m atrás';
-    } else {
-      return '${diferenca.inDays} dias atrás';
+      if (diferenca.inMinutes < 60) {
+        return '${diferenca.inMinutes}m atrás';
+      } else if (diferenca.inHours < 24) {
+        return '${diferenca.inHours}h ${diferenca.inMinutes % 60}m atrás';
+      } else {
+        return '${diferenca.inDays} dias atrás';
+      }
+    } catch (_) {
+      return 'Agora mesmo';
     }
   }
 
@@ -196,12 +250,8 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // --- TOP HEADER BAR ---
                   _buildHeader(),
-
                   const SizedBox(height: 24),
-
-                  // --- METRIC CARDS (ROW) ---
                   LayoutBuilder(
                     builder: (context, constraints) {
                       return GridView.count(
@@ -215,7 +265,7 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
                           _buildKpiCard(
                             titulo: 'Encomendas Ativas',
                             valor: '$_encomendasAtivas',
-                            subtitulo: '+12% vs. mês anterior',
+                            subtitulo: 'A decorrer na fábrica',
                             corIcone: Colors.blue.shade600,
                             fundoIcone: Colors.blue.shade50,
                             icone: Icons.precision_manufacturing_outlined,
@@ -223,7 +273,7 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
                           _buildKpiCard(
                             titulo: 'Encomendas Atrasadas',
                             valor: '$_encomendasAtrasadas',
-                            subtitulo: '-25% vs. mês anterior',
+                            subtitulo: 'Prazo de entrega expirado',
                             corIcone: Colors.red.shade600,
                             fundoIcone: Colors.red.shade50,
                             icone: Icons.warning_amber_rounded,
@@ -232,7 +282,7 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
                           _buildKpiCard(
                             titulo: 'Concluídas Hoje',
                             valor: '$_concluidasHoje',
-                            subtitulo: '+33% vs. ontem',
+                            subtitulo: 'Finalizadas nas últimas 24h',
                             corIcone: Colors.green.shade600,
                             fundoIcone: Colors.green.shade50,
                             icone: Icons.check_circle_outline,
@@ -250,10 +300,7 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
                       );
                     },
                   ),
-
                   const SizedBox(height: 24),
-
-                  // --- MAIN SECTIONS (CHART & INCIDENTS) ---
                   eDesktop
                       ? Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -276,7 +323,6 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
     );
   }
 
-  // --- HEADER WIDGET ---
   Widget _buildHeader() {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -317,7 +363,6 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
     );
   }
 
-  // --- KPI CARD WIDGET ---
   Widget _buildKpiCard({
     required String titulo,
     required String valor,
@@ -332,7 +377,10 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
       elevation: 1,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: alerta ? Colors.red.shade200 : Colors.grey.shade200, width: alerta ? 1.5 : 1),
+        side: BorderSide(
+          color: alerta ? Colors.red.shade200 : Colors.grey.shade200, 
+          width: alerta ? 1.5 : 1,
+        ),
       ),
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -374,9 +422,7 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
     );
   }
 
-  // --- CHART CARD (DISTRIBUIÇÃO DE FASES) ---
   Widget _buildChartCard() {
-    // Descobrir o valor máximo para poder escalar a altura das barras de forma dinâmica
     final int valorMaximo = _fasesDistribuicao.values.fold(0, (max, e) => e > max ? e : max);
     final double alturaGrafico = 250.0;
 
@@ -393,17 +439,15 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Distribuição por Fase de Produção',
+              'Distribuição por Fase de Production',
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
             ),
             const SizedBox(height: 4),
             Text(
-              'Quantidade de encomendas ativas em cada posto',
+              'Quantidade de encomendas atualmente ativas em cada etapa',
               style: TextStyle(fontSize: 13, color: Colors.grey.shade500),
             ),
             const SizedBox(height: 32),
-            
-            // Área de renderização do gráfico de barras
             SizedBox(
               height: alturaGrafico,
               child: Row(
@@ -413,53 +457,53 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
                   final String fase = entry.key;
                   final int quantidade = entry.value;
 
-                  // Calcula a altura da barra em percentagem face ao máximo de encomendas
                   final double percentagemAltura = valorMaximo == 0 ? 0.05 : (quantidade / valorMaximo);
 
                   return Expanded(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        // Tooltip / Contador por cima da barra
-                        AnimatedOpacity(
-                          duration: const Duration(milliseconds: 300),
-                          opacity: quantidade > 0 ? 1.0 : 0.4,
-                          child: Text(
-                            '$quantidade',
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-
-                        // A Barra Animada propriamente dita
-                        AnimatedContainer(
-                          duration: const Duration(milliseconds: 500),
-                          curve: Curves.easeOutBack,
-                          width: 32,
-                          height: (alturaGrafico - 40) * percentagemAltura,
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [
-                                Colors.blue.shade400,
-                                Colors.blue.shade600,
-                              ],
-                              begin: Alignment.topCenter,
-                              end: Alignment.bottomCenter,
-                            ),
-                            borderRadius: const BorderRadius.only(
-                              topLeft: Radius.circular(6),
-                              topRight: Radius.circular(6),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 2.0),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          AnimatedOpacity(
+                            duration: const Duration(milliseconds: 300),
+                            opacity: quantidade > 0 ? 1.0 : 0.4,
+                            child: Text(
+                              '$quantidade',
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
                             ),
                           ),
-                        ),
-                        const SizedBox(height: 8),
-
-                        // Rótulo da Fase no eixo X
-                        Text(
-                          fase,
-                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: Colors.grey.shade600),
-                        ),
-                      ],
+                          const SizedBox(height: 6),
+                          AnimatedContainer(
+                            duration: const Duration(milliseconds: 500),
+                            curve: Curves.easeOutBack,
+                            width: 24,
+                            height: (alturaGrafico - 65) * percentagemAltura,
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [
+                                  Colors.blue.shade400,
+                                  Colors.blue.shade600,
+                                ],
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                              ),
+                              borderRadius: const BorderRadius.only(
+                                topLeft: Radius.circular(4),
+                                topRight: Radius.circular(4),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            fase,
+                            style: TextStyle(fontSize: 10, fontWeight: FontWeight.w500, color: Colors.grey.shade600),
+                            textAlign: TextAlign.center,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
                     ),
                   );
                 }).toList(),
@@ -471,7 +515,6 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
     );
   }
 
-  // --- ALERTAS DE INCIDÊNCIA (ESTILO FABRICO.IO) ---
   Widget _buildIncidentsCard() {
     return Card(
       color: Colors.white,
@@ -513,7 +556,6 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
             ),
             const SizedBox(height: 20),
 
-            // Lista de Incidências
             _alertasIncidencias.isEmpty
                 ? const SizedBox(
                     height: 200,
@@ -541,8 +583,32 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
                     itemCount: _alertasIncidencias.length,
                     itemBuilder: (context, index) {
                       final inc = _alertasIncidencias[index];
-                      final String criticidade = inc['criticidade'] ?? 'Média';
-                      final bool eCritico = criticidade.toLowerCase() == 'alta' || criticidade.toLowerCase() == 'urgente';
+                      final hist = inc['historico_producao'];
+                      
+                      String encRef = 'N/A';
+                      String posto = 'Não especificado';
+                      String nomeOperador = 'Desconhecido';
+
+                      if (hist != null) {
+                        final encId = hist['encomenda_id'];
+                        final encData = hist['encomendas'];
+                        final faseData = hist['fases_padrao'];
+                        final userData = hist['utilizadores'];
+
+                        if (encData != null) {
+                          encRef = encData['codigo_rastreio'] ?? 'N/A';
+                        } else if (encId != null) {
+                          encRef = '#$encId';
+                        }
+
+                        if (faseData != null) {
+                          posto = faseData['posto_trabalho'] ?? 'Não especificado';
+                        }
+
+                        if (userData != null) {
+                          nomeOperador = userData['nome_utilizador'] ?? 'Desconhecido';
+                        }
+                      }
 
                       return Container(
                         margin: const EdgeInsets.only(bottom: 12),
@@ -557,7 +623,7 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
                           children: [
                             Icon(
                               Icons.error_outline_rounded, 
-                              color: eCritico ? Colors.red.shade600 : Colors.orange.shade600,
+                              color: Colors.red.shade600,
                               size: 20,
                             ),
                             const SizedBox(width: 12),
@@ -569,21 +635,21 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
                                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                     children: [
                                       Text(
-                                        'Enc. #${inc['encomenda_id'] ?? 'N/A'}',
+                                        'Enc. $encRef',
                                         style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                                       ),
                                       Container(
                                         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                         decoration: BoxDecoration(
-                                          color: eCritico ? Colors.red.shade100 : Colors.orange.shade100,
+                                          color: Colors.red.shade100,
                                           borderRadius: BorderRadius.circular(4),
                                         ),
-                                        child: Text(
-                                          criticidade.toUpperCase(),
+                                        child: const Text(
+                                          'ATENÇÃO',
                                           style: TextStyle(
                                             fontSize: 9, 
                                             fontWeight: FontWeight.bold,
-                                            color: eCritico ? Colors.red.shade700 : Colors.orange.shade700,
+                                            color: Colors.red,
                                           ),
                                         ),
                                       ),
@@ -591,12 +657,12 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
-                                    'Posto: ${inc['posto_trabalho'] ?? 'Não especificado'}',
+                                    'Posto: $posto',
                                     style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: Colors.black54),
                                   ),
                                   const SizedBox(height: 2),
                                   Text(
-                                    inc['descricao'] ?? 'Sem descrição fornecida.',
+                                    inc['motivo'] ?? 'Sem motivo indicado.',
                                     style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                                   ),
                                   const SizedBox(height: 6),
@@ -604,11 +670,11 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
                                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                     children: [
                                       Text(
-                                        '⏱️ Downtime: ${_calcularTempoDowntime(inc['created_at'] ?? DateTime.now().toIso8601String())}',
+                                        '⏱️ Ativo: ${_calcularTempoDowntime(inc['created_at'] ?? DateTime.now().toIso8601String())}',
                                         style: TextStyle(fontSize: 11, color: Colors.red.shade400, fontWeight: FontWeight.bold),
                                       ),
                                       Text(
-                                        'Operador ID: #${inc['operador_id'] ?? '?'}',
+                                        'Op: $nomeOperador',
                                         style: TextStyle(fontSize: 11, color: Colors.grey.shade400),
                                       ),
                                     ],
