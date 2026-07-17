@@ -80,6 +80,15 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
       .onPostgresChanges(
         event: PostgresChangeEvent.all,
         schema: 'public',
+        table: 'clientes', // 👈 SOLUÇÃO: Adicionado o listener em tempo real para a tabela de clientes!
+        callback: (payload) {
+          debugPrint('⚡ [Realtime] Base de dados de clientes atualizada! Recarregando...');
+          _carregarDados();
+        },
+      )
+      .onPostgresChanges(
+        event: PostgresChangeEvent.all,
+        schema: 'public',
         table: 'encomendas',
         callback: (payload) {
           _carregarDados();
@@ -91,7 +100,7 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
 
   Future<void> _carregarDados() async {
     try {
-      final clientesData = await _supabase.from('clientes').select('id, nome_cliente');
+      final clientesData = await _supabase.from('clientes').select('id, nome_cliente').order('nome_cliente', ascending: true);
       final produtosData = await _supabase.from('tipos_produto').select('id, nome_tipo_produto').order('nome_tipo_produto');
       
       final encomendasData = await _supabase
@@ -468,12 +477,12 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
       );
     } else {
       conteudo = Scrollbar(
-        controller: _previewScrollController, // 🥇 Vinculado ao controlador da Scrollbar
+        controller: _previewScrollController, 
         thumbVisibility: true,
         child: ListView.builder(
-          controller: _previewScrollController, // 🥇 Vinculado exatamente ao mesmo controlador da ListView
+          controller: _previewScrollController, 
           itemCount: _previewFases.length,
-          padding: const EdgeInsets.only(right: 16),
+          padding: const EdgeInsets.only(right: 12),
           itemBuilder: (context, idx) {
             final f = _previewFases[idx];
             return Container(
@@ -565,12 +574,12 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
       );
     } else {
       conteudo = Scrollbar(
-        controller: _ultimasScrollController, // 🥈 Vinculado ao controlador da Scrollbar
+        controller: _ultimasScrollController, 
         thumbVisibility: true,
         child: ListView.builder(
-          controller: _ultimasScrollController, // 🥈 Vinculado exatamente ao mesmo controlador da ListView
+          controller: _ultimasScrollController, 
           itemCount: _ultimasEncomendas.length,
-          padding: const EdgeInsets.only(right: 16),
+          padding: const EdgeInsets.only(right: 12),
           itemBuilder: (context, index) {
             final enc = _ultimasEncomendas[index];
             final idFormated = 'ORD-2026-${enc['id'].toString().padLeft(3, '0')}';

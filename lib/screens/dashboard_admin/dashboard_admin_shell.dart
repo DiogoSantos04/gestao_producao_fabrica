@@ -2,12 +2,13 @@ import 'package:flutter/material.dart';
 import '../../services/auth_service.dart';
 import '../login_screen.dart';
 
-// Importa os ecrãs que já tens desenvolvidos
+// Importa os ecrãs desenvolvidos
 import 'dashboard_principal_screen.dart';
 import 'gestao_utilizadores_screen.dart';
-import 'criar_encomenda_screen.dart'; // Confirma se a classe se chama CriarEncomendaScreen
-import 'painel_controlo_screen.dart'; // Confirma se a classe se chama PainelControloScreen
+import 'criar_encomenda_screen.dart'; 
+import 'painel_controlo_screen.dart'; 
 import 'gestao_fluxos_screen.dart';
+import 'informacoes_clientes_screen.dart'; // 👈 1. Import do teu novo ficheiro de clientes!
 
 class DashboardAdminShell extends StatefulWidget {
   const DashboardAdminShell({super.key});
@@ -37,14 +38,13 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
     final bool eDesktop = larguraEcra > 950;
 
     // Lista de ecrãs que serão renderizados à direita
-    // IndexedStack é perfeito aqui porque mantém o estado de cada ecrã na memória!
     final List<Widget> _telas = [
       const DashboardPrincipalScreen(),
-      const GestaoFluxosScreen(), // 👈 Ativado!
+      const GestaoFluxosScreen(), 
       const GestaoUtilizadoresScreen(),
       const CriarEncomendaScreen(),
       const PainelControloScreen(),
-      const PlaceholderScreen(titulo: 'Clientes', icone: Icons.business_center_outlined),
+      const ClientesScreen(), // 👈 2. Ativado! Substituído o Placeholder pelo ecrã real de Clientes
       const PlaceholderScreen(titulo: 'Relatórios', icone: Icons.analytics_outlined),
     ];
 
@@ -77,10 +77,10 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
     );
   }
 
-  // --- CONSTRUTOR DA SIDEBAR (ESTILO WEB MOCKUP) ---
+  // --- CONSTRUTOR DA SIDEBAR ---
   Widget _buildSidebar({required bool dentroDrawer}) {
     return Container(
-      color: const Color(0xFF111625), // Azul escuro idêntico ao teu print
+      color: const Color(0xFF111625), 
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -120,7 +120,7 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
                   child: ListTile(
                     selected: estaSelecionado,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    selectedTileColor: Colors.white.withOpacity(0.08), // Destaque suave
+                    selectedTileColor: Colors.white.withOpacity(0.08), 
                     leading: Icon(
                       item['icone'],
                       color: estaSelecionado ? Colors.blue : Colors.grey.shade500,
@@ -139,7 +139,7 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
                         _indiceAtual = index;
                       });
                       if (dentroDrawer) {
-                        Navigator.pop(context); // Fecha o drawer no telemóvel
+                        Navigator.pop(context); 
                       }
                     },
                   ),
