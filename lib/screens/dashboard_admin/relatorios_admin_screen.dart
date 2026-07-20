@@ -1,6 +1,9 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 import '../../core/temas_cores.dart';
 
 class MouseDragScrollBehavior extends MaterialScrollBehavior {
@@ -30,12 +33,15 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
   bool _isLoading = true;
   bool _isExporting = false;
 
-  // Variáveis Reais de Estatísticas
+  // Variáveis Reais de Estatísticas Gerais (Globais)
   int _encomendasConcluidas = 0;
   double _taxaEntregaNoPrazo = 0.0;
   double _avaliacaoMedia = 0.0;
 
   List<dynamic> _feedbacks = [];
+  List<dynamic> _encomendasGeral = [];
+  List<dynamic> _dadosHistorico = [];
+  Map<int, int> _ultimaFasePorProduto = {};
 
   @override
   void initState() {
@@ -64,10 +70,10 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
           .select('nota, comentario, data_registo, encomendas(codigo_rastreio), clientes(nome_cliente)')
           .order('data_registo', ascending: false);
 
-      // 2. Procurar as encomendas trazendo o tipos_produtos_id
+      // 2. Procurar as encomendas trazendo relacionamentos para o PDF
       final dadosEncomendas = await _supabase
           .from('encomendas')
-          .select('id, data_entrega, fase_atual_id, tipos_produtos_id');
+          .select('id, codigo_rastreio, data_entrega, fase_atual_id, tipos_produtos_id, clientes(nome_cliente), tipos_produto:tipos_produtos_id(nome_tipo_produto)');
 
       // 3. Procurar o histórico de produção completo
       final dadosHistorico = await _supabase
@@ -80,7 +86,6 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
           .select('id, ordem, tipos_produto_id');
 
       // --- MAPEAMENTO DAS ÚLTIMAS FASES ---
-      // Descobre qual o ID da fase com maior 'ordem' para cada tipo de produto
       Map<int, int> ultimaFasePorProduto = {};
       for (var fase in dadosFases) {
         int prodId = fase['types_produto_id'] ?? fase['tipos_produto_id'];
@@ -97,7 +102,7 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
         }
       }
 
-      // --- CÁLCULOS LOGÍSTICOS ---
+      // --- CÁLCULOS LOGÍSTICOS GLOBAIS ---
       int concluidas = 0;
       int noPrazo = 0;
       double somaNotas = 0.0;
@@ -140,20 +145,17 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
           if (historicoDaEncomenda.isNotEmpty) {
             dataConclusaoReal = DateTime.parse(historicoDaEncomenda.last['data_conclusao']);
           } else {
-            dataConclusaoReal = DateTime.now(); // Fallback de segurança caso não haja histórico nenhum
+            dataConclusaoReal = DateTime.now();
           }
         }
 
-        // Se passou em alguma das regras de validação, está terminada!
         if (estaConcluida) {
           concluidas++;
 
           if (dataPrometida != null && dataConclusaoReal != null) {
-            // Normalização crucial: remove as horas/minutos para comparar apenas os dias calendários
             final DateTime dataPrometidaDia = DateTime(dataPrometida.year, dataPrometida.month, dataPrometida.day);
             final DateTime dataConclusaoDia = DateTime(dataConclusaoReal.year, dataConclusaoReal.month, dataConclusaoReal.day);
 
-            // Só incrementa o indicador se foi concluído antes ou no próprio dia limite
             if (dataConclusaoDia.isBefore(dataPrometidaDia) || dataConclusaoDia.isAtSameMomentAs(dataPrometidaDia)) {
               noPrazo++;
             }
@@ -164,6 +166,9 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
       if (mounted) {
         setState(() {
           _feedbacks = dadosAvaliacoes;
+          _encomendasGeral = dadosEncomendas;
+          _dadosHistorico = dadosHistorico;
+          _ultimaFasePorProduto = ultimaFasePorProduto;
           _encomendasConcluidas = concluidas;
           _taxaEntregaNoPrazo = concluidas > 0 ? (noPrazo / concluidas) : 0.0;
           _isLoading = false;
@@ -175,20 +180,153 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
     }
   }
 
+  // --- GERAÇÃO DO DOCUMENTO PDF REAL ---
+
   Future<void> _gerarRelatorioPDF() async {
     if (!_formKey.currentState!.validate()) return;
     
     setState(() => _isExporting = true);
-    await Future.delayed(const Duration(seconds: 2)); 
-    setState(() => _isExporting = false);
-    
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Relatório de ${_dataInicioController.text} a ${_dataFimController.text} exportado com sucesso!'),
-          backgroundColor: TemasCores.verdeSucesso,
+
+    try {
+      final DateTime dataInicioFiltro = DateTime.parse(_dataInicioController.text);
+      final DateTime dataFimFiltro = DateTime.parse(_dataFimController.text).add(const Duration(days: 1));
+
+      int concluidasNoPeriodo = 0;
+      int noPrazoNoPeriodo = 0;
+      List<List<String>> linhasTabelaPDF = [];
+
+      // Processar dados apenas para o período selecionado
+      for (var enc in _encomendasGeral) {
+        final int idEnc = enc['id'];
+        final int? prodId = enc['tipos_produtos_id'];
+        final DateTime? dataPrometida = enc['data_entrega'] != null ? DateTime.parse(enc['data_entrega']) : null;
+        final int? idUltimaFase = _ultimaFasePorProduto[prodId];
+        
+        final historicoDaEncomenda = _dadosHistorico.where((h) => h['encomenda_id'] == idEnc).toList();
+        DateTime? dataConclusaoReal;
+        bool estaConcluida = false;
+
+        if (idUltimaFase != null) {
+          final registoFim = historicoDaEncomenda.where((h) => h['fase_concluida_id'] == idUltimaFase).toList();
+          if (registoFim.isNotEmpty) {
+            estaConcluida = true;
+            dataConclusaoReal = DateTime.parse(registoFim.first['data_conclusao']);
+          }
+        }
+
+        // Se a ordem foi concluída dentro do intervalo escolhido pelo Admin
+        if (estaConcluida && dataConclusaoReal != null) {
+          if (dataConclusaoReal.isAfter(dataInicioFiltro) && dataConclusaoReal.isBefore(dataFimFiltro)) {
+            concluidasNoPeriodo++;
+            
+            final DateTime dataPrometidaDia = DateTime(dataPrometida!.year, dataPrometida.month, dataPrometida.day);
+            final DateTime dataConclusaoDia = DateTime(dataConclusaoReal.year, dataConclusaoReal.month, dataConclusaoReal.day);
+
+            bool dentroDoPrazo = dataConclusaoDia.isBefore(dataPrometidaDia) || dataConclusaoDia.isAtSameMomentAs(dataPrometidaDia);
+            if (dentroDoPrazo) {
+              noPrazoNoPeriodo++;
+            }
+
+            linhasTabelaPDF.add([
+              enc['codigo_rastreio'] ?? 'TRC-$idEnc',
+              enc['clientes']?['nome_cliente'] ?? 'N/A',
+              enc['tipos_produto']?['nome_tipo_produto'] ?? 'N/A',
+              "${dataConclusaoReal.day}/${dataConclusaoReal.month}/${dataConclusaoReal.year}",
+              dentroDoPrazo ? 'No Prazo' : 'Com Atraso'
+            ]);
+          }
+        }
+      }
+
+      final double taxaNoPeriodo = concluidasNoPeriodo > 0 ? (noPrazoNoPeriodo / concluidasNoPeriodo) : 0.0;
+
+      // Desenhar a estrutura do PDF
+      final pdf = pw.Document();
+      pdf.addPage(
+        pw.MultiPage(
+          pageFormat: PdfPageFormat.a4,
+          margin: const pw.EdgeInsets.all(32),
+          build: (pw.Context context) => [
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Text('SISTEMA INDUSTRIAL', style: pw.TextStyle(fontSize: 22, fontWeight: pw.FontWeight.bold, color: PdfColors.blueGrey900)),
+                pw.Text('Relatorio de Producao', style: const pw.TextStyle(fontSize: 12, color: PdfColors.grey600)),
+              ],
+            ),
+            pw.SizedBox(height: 8),
+            pw.Divider(thickness: 1, color: PdfColors.grey400),
+            pw.SizedBox(height: 12),
+            pw.Text('Periodo analisado: ${_dataInicioController.text} ate ${_dataFimController.text}', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
+            pw.SizedBox(height: 20),
+
+            pw.Text('Indicadores de Desempenho do Periodo', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold, color: PdfColors.blueGrey800)),
+            pw.SizedBox(height: 8),
+            pw.Container(
+              padding: const pw.EdgeInsets.all(16),
+              decoration: pw.BoxDecoration(
+                border: pw.Border.all(color: PdfColors.grey300),
+                borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
+                color: PdfColors.grey100,
+              ),
+              child: pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceAround,
+                children: [
+                  pw.Column(children: [
+                    pw.Text('Ordens Concluidas', style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
+                    pw.SizedBox(height: 4),
+                    pw.Text('$concluidasNoPeriodo', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+                  ]),
+                  pw.Column(children: [
+                    pw.Text('Taxa de Entrega no Prazo', style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
+                    pw.SizedBox(height: 4),
+                    pw.Text('${(taxaNoPeriodo * 100).toInt()}%', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold, color: taxaNoPeriodo >= 0.8 ? PdfColors.green700 : PdfColors.red700)),
+                  ]),
+                  pw.Column(children: [
+                    pw.Text('Satisfacao Media Geral', style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
+                    pw.SizedBox(height: 4),
+                    pw.Text('$_avaliacaoMedia / 5.0', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+                  ]),
+                ],
+              ),
+            ),
+            pw.SizedBox(height: 24),
+
+            pw.Text('Listagem Analitica de Ordens Finalizadas', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold, color: PdfColors.blueGrey800)),
+            pw.SizedBox(height: 8),
+            linhasTabelaPDF.isEmpty
+                ? pw.Padding(
+                    padding: const pw.EdgeInsets.only(top: 16),
+                    child: pw.Center(child: pw.Text('Nenhuma ordem de producao foi finalizada neste intervalo.', style: pw.TextStyle(fontStyle: pw.FontStyle.italic, color: PdfColors.grey600))),
+                  )
+                : pw.Table.fromTextArray(
+                    headers: ['Codigo', 'Cliente', 'Produto', 'Data Conclusao', 'Estado'],
+                    data: linhasTabelaPDF,
+                    headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, color: PdfColors.white, fontSize: 11),
+                    headerDecoration: const pw.BoxDecoration(color: PdfColors.blueGrey800),
+                    cellStyle: const pw.TextStyle(fontSize: 10),
+                    cellHeight: 24,
+                    cellAlignments: {
+                      0: pw.Alignment.centerLeft,
+                      1: pw.Alignment.centerLeft,
+                      2: pw.Alignment.centerLeft,
+                      3: pw.Alignment.center,
+                      4: pw.Alignment.center,
+                    },
+                  ),
+          ],
         ),
       );
+
+      // Disparar o visualizador nativo do sistema operacional
+      await Printing.layoutPdf(
+        onLayout: (format) async => pdf.save(),
+        name: 'Relatorio_Fabrica_${_dataInicioController.text}.pdf',
+      );
+    } catch (e) {
+      debugPrint('Erro ao exportar PDF: $e');
+    } finally {
+      if (mounted) setState(() => _isExporting = false);
     }
   }
 

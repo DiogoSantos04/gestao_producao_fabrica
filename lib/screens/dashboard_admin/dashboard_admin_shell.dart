@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../services/auth_service.dart';
 import '../login_screen.dart';
 
@@ -9,7 +11,7 @@ import 'criar_encomenda_screen.dart';
 import 'painel_controlo_screen.dart'; 
 import 'gestao_fluxos_screen.dart';
 import 'informacoes_clientes_screen.dart'; 
-import 'relatorios_admin_screen.dart'; // 👈 1. Import do teu novo ecrã de relatórios ativado!
+import 'relatorios_admin_screen.dart';
 
 class DashboardAdminShell extends StatefulWidget {
   const DashboardAdminShell({super.key});
@@ -20,9 +22,19 @@ class DashboardAdminShell extends StatefulWidget {
 
 class _DashboardAdminShellState extends State<DashboardAdminShell> {
   final AuthService _authService = AuthService();
-  int _indiceAtual = 0;
+  final _supabase = Supabase.instance.client;
 
-  // Lista dos menus correspondente às opções da barra lateral
+  int _indiceAtual = 0; // 0 a 6: Menus Principais, 7: O Meu Perfil
+
+  // Dados dinâmicos do administrador autenticado
+  String _nomeUtilizador = 'Administrador';
+  String _emailUtilizador = 'carregando...';
+  bool _carregandoPerfil = true;
+
+  // Subscrição em tempo real da base de dados
+  StreamSubscription<List<Map<String, dynamic>>>? _utilizadorStreamSubscription;
+
+  // Lista dos menus correspondentes às opções da barra lateral
   final List<Map<String, dynamic>> _menuItens = [
     {'titulo': 'Dashboard', 'icone': Icons.dashboard_outlined},
     {'titulo': 'Fluxos Produtivos', 'icone': Icons.schema_outlined},
@@ -34,43 +46,353 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+    _iniciarEscutaEmTempoReal();
+  }
+
+  @override
+  void dispose() {
+    // Cancela o canal de WebSocket ao fechar o ecrã para libertar memória
+    _utilizadorStreamSubscription?.cancel();
+    super.dispose();
+  }
+
+  /// Subscreve a tabela 'utilizadores' via WebSocket para atualizações em tempo real
+  void _iniciarEscutaEmTempoReal() {
+    try {
+      final user = _supabase.auth.currentUser;
+      if (user == null) return;
+
+      _utilizadorStreamSubscription = _supabase
+          .from('utilizadores')
+          .stream(primaryKey: ['utilizador_id'])
+          .eq('utilizador_id', user.id)
+          .listen(
+            (dados) {
+              if (mounted && dados.isNotEmpty) {
+                final registo = dados.first;
+                final String? nomeDb = registo['nome_utilizador']?.toString();
+                final String? emailDb = registo['email']?.toString();
+
+                setState(() {
+                  _nomeUtilizador = (nomeDb != null && nomeDb.trim().isNotEmpty)
+                      ? nomeDb
+                      : 'Administrador';
+                  _emailUtilizador = (emailDb != null && emailDb.trim().isNotEmpty)
+                      ? emailDb
+                      : (user.email ?? 'admin@factory.com');
+                  _carregandoPerfil = false;
+                });
+              }
+            },
+            onError: (erro) {
+              debugPrint('Erro na escuta em tempo real: $erro');
+              if (mounted) setState(() => _carregandoPerfil = false);
+            },
+          );
+    } catch (e) {
+      debugPrint('Erro ao iniciar stream do perfil: $e');
+      if (mounted) setState(() => _carregandoPerfil = false);
+    }
+  }
+
+  /// Converte o nome em iniciais (ex: "Diogo Santos" -> "DS")
+  String _obterIniciais(String? nome) {
+    if (nome == null || nome.toString().trim().isEmpty) return 'AD';
+    final String limpo = nome.toString().trim();
+    final partes = limpo.split(' ');
+    if (partes.length >= 2 && partes[0].isNotEmpty && partes[1].isNotEmpty) {
+      return '${partes[0][0]}${partes[1][0]}'.toUpperCase();
+    }
+    return limpo.substring(0, limpo.length >= 2 ? 2 : 1).toUpperCase();
+  }
+
+  /// Diálogo interativo para alterar a palavra-passe no Auth e na tabela utilizadores
+  void _mostrarDialogoAlterarPalavraPasse() {
+    final novaSenhaController = TextEditingController();
+    final confirmarSenhaController = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+    bool aCarregar = false;
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: const Row(
+                children: [
+                  Icon(Icons.lock_reset_outlined, color: Colors.blue),
+                  SizedBox(width: 10),
+                  Text('Alterar Palavra-passe'),
+                ],
+              ),
+              content: Form(
+                key: formKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextFormField(
+                      controller: novaSenhaController,
+                      obscureText: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Nova Palavra-passe',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.lock_outline),
+                      ),
+                      validator: (v) {
+                        if (v == null || v.trim().length < 6) {
+                          return 'Deve ter pelo menos 6 caracteres.';
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: confirmarSenhaController,
+                      obscureText: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Confirmar Palavra-passe',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.lock_clock_outlined),
+                      ),
+                      validator: (v) {
+                        if (v != novaSenhaController.text) {
+                          return 'As palavras-passe não coincidem.';
+                        }
+                        return null;
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: aCarregar ? null : () => Navigator.pop(context),
+                  child: const Text('Cancelar'),
+                ),
+                ElevatedButton(
+                  onPressed: aCarregar
+                      ? null
+                      : () async {
+                          if (!formKey.currentState!.validate()) return;
+
+                          setDialogState(() => aCarregar = true);
+
+                          try {
+                            final novaSenha = novaSenhaController.text.trim();
+                            final user = _supabase.auth.currentUser;
+
+                            // 1. Atualiza no Supabase Auth (sistema de login)
+                            await _supabase.auth.updateUser(
+                              UserAttributes(password: novaSenha),
+                            );
+
+                            // 2. Sincroniza a coluna 'password' na tabela pública 'utilizadores'
+                            // Como estamos a usar .stream(), qualquer mudança reflete-se na hora na app
+                            if (user != null) {
+                              await _supabase
+                                  .from('utilizadores')
+                                  .update({'password': novaSenha})
+                                  .eq('utilizador_id', user.id);
+                            }
+
+                            if (context.mounted) {
+                              Navigator.pop(context);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Palavra-passe alterada com sucesso!'),
+                                  backgroundColor: Colors.green,
+                                ),
+                              );
+                            }
+                          } catch (e) {
+                            setDialogState(() => aCarregar = false);
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Erro ao alterar palavra-passe: $e'),
+                                  backgroundColor: Colors.red,
+                                ),
+                              );
+                            }
+                          }
+                        },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: aCarregar
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        )
+                      : const Text('Guardar'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  /// Constrói o ecrã completo de Perfil do Administrador
+  Widget _construirEcraPerfil() {
+    final String iniciais = _obterIniciais(_nomeUtilizador);
+    final String idDisplay = 'ADM-2026-${_nomeUtilizador.hashCode.abs().toString().padLeft(4, '0').substring(0, 4)}';
+
+    return Padding(
+      padding: const EdgeInsets.all(40.0),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 550),
+          child: Card(
+            elevation: 4,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            child: Padding(
+              padding: const EdgeInsets.all(32.0),
+              child: _carregandoPerfil
+                  ? const Center(child: CircularProgressIndicator())
+                  : Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        CircleAvatar(
+                          radius: 45,
+                          backgroundColor: Colors.blue.shade600,
+                          child: Text(
+                            iniciais,
+                            style: const TextStyle(fontSize: 28, color: Colors.white, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        Text(
+                          _nomeUtilizador,
+                          style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 4),
+                        const Text(
+                          'Administrador do Sistema',
+                          style: TextStyle(fontSize: 14, color: Colors.grey, fontWeight: FontWeight.w500),
+                        ),
+                        const Divider(height: 40),
+                        
+                        _construirCampoInformativo(
+                          label: 'Email Institucional',
+                          valor: _emailUtilizador,
+                          icone: Icons.email_outlined,
+                        ),
+                        const SizedBox(height: 16),
+                        _construirCampoInformativo(
+                          label: 'ID do Administrador',
+                          valor: idDisplay,
+                          icone: Icons.badge_outlined,
+                        ),
+                        const SizedBox(height: 32),
+                        
+                        OutlinedButton.icon(
+                          onPressed: _mostrarDialogoAlterarPalavraPasse,
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: const Size.fromHeight(50),
+                            side: BorderSide(color: Colors.grey.shade300),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                          icon: const Icon(Icons.vpn_key_outlined, color: Colors.black87),
+                          label: const Text('Alterar Palavra-passe', style: TextStyle(color: Colors.black87)),
+                        ),
+                        const SizedBox(height: 12),
+                        
+                        ElevatedButton.icon(
+                          onPressed: _efetuarLogout,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.red.shade600,
+                            foregroundColor: Colors.white,
+                            minimumSize: const Size.fromHeight(50),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                          icon: const Icon(Icons.logout),
+                          label: const Text('Terminar Sessão'),
+                        ),
+                      ],
+                    ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _construirCampoInformativo({
+    required String label,
+    required String valor,
+    required IconData icone,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(width: 1, color: Colors.grey.shade200),
+      ),
+      child: Row(
+        children: [
+          Icon(icone, color: Colors.grey),
+          const SizedBox(width: 16),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+              const SizedBox(height: 2),
+              Text(valor, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+            ],
+          )
+        ],
+      ),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
     final double larguraEcra = MediaQuery.of(context).size.width;
     final bool eDesktop = larguraEcra > 950;
 
-    // Lista de ecrãs que serão renderizados à direita
-    final List<Widget> _telas = [
+    // Lista de ecrãs renderizados à direita
+    final List<Widget> telas = [
       const DashboardPrincipalScreen(),
       const GestaoFluxosScreen(), 
       const GestaoUtilizadoresScreen(),
       const CriarEncomendaScreen(),
       const PainelControloScreen(),
       const ClientesScreen(),
-      const RelatoriosAdminScreen(), // 👈 2. Ativado! Substituído o Placeholder pelo ecrã real de Relatórios e Feedback
+      const RelatoriosAdminScreen(),
+      _construirEcraPerfil(),
     ];
 
     return Scaffold(
       appBar: !eDesktop
           ? AppBar(
-              title: Text(_menuItens[_indiceAtual]['titulo']),
+              title: Text(_indiceAtual == 7 
+                  ? 'O Meu Perfil' 
+                  : _menuItens[_indiceAtual]['titulo']),
               backgroundColor: Colors.deepPurple.shade50,
             )
           : null,
       drawer: !eDesktop ? Drawer(child: _buildSidebar(dentroDrawer: true)) : null,
       body: Row(
         children: [
-          // Se for ecrã grande (Desktop/Web), mostra a Sidebar fixa do lado esquerdo
           if (eDesktop)
             SizedBox(
               width: 260,
               child: _buildSidebar(dentroDrawer: false),
             ),
           
-          // Área de Conteúdo Principal (Lado Direito)
           Expanded(
             child: IndexedStack(
               index: _indiceAtual,
-              children: _telas,
+              children: telas,
             ),
           ),
         ],
@@ -85,7 +407,6 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header da Sidebar
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
             child: const Row(
@@ -151,49 +472,69 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
 
           // Rodapé com o Logout e Info do Utilizador
           const Divider(color: Colors.white10, height: 1),
-          _buildRodapeSidebar(),
+          _buildRodapeSidebar(dentroDrawer),
         ],
       ),
     );
   }
 
   // --- SECÇÃO DE LOGOUT / PERFIL ---
-  Widget _buildRodapeSidebar() {
-    final user = _authService.utilizadorAtual;
+  Widget _buildRodapeSidebar(bool dentroDrawer) {
+    final bool estaNoPerfil = _indiceAtual == 7;
+    final String iniciais = _obterIniciais(_nomeUtilizador);
+    final String idDisplay = 'ADM-2026-${_nomeUtilizador.hashCode.abs().toString().padLeft(4, '0').substring(0, 4)}';
 
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Column(
         children: [
-          Row(
-            children: [
-              CircleAvatar(
-                backgroundColor: Colors.blue.shade100,
-                radius: 18,
-                child: const Text(
-                  'AD',
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.blue),
-                ),
+          InkWell(
+            onTap: () {
+              setState(() {
+                _indiceAtual = 7;
+              });
+              if (dentroDrawer) {
+                Navigator.pop(context);
+              }
+            },
+            borderRadius: BorderRadius.circular(8),
+            child: Container(
+              padding: const EdgeInsets.all(8.0),
+              decoration: BoxDecoration(
+                color: estaNoPerfil ? Colors.white.withOpacity(0.08) : Colors.transparent,
+                borderRadius: BorderRadius.circular(8),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      user?.nomeUtilizador ?? 'Administrador',
-                      style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
-                      overflow: TextOverflow.ellipsis,
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    backgroundColor: Colors.blue.shade100,
+                    radius: 18,
+                    child: Text(
+                      iniciais,
+                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.blue),
                     ),
-                    Text(
-                      user?.email ?? 'admin@factory.com',
-                      style: TextStyle(color: Colors.grey.shade500, fontSize: 11),
-                      overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _nomeUtilizador,
+                          style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        Text(
+                          idDisplay,
+                          style: TextStyle(color: Colors.grey.shade500, fontSize: 11),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
           const SizedBox(height: 12),
           ElevatedButton.icon(
@@ -221,38 +562,5 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
         MaterialPageRoute(builder: (context) => const LoginScreen()),
       );
     }
-  }
-}
-
-// --- CLASSE AUXILIAR PARA ECRÃS EM DESENVOLVIMENTO (PLACEHOLDER) ---
-class PlaceholderScreen extends StatelessWidget {
-  final String titulo;
-  final IconData icone;
-
-  const PlaceholderScreen({super.key, required this.titulo, required this.icone});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.grey.shade50,
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icone, size: 80, color: Colors.grey.shade300),
-            const SizedBox(height: 16),
-            Text(
-              'Módulo de $titulo',
-              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black54),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Este ecrã está planeado e encontra-se em fase de desenvolvimento.',
-              style: TextStyle(color: Colors.grey),
-            ),
-          ],
-        ),
-      ),
-    );
   }
 }

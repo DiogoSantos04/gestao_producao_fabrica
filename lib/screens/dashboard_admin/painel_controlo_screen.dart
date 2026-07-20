@@ -17,25 +17,34 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
   List<dynamic> _encomendasFiltradas = [];
   Map<int, List<dynamic>> _fasesPorProduto = {}; // Mapeia tipos_produto_id -> lista de fases padrão
   bool _isLoading = true;
+  
+  // Variável para guardar o canal de escuta em tempo real
+  RealtimeChannel? _encomendasSubscription;
 
   @override
   void initState() {
     super.initState();
-    _carregarDados();
+    // Carrega os dados iniciais e, logo de seguida, ativa o Realtime
+    _carregarDados(mostrarLoader: true).then((_) => _ativarSubscricaoRealtime());
     _searchController.addListener(_filtrarEncomendas);
   }
 
   @override
   void dispose() {
+    // É crucial fechar o canal quando mudamos de ecrã para evitar fugas de memória
+    if (_encomendasSubscription != null) {
+      _supabase.removeChannel(_encomendasSubscription!);
+    }
     _searchController.dispose();
     super.dispose();
   }
 
   // --- CONSULTAS À BASE DE DADOS (SUPABASE) ---
 
-  Future<void> _carregarDados() async {
+  // Adicionado o parâmetro mostrarLoader para podermos atualizar os dados em background de forma fluida
+  Future<void> _carregarDados({bool mostrarLoader = false}) async {
     try {
-      setState(() => _isLoading = true);
+      if (mostrarLoader) setState(() => _isLoading = true);
 
       // 1. Carrega todas as fases padrão ordenadas para sabermos o total de fases de cada produto
       final fasesData = await _supabase
@@ -45,27 +54,46 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
 
       final Map<int, List<dynamic>> tempFasesPorProduto = {};
       for (var f in fasesData) {
-        final prodId = f['tipos_produto_id'] as int;
+        final prodId = f['types_produto_id'] ?? f['tipos_produto_id'] as int;
         tempFasesPorProduto.putIfAbsent(prodId, () => []).add(f);
       }
 
-      // 2. Carrega apenas as encomendas EM CURSO (onde fase_atual_id não é nulo) com JOINs estruturados
+      // 2. Carrega apenas as encomendas EM CURSO com JOINs estruturados
       final encomendasData = await _supabase
           .from('encomendas')
           .select('id, codigo_rastreio, data_entrega, quantidade, cliente_id, tipos_produtos_id, fase_atual_id, clientes(nome_cliente), tipos_produto:tipos_produtos_id(nome_tipo_produto), fase_atual:fase_atual_id(nome_fase_padrao, ordem)')
           .not('fase_atual_id', 'is', null)
           .order('id', ascending: false);
 
-      setState(() {
-        _fasesPorProduto = tempFasesPorProduto;
-        _encomendas = encomendasData;
-        _isLoading = false;
-      });
-      _filtrarEncomendas();
+      if (mounted) {
+        setState(() {
+          _fasesPorProduto = tempFasesPorProduto;
+          _encomendas = encomendasData;
+          _isLoading = false;
+        });
+        _filtrarEncomendas();
+      }
     } catch (e) {
       _mostrarMensagem('Erro ao carregar ordens: $e', eErro: true);
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  /// Ativa a escuta de eventos em tempo real na tabela encomendas
+  void _ativarSubscricaoRealtime() {
+    _encomendasSubscription = _supabase
+        .channel('public:encomendas_painel')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all, // Ouve INSERTS, UPDATES e DELETES
+          schema: 'public',
+          table: 'encomendas',
+          callback: (payload) {
+            debugPrint('Alteração detetada na produção! A atualizar dados...');
+            // Recarrega os dados em background (silenciosamente) sem disparar o ecrã de carregamento inteiro
+            _carregarDados(mostrarLoader: false);
+          },
+        )
+        .subscribe();
   }
 
   void _filtrarEncomendas() {
@@ -81,7 +109,7 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
 
   // --- OPERAÇÕES E REGRAS DE NEGÓCIO ---
 
-  /// Calcula a percentagem de progresso da encomenda com base no número de fases existentes
+  /// Calcula a percentagem de progresso da encomenda refletindo o trabalho JÁ CONCLUÍDO
   double _calcularProgresso(Map<String, dynamic> enc) {
     final int? prodId = enc['tipos_produtos_id'] as int?;
     final faseAtual = enc['fase_atual'];
@@ -94,10 +122,11 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
     final int ordemAtual = faseAtual['ordem'] as int? ?? 1;
     final int totalFases = fases.length;
 
-    return (ordemAtual / totalFases).clamp(0.0, 1.0);
+    // Subtraímos 1 à ordem atual para garantir que o progresso só conta as fases concluídas.
+    // Se estiver na Fase 1, o progresso é 0%. Só passa para a percentagem seguinte quando a Fase 1 for concluída.
+    return ((ordemAtual - 1) / totalFases).clamp(0.0, 1.0);
   }
 
-  /// Compara a data de entrega com o dia de hoje para alertar se estiver atrasada
   bool _verificarSeAtrasada(String? dataEntregaStr) {
     if (dataEntregaStr == null) return false;
     try {
@@ -110,32 +139,30 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
     }
   }
 
-  /// Elimina uma ordem de produção do sistema
   Future<void> _cancelarOrdem(int id) async {
     try {
       setState(() => _isLoading = true);
       await _supabase.from('encomendas').delete().eq('id', id);
       _mostrarMensagem('Ordem de produção cancelada e removida com sucesso!');
-      _carregarDados();
+      _carregarDados(mostrarLoader: true);
     } catch (e) {
       _mostrarMensagem('Erro ao cancelar ordem: $e', eErro: true);
       setState(() => _isLoading = false);
     }
   }
 
-  /// Avança ou altera as informações da encomenda
   Future<void> _salvarEdicaoOrdem(int id, String novaData, int? novaFaseId) async {
     try {
       setState(() => _isLoading = true);
       
       final dadosAtualizacao = {
         'data_entrega': novaData,
-        'fase_atual_id': novaFaseId, // Se for null, a encomenda fica dada como Concluída!
+        'fase_atual_id': novaFaseId,
       };
 
       await _supabase.from('encomendas').update(dadosAtualizacao).eq('id', id);
-      _mostrarMensagem('Ordem atualizada com sucesso!');
-      _carregarDados();
+      _mostrarMensagem('Ordem updated com sucesso!');
+      _carregarDados(mostrarLoader: true);
     } catch (e) {
       _mostrarMensagem('Erro ao editar ordem: $e', eErro: true);
       setState(() => _isLoading = false);
@@ -175,14 +202,12 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Título da secção
                       const Text(
                         'Ordens de Produção em Curso',
                         style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87),
                       ),
                       const SizedBox(height: 20),
 
-                      // Barra de Pesquisa igual ao teu protótipo
                       TextField(
                         controller: _searchController,
                         decoration: InputDecoration(
@@ -199,7 +224,6 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
                       ),
                       const SizedBox(height: 24),
 
-                      // Lista das Ordens
                       _encomendasFiltradas.isEmpty
                           ? const Padding(
                               padding: EdgeInsets.symmetric(vertical: 40),
@@ -252,7 +276,6 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Detalhes da Esquerda
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -264,7 +287,6 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
                             style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.black87),
                           ),
                           const SizedBox(width: 8),
-                          // Badge do Código de Rastreio
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                             decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(4)),
@@ -275,7 +297,6 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
                           ),
                           if (atrasada) ...[
                             const SizedBox(width: 8),
-                            // Badge de Atraso
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                               decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(4)),
@@ -298,12 +319,9 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
                     ],
                   ),
                 ),
-
-                // Controlos da Direita
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    // Data de Entrega
                     Row(
                       children: [
                         const Icon(Icons.calendar_today_outlined, size: 14, color: Colors.grey),
@@ -315,7 +333,6 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
                       ],
                     ),
                     const SizedBox(height: 16),
-                    // Botões de Ação
                     Row(
                       children: [
                         OutlinedButton.icon(
@@ -342,7 +359,6 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
                       ],
                     ),
                     const SizedBox(height: 16),
-                    // Percentagem textual
                     Text(
                       '$progressoPercentagem% concluído',
                       style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey.shade600),
@@ -353,14 +369,13 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
             ),
           ),
           
-          // 📊 BARRA DE PROGRESSO HORIZONTAL (Sleek design na base do card)
           ClipRRect(
             borderRadius: const BorderRadius.only(bottomLeft: Radius.circular(8), bottomRight: Radius.circular(8)),
             child: LinearProgressIndicator(
               value: progresso,
               minHeight: 6,
               backgroundColor: Colors.grey.shade100,
-              valueColor: AlwaysStoppedAnimation<Color>(const Color(0xFF111625)), // Cor escura idêntica à Sidebar
+              valueColor: AlwaysStoppedAnimation<Color>(const Color(0xFF111625)),
             ),
           ),
         ],
@@ -395,11 +410,9 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
 
   void _abrirDialogEditar(Map<String, dynamic> enc) {
     final dataController = TextEditingController(text: enc['data_entrega']);
-    
     final int prodId = enc['tipos_produtos_id'] as int;
     final fasesDisponiveis = _fasesPorProduto[prodId] ?? [];
     
-    // Procura na lista local qual a fase selecionada atualmente
     dynamic faseSelecionadaLocal;
     try {
       faseSelecionadaLocal = fasesDisponiveis.firstWhere((f) => f['id'] == enc['fase_atual_id']);
@@ -417,7 +430,6 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Campo de Data
                   TextField(
                     controller: dataController,
                     decoration: const InputDecoration(
@@ -440,7 +452,6 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
                   ),
                   const SizedBox(height: 16),
                   
-                  // Seletor de Fase Atual (Para o Admin poder forçar avançar a fase manualmente)
                   DropdownButtonFormField<dynamic>(
                     value: faseSelecionadaLocal,
                     decoration: const InputDecoration(labelText: 'Fase Atual de Produção'),
@@ -470,7 +481,7 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
                     _salvarEdicaoOrdem(
                       enc['id'],
                       dataController.text.trim(),
-                      faseSelecionadaLocal?['id'], // Envia null se selecionado "Dar como Concluída"
+                      faseSelecionadaLocal?['id'],
                     );
                   },
                   child: const Text('Gravar'),

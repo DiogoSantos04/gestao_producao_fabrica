@@ -16,11 +16,16 @@ class _HistoricoOperadorScreenState extends State<HistoricoOperadorScreen> {
   List<dynamic> _historicoFiltrado = [];
   bool _isLoading = true;
 
+  // Variáveis de controlo para ordenação e filtro por data
+  String _colunaOrdenacao = 'data'; // 'codigo', 'produto', 'fase', 'data', 'estado'
+  bool _ordenacaoAscendente = false; // Padrão: mais recentes primeiro
+  DateTime? _dataSelecionada; // Filtro de data específica
+
   @override
   void initState() {
     super.initState();
     _carregarHistorico();
-    _searchController.addListener(_filtrarResultados);
+    _searchController.addListener(_filtrarEReordenarResultados);
   }
 
   @override
@@ -29,7 +34,6 @@ class _HistoricoOperadorScreenState extends State<HistoricoOperadorScreen> {
     super.dispose();
   }
 
-  // Consulta relacional que também busca os registos de incidências associados
   Future<void> _carregarHistorico() async {
     try {
       final user = _supabase.auth.currentUser;
@@ -60,7 +64,7 @@ class _HistoricoOperadorScreenState extends State<HistoricoOperadorScreen> {
       if (mounted) {
         setState(() {
           _historicoCompleto = data;
-          _historicoFiltrado = data;
+          _filtrarEReordenarResultados();
           _isLoading = false;
         });
       }
@@ -72,17 +76,124 @@ class _HistoricoOperadorScreenState extends State<HistoricoOperadorScreen> {
     }
   }
 
-  void _filtrarResultados() {
-    final query = _searchController.text.trim().toLowerCase();
+  Future<void> _selecionarData(BuildContext context) async {
+    final DateTime? dataPick = await showDatePicker(
+      context: context,
+      initialDate: _dataSelecionada ?? DateTime.now(),
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: Color(0xFF2563EB),
+              onPrimary: Colors.white,
+              onSurface: Color(0xFF0F172A),
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (dataPick != null) {
+      setState(() {
+        _dataSelecionada = dataPick;
+        _filtrarEReordenarResultados();
+      });
+    }
+  }
+
+  void _limparFiltroData() {
     setState(() {
-      if (query.isEmpty) {
-        _historicoFiltrado = _historicoCompleto;
+      _dataSelecionada = null;
+      _filtrarEReordenarResultados();
+    });
+  }
+
+  void _alternarOrdenacao(String coluna) {
+    setState(() {
+      if (_colunaOrdenacao == coluna) {
+        _ordenacaoAscendente = !_ordenacaoAscendente;
       } else {
-        _historicoFiltrado = _historicoCompleto.where((registo) {
-          final codigo = registo['encomendas']?['codigo_rastreio']?.toString().toLowerCase() ?? '';
-          return codigo.contains(query);
-        }).toList();
+        _colunaOrdenacao = coluna;
+        _ordenacaoAscendente = true;
       }
+      _filtrarEReordenarResultados();
+    });
+  }
+
+  void _filtrarEReordenarResultados() {
+    final query = _searchController.text.trim().toLowerCase();
+    
+    // 1. Filtragem por Texto e por Data Específica
+    List<dynamic> resultado = _historicoCompleto.where((registo) {
+      // Filtro por Texto (Código de Rastreio)
+      bool bateTexto = query.isEmpty ||
+          (registo['encomendas']?['codigo_rastreio']?.toString().toLowerCase().contains(query) ?? false);
+
+      // Filtro por Data
+      bool bateData = true;
+      if (_dataSelecionada != null) {
+        final String? dtStr = registo['data_conclusao'];
+        if (dtStr != null) {
+          final dt = DateTime.tryParse(dtStr);
+          if (dt != null) {
+            bateData = dt.year == _dataSelecionada!.year &&
+                       dt.month == _dataSelecionada!.month &&
+                       dt.day == _dataSelecionada!.day;
+          } else {
+            bateData = false;
+          }
+        } else {
+          bateData = false;
+        }
+      }
+
+      return bateTexto && bateData;
+    }).toList();
+
+    // 2. Ordenação Dinâmica por Coluna
+    resultado.sort((a, b) {
+      int comparacao = 0;
+
+      switch (_colunaOrdenacao) {
+        case 'codigo':
+          final codA = a['encomendas']?['codigo_rastreio']?.toString().toLowerCase() ?? '';
+          final codB = b['encomendas']?['codigo_rastreio']?.toString().toLowerCase() ?? '';
+          comparacao = codA.compareTo(codB);
+          break;
+
+        case 'produto':
+          final prodA = a['encomendas']?['tipos_produto']?['nome_tipo_produto']?.toString().toLowerCase() ?? '';
+          final prodB = b['encomendas']?['tipos_produto']?['nome_tipo_produto']?.toString().toLowerCase() ?? '';
+          comparacao = prodA.compareTo(prodB);
+          break;
+
+        case 'fase':
+          final faseA = a['fases_padrao']?['nome_fase_padrao']?.toString().toLowerCase() ?? '';
+          final faseB = b['fases_padrao']?['nome_fase_padrao']?.toString().toLowerCase() ?? '';
+          comparacao = faseA.compareTo(faseB);
+          break;
+
+        case 'data':
+          final dtA = DateTime.tryParse(a['data_conclusao'] ?? '') ?? DateTime(1970);
+          final dtB = DateTime.tryParse(b['data_conclusao'] ?? '') ?? DateTime(1970);
+          comparacao = dtA.compareTo(dtB);
+          break;
+
+        case 'estado':
+          final isBloqA = (a['incidencias'] as List? ?? []).isNotEmpty ? 1 : 0;
+          final isBloqB = (b['incidencias'] as List? ?? []).isNotEmpty ? 1 : 0;
+          comparacao = isBloqA.compareTo(isBloqB);
+          break;
+      }
+
+      return _ordenacaoAscendente ? comparacao : -comparacao;
+    });
+
+    setState(() {
+      _historicoFiltrado = resultado;
     });
   }
 
@@ -98,8 +209,60 @@ class _HistoricoOperadorScreenState extends State<HistoricoOperadorScreen> {
     return '$dia/$mes/$ano $hora:$minuto';
   }
 
+  Widget _construirCabecalhoOrdenavel({
+    required String titulo,
+    required String chaveColuna,
+    required int flex,
+    TextAlign alignment = TextAlign.start,
+  }) {
+    final bool estaAtiva = _colunaOrdenacao == chaveColuna;
+
+    return Expanded(
+      flex: flex,
+      child: InkWell(
+        onTap: () => _alternarOrdenacao(chaveColuna),
+        borderRadius: BorderRadius.circular(4),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 2.0),
+          child: Row(
+            mainAxisAlignment: alignment == TextAlign.center
+                ? MainAxisAlignment.center
+                : MainAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(
+                child: Text(
+                  titulo,
+                  textAlign: alignment,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
+                    color: estaAtiva ? const Color(0xFF2563EB) : const Color(0xFF64748B),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 4),
+              Icon(
+                estaAtiva
+                    ? (_ordenacaoAscendente ? Icons.arrow_upward : Icons.arrow_downward)
+                    : Icons.swap_vert,
+                size: 14,
+                color: estaAtiva ? const Color(0xFF2563EB) : const Color(0xFF94A3B8),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final String labelData = _dataSelecionada != null
+        ? '${_dataSelecionada!.day.toString().padLeft(2, '0')}/${_dataSelecionada!.month.toString().padLeft(2, '0')}/${_dataSelecionada!.year}'
+        : 'Filtrar por Data';
+
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       body: _isLoading
@@ -127,25 +290,80 @@ class _HistoricoOperadorScreenState extends State<HistoricoOperadorScreen> {
                   ),
                   const SizedBox(height: 32),
 
-                  Card(
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      side: BorderSide(color: Colors.grey.shade200),
-                    ),
-                    color: Colors.white,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                      child: TextField(
-                        controller: _searchController,
-                        decoration: InputDecoration(
-                          hintText: 'Pesquisar por ID...',
-                          hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 14),
-                          border: InputBorder.none,
-                          icon: const Icon(Icons.search, color: Color(0xFF94A3B8)),
+                  // Barra de Filtros (Pesquisa por Texto + Filtro por Data)
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Card(
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            side: BorderSide(color: Colors.grey.shade200),
+                          ),
+                          color: Colors.white,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                            child: TextField(
+                              controller: _searchController,
+                              decoration: InputDecoration(
+                                hintText: 'Pesquisar por ID...',
+                                hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 14),
+                                border: InputBorder.none,
+                                icon: const Icon(Icons.search, color: Color(0xFF94A3B8)),
+                              ),
+                            ),
+                          ),
                         ),
                       ),
-                    ),
+                      const SizedBox(width: 16),
+                      // Botão de Seleção de Data
+                      Card(
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          side: BorderSide(
+                            color: _dataSelecionada != null ? const Color(0xFF2563EB) : Colors.grey.shade200,
+                          ),
+                        ),
+                        color: _dataSelecionada != null ? const Color(0xFFEFF6FF) : Colors.white,
+                        child: InkWell(
+                          onTap: () => _selecionarData(context),
+                          borderRadius: BorderRadius.circular(12),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.calendar_today_outlined,
+                                  size: 18,
+                                  color: _dataSelecionada != null ? const Color(0xFF2563EB) : const Color(0xFF64748B),
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  labelData,
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: _dataSelecionada != null ? FontWeight.bold : FontWeight.normal,
+                                    color: _dataSelecionada != null ? const Color(0xFF2563EB) : const Color(0xFF64748B),
+                                  ),
+                                ),
+                                if (_dataSelecionada != null) ...[
+                                  const SizedBox(width: 8),
+                                  GestureDetector(
+                                    onTap: _limparFiltroData,
+                                    child: const Icon(
+                                      Icons.close,
+                                      size: 16,
+                                      color: Color(0xFF2563EB),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 24),
 
@@ -161,52 +379,42 @@ class _HistoricoOperadorScreenState extends State<HistoricoOperadorScreen> {
                         borderRadius: BorderRadius.circular(12),
                         child: Column(
                           children: [
-                            // Cabeçalho da Tabela
+                            // Cabeçalho da Tabela com Botões de Ordenação
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                               decoration: BoxDecoration(
                                 color: const Color(0xFFF8FAFC),
                                 border: Border(
                                   bottom: BorderSide(color: Colors.grey.shade200),
                                 ),
                               ),
-                              child: const Row(
+                              child: Row(
                                 children: [
-                                  Expanded(
+                                  _construirCabecalhoOrdenavel(
+                                    titulo: 'ID da Encomenda',
+                                    chaveColuna: 'codigo',
                                     flex: 2,
-                                    child: Text(
-                                      'ID da Encomenda',
-                                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF64748B)),
-                                    ),
                                   ),
-                                  Expanded(
+                                  _construirCabecalhoOrdenavel(
+                                    titulo: 'Produto',
+                                    chaveColuna: 'produto',
                                     flex: 3,
-                                    child: Text(
-                                      'Produto',
-                                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF64748B)),
-                                    ),
                                   ),
-                                  Expanded(
-                                    flex: 3, // Aumentado ligeiramente para caber o motivo
-                                    child: Text(
-                                      'Ação / Fase',
-                                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF64748B)),
-                                    ),
+                                  _construirCabecalhoOrdenavel(
+                                    titulo: 'Ação / Fase',
+                                    chaveColuna: 'fase',
+                                    flex: 3,
                                   ),
-                                  Expanded(
+                                  _construirCabecalhoOrdenavel(
+                                    titulo: 'Data/Hora',
+                                    chaveColuna: 'data',
                                     flex: 2,
-                                    child: Text(
-                                      'Data/Hora',
-                                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF64748B)),
-                                    ),
                                   ),
-                                  Expanded(
+                                  _construirCabecalhoOrdenavel(
+                                    titulo: 'Estado',
+                                    chaveColuna: 'estado',
                                     flex: 1,
-                                    child: Text(
-                                      'Estado',
-                                      textAlign: TextAlign.center,
-                                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF64748B)),
-                                    ),
+                                    alignment: TextAlign.center,
                                   ),
                                 ],
                               ),
@@ -216,7 +424,7 @@ class _HistoricoOperadorScreenState extends State<HistoricoOperadorScreen> {
                               child: _historicoFiltrado.isEmpty
                                   ? const Center(
                                       child: Text(
-                                        'Nenhum registo de produção encontrado.',
+                                        'Nenhum registo de produção encontrado para os filtros selecionados.',
                                         style: TextStyle(color: Colors.grey),
                                       ),
                                     )
@@ -229,7 +437,6 @@ class _HistoricoOperadorScreenState extends State<HistoricoOperadorScreen> {
                                         final fase = item['fases_padrao']?['nome_fase_padrao'] ?? 'N/A';
                                         final dataConclusao = _formatarData(item['data_conclusao']);
 
-                                        // Determinar se este registo de histórico é um bloqueio
                                         final List<dynamic> incidencias = item['incidencias'] ?? [];
                                         final bool isBloqueado = incidencias.isNotEmpty;
                                         final String? motivoBloqueio = isBloqueado ? incidencias.first['motivo'] : null;
@@ -255,7 +462,6 @@ class _HistoricoOperadorScreenState extends State<HistoricoOperadorScreen> {
                                                   style: const TextStyle(fontSize: 14, color: Color(0xFF475569)),
                                                 ),
                                               ),
-                                              // Coluna Ação / Fase (Com aviso de bloqueio em subtexto se aplicável)
                                               Expanded(
                                                 flex: 3,
                                                 child: Column(
@@ -297,7 +503,6 @@ class _HistoricoOperadorScreenState extends State<HistoricoOperadorScreen> {
                                                   style: const TextStyle(fontSize: 13, color: Color(0xFF64748B)),
                                                 ),
                                               ),
-                                              // Badge de Estado Dinâmico (Concluído vs Bloqueado)
                                               Expanded(
                                                 flex: 1,
                                                 child: Center(
@@ -305,16 +510,16 @@ class _HistoricoOperadorScreenState extends State<HistoricoOperadorScreen> {
                                                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                                                     decoration: BoxDecoration(
                                                       color: isBloqueado 
-                                                          ? const Color(0xFFFEE2E2) // Vermelho suave
-                                                          : const Color(0xFFD1FAE5), // Verde suave
+                                                          ? const Color(0xFFFEE2E2)
+                                                          : const Color(0xFFD1FAE5),
                                                       borderRadius: BorderRadius.circular(20),
                                                     ),
                                                     child: Text(
                                                       isBloqueado ? 'Bloqueado' : 'Concluído',
                                                       style: TextStyle(
                                                         color: isBloqueado 
-                                                            ? const Color(0xFF991B1B) // Vermelho escuro
-                                                            : const Color(0xFF065F46), // Verde escuro
+                                                            ? const Color(0xFF991B1B)
+                                                            : const Color(0xFF065F46),
                                                         fontWeight: FontWeight.bold,
                                                         fontSize: 11,
                                                       ),
