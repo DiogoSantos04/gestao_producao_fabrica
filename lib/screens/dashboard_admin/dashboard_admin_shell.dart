@@ -8,7 +8,8 @@ import 'gestao_utilizadores_screen.dart';
 import 'criar_encomenda_screen.dart'; 
 import 'painel_controlo_screen.dart'; 
 import 'gestao_fluxos_screen.dart';
-import 'informacoes_clientes_screen.dart'; // 👈 1. Import do teu novo ficheiro de clientes!
+import 'informacoes_clientes_screen.dart'; 
+import 'relatorios_admin_screen.dart'; // 👈 1. Import do teu novo ecrã de relatórios ativado!
 
 class DashboardAdminShell extends StatefulWidget {
   const DashboardAdminShell({super.key});
@@ -44,8 +45,8 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
       const GestaoUtilizadoresScreen(),
       const CriarEncomendaScreen(),
       const PainelControloScreen(),
-      const ClientesScreen(), // 👈 2. Ativado! Substituído o Placeholder pelo ecrã real de Clientes
-      const PlaceholderScreen(titulo: 'Relatórios', icone: Icons.analytics_outlined),
+      const ClientesScreen(),
+      const RelatoriosAdminScreen(), // 👈 2. Ativado! Substituído o Placeholder pelo ecrã real de Relatórios e Feedback
     ];
 
     return Scaffold(
