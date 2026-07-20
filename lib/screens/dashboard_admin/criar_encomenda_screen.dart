@@ -27,20 +27,28 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
 
   RealtimeChannel? _planeamentoSubscription;
 
-  // 🕹️ Controladores dedicados para tornar as barras de scroll laterais clicáveis no computador
+  // Controladores dedicados para barras de scroll
   final ScrollController _previewScrollController = ScrollController();
   final ScrollController _ultimasScrollController = ScrollController();
+  final ScrollController _pedidosScrollController = ScrollController();
 
   List<dynamic> _clientes = [];
   List<dynamic> _tiposProduto = [];
   List<dynamic> _previewFases = [];
   List<dynamic> _ultimasEncomendas = [];
-  
+  List<dynamic> _pedidosAprovados = []; // 📥 Pedidos vindos da App (Estado: Aprovado)
+
+  // Seleção e formulário
+  int? _pedidoSelecionadoId; // Guarda o ID do pedido da App (se aplicável)
   String? _clienteSelecionado;
   String? _tipoProdutoSelecionado;
+  String? _observacoesPedido;
+  String _prioridadeSelecionada = 'Normal'; // Prioridade da ordem
+  final List<String> _niveisPrioridade = ['Normal', 'Urgente', 'Crítica'];
+
   final _dataEntregaController = TextEditingController();
   final _quantidadeController = TextEditingController(text: '1');
-  
+
   bool _isLoadingData = true;
   bool _isLoadingPreview = false;
   bool _isSaving = false;
@@ -50,50 +58,83 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
     super.initState();
     _carregarDados();
     _inicializarSubscricaoRealtime();
+
+    // ⏱️ Atualizar automaticamente o Lead Time ao alterar a quantidade
+    _quantidadeController.addListener(() {
+      if (mounted) setState(() {});
+    });
   }
 
   @override
   void dispose() {
     _dataEntregaController.dispose();
     _quantidadeController.dispose();
-    _previewScrollController.dispose(); // 👈 Limpeza dos controladores em memória
+    _previewScrollController.dispose();
     _ultimasScrollController.dispose();
+    _pedidosScrollController.dispose();
     if (_planeamentoSubscription != null) {
       _supabase.removeChannel(_planeamentoSubscription!);
     }
     super.dispose();
   }
 
+  // --- CÁLCULOS DO LEAD TIME (TEMPO ESTIMADO DE PRODUÇÃO) ---
+
+  int _calcularTempoUnitarioMinutos() {
+    int totalUnitario = 0;
+    for (var f in _previewFases) {
+      totalUnitario += (f['tempo_estimado'] as num? ?? 0).toInt();
+    }
+    return totalUnitario;
+  }
+
+  int _calcularTempoTotalMinutos() {
+    final int qtd = int.tryParse(_quantidadeController.text) ?? 1;
+    return _calcularTempoUnitarioMinutos() * (qtd > 0 ? qtd : 1);
+  }
+
+  String _formatarTempo(int minutos) {
+    if (minutos <= 0) return '0 min';
+    final int horas = minutos ~/ 60;
+    final int minsRestantes = minutos % 60;
+
+    if (horas == 0) return '${minsRestantes}m';
+    if (minsRestantes == 0) return '${horas}h';
+    return '${horas}h ${minsRestantes}m';
+  }
+
   // --- BUSCA DE DADOS & REALTIME (SUPABASE) ---
 
   void _inicializarSubscricaoRealtime() {
-    _planeamentoSubscription = _supabase.channel('db-planeamento-realtime')
-      .onPostgresChanges(
-        event: PostgresChangeEvent.all,
-        schema: 'public',
-        table: 'tipos_produto',
-        callback: (payload) {
-          debugPrint('⚡ [Realtime] Tipos de produto atualizados detetados!');
-          _carregarDados();
-        },
-      )
-      .onPostgresChanges(
-        event: PostgresChangeEvent.all,
-        schema: 'public',
-        table: 'clientes', // 👈 SOLUÇÃO: Adicionado o listener em tempo real para a tabela de clientes!
-        callback: (payload) {
-          debugPrint('⚡ [Realtime] Base de dados de clientes atualizada! Recarregando...');
-          _carregarDados();
-        },
-      )
-      .onPostgresChanges(
-        event: PostgresChangeEvent.all,
-        schema: 'public',
-        table: 'encomendas',
-        callback: (payload) {
-          _carregarDados();
-        },
-      );
+    _planeamentoSubscription = _supabase
+        .channel('db-planeamento-realtime')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'pedidos_encomenda', // ⚡ Ouve novos pedidos aprovados pela app
+          callback: (payload) {
+            debugPrint('⚡ [Realtime] Alteração detetada nos Pedidos!');
+            _carregarDados();
+          },
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'tipos_produto',
+          callback: (payload) => _carregarDados(),
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'clientes',
+          callback: (payload) => _carregarDados(),
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'encomendas',
+          callback: (payload) => _carregarDados(),
+        );
 
     _planeamentoSubscription?.subscribe();
   }
@@ -102,10 +143,17 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
     try {
       final clientesData = await _supabase.from('clientes').select('id, nome_cliente').order('nome_cliente', ascending: true);
       final produtosData = await _supabase.from('tipos_produto').select('id, nome_tipo_produto').order('nome_tipo_produto');
-      
+
+      // Buscar Pedidos da App que foram Aprovados e aguardam Agendamento de Produção
+      final pedidosData = await _supabase
+          .from('pedidos_encomenda')
+          .select('id, quantidade, observacoes, estado, cliente_id, tipo_produto_id, clientes(nome_cliente), tipos_produto:tipo_produto_id(nome_tipo_produto)')
+          .or('estado.ilike.Aprovado%,estado.eq.Aprovado')
+          .order('id', ascending: false);
+
       final encomendasData = await _supabase
           .from('encomendas')
-          .select('id, codigo_rastreio, data_entrega, quantidade, clientes(nome_cliente), tipos_produto:tipos_produtos_id(nome_tipo_produto)')
+          .select('id, codigo_rastreio, data_entrega, quantidade, prioridade, clientes(nome_cliente), tipos_produto:tipos_produtos_id(nome_tipo_produto)')
           .order('id', ascending: false)
           .limit(15);
 
@@ -113,6 +161,7 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
         setState(() {
           _clientes = clientesData;
           _tiposProduto = produtosData;
+          _pedidosAprovados = pedidosData;
           _ultimasEncomendas = encomendasData;
           _isLoadingData = false;
         });
@@ -141,7 +190,6 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
           _previewFases = fasesData;
           _isLoadingPreview = false;
         });
-        // Faz reset ao scroll para o topo sempre que carrega um produto novo
         if (_previewScrollController.hasClients) {
           _previewScrollController.jumpTo(0);
         }
@@ -150,6 +198,36 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
       _mostrarMensagem('Erro ao gerar pré-visualização: $e', eErro: true);
       if (mounted) setState(() => _isLoadingPreview = false);
     }
+  }
+
+  // --- LÓGICA DE SELEÇÃO AUTOMÁTICA DO PEDIDO ---
+
+  void _selecionarPedidoParaAgendar(Map<String, dynamic> pedido) {
+    setState(() {
+      _pedidoSelecionadoId = pedido['id'];
+      _clienteSelecionado = pedido['cliente_id']?.toString();
+      _tipoProdutoSelecionado = pedido['tipo_produto_id']?.toString();
+      _quantidadeController.text = (pedido['quantidade'] ?? 1).toString();
+      _observacoesPedido = pedido['observacoes'];
+      _prioridadeSelecionada = 'Normal';
+    });
+
+    if (_tipoProdutoSelecionado != null) {
+      _carregarPreviewFluxo(_tipoProdutoSelecionado!);
+    }
+  }
+
+  void _limparSelecaoPedido() {
+    setState(() {
+      _pedidoSelecionadoId = null;
+      _clienteSelecionado = null;
+      _tipoProdutoSelecionado = null;
+      _observacoesPedido = null;
+      _dataEntregaController.clear();
+      _quantidadeController.text = '1';
+      _prioridadeSelecionada = 'Normal';
+      _previewFases = [];
+    });
   }
 
   // --- REGRAS DE NEGÓCIO ---
@@ -183,6 +261,7 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
       final faseInicialId = faseInicialData['id'];
       final codigoRastreio = _gerarCodigoRastreio();
 
+      // 1. Criar a Ordem Oficial de Produção com Prioridade
       await _supabase.from('encomendas').insert({
         'codigo_rastreio': codigoRastreio,
         'data_entrega': _dataEntregaController.text,
@@ -190,19 +269,21 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
         'tipos_produtos_id': prodId,
         'fase_atual_id': faseInicialId,
         'quantidade': int.parse(_quantidadeController.text),
+        'prioridade': _prioridadeSelecionada,
       });
 
-      _mostrarMensagem('Ordem $codigoRastreio lançada com sucesso!');
-      
-      setState(() {
-        _clienteSelecionado = null;
-        _tipoProdutoSelecionado = null;
-        _dataEntregaController.clear();
-        _quantidadeController.text = '1';
-        _previewFases = [];
-      });
+      // 2. Se a ordem veio de um Pedido da App, atualizar o estado do pedido para 'Em Produção'
+      if (_pedidoSelecionadoId != null) {
+        await _supabase
+            .from('pedidos_encomenda')
+            .update({'estado': 'Em Produção'})
+            .eq('id', _pedidoSelecionadoId!);
+      }
+
+      _mostrarMensagem('Ordem $codigoRastreio lançada para produção com prioridade $_prioridadeSelecionada!');
+
+      _limparSelecaoPedido();
       _carregarDados();
-
     } catch (e) {
       _mostrarMensagem('Erro ao lançar encomenda: ${e.toString().replaceAll('Exception: ', '')}', eErro: true);
     } finally {
@@ -248,7 +329,7 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
     }
   }
 
-  // --- CONSTRUÇÃO DA UI RESPONSIVA ---
+  // --- UI CONSTRUÇÃO ---
 
   @override
   Widget build(BuildContext context) {
@@ -261,27 +342,24 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
 
     return ScrollConfiguration(
       behavior: MouseDragScrollBehavior(),
-      child: eDesktop
-          ? Scaffold(
-              backgroundColor: Colors.grey.shade50,
-              body: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Planeamento',
-                      style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 20),
-                    Expanded(
-                      child: Row(
+      child: Scaffold(
+        backgroundColor: Colors.grey.shade50,
+        body: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Planeamento & Lançamento de Produção',
+                style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 20),
+              Expanded(
+                child: eDesktop
+                    ? Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Expanded(
-                            flex: 4, 
-                            child: SingleChildScrollView(child: _buildPainelEsquerdoForm())
-                          ),
+                          Expanded(flex: 4, child: SingleChildScrollView(child: _buildPainelEsquerdoForm())),
                           const SizedBox(width: 24),
                           Expanded(
                             flex: 3,
@@ -294,166 +372,18 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
                             ),
                           ),
                         ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            )
-          : Scaffold(
-              backgroundColor: Colors.grey.shade50,
-              body: SingleChildScrollView(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Planeamento',
-                      style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 20),
-                    _buildPainelEsquerdoForm(),
-                    const SizedBox(height: 24),
-                    _buildPainelDireitoPreview(eDesktop: false),
-                    const SizedBox(height: 24),
-                    _buildPainelDireitoUltimas(eDesktop: false),
-                  ],
-                ),
-              ),
-            ),
-    );
-  }
-
-  // --- COLUNA DA ESQUERDA: FORMULÁRIO ---
-  Widget _buildPainelEsquerdoForm() {
-    return Card(
-      color: Colors.white,
-      elevation: 1,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: Colors.grey.shade200),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Lançar Nova Encomenda',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Preencha os dados para iniciar uma nova ordem de produção',
-                style: TextStyle(fontSize: 13, color: Colors.grey.shade500),
-              ),
-              const SizedBox(height: 32),
-
-              const Text('Seleção de Cliente', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87)),
-              const SizedBox(height: 8),
-              DropdownButtonFormField<String>(
-                value: _clienteSelecionado,
-                decoration: InputDecoration(
-                  hintText: 'Selecione um cliente',
-                  fillColor: Colors.grey.shade100,
-                  filled: true,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-                ),
-                items: _clientes.map((c) {
-                  return DropdownMenuItem<String>(
-                    value: c['id'].toString(),
-                    child: Text(c['nome_cliente'] ?? ''),
-                  );
-                }).toList(),
-                onChanged: (val) => setState(() => _clienteSelecionado = val),
-                validator: (val) => val == null ? 'Selecione um cliente' : null,
-              ),
-              const SizedBox(height: 20),
-
-              const Text('Tipo de Produto', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87)),
-              const SizedBox(height: 8),
-              DropdownButtonFormField<String>(
-                value: _tipoProdutoSelecionado,
-                decoration: InputDecoration(
-                  hintText: 'Selecione o tipo de produto',
-                  fillColor: Colors.grey.shade100,
-                  filled: true,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-                ),
-                items: _tiposProduto.map((p) {
-                  return DropdownMenuItem<String>(
-                    value: p['id'].toString(),
-                    child: Text(p['nome_tipo_produto'] ?? ''),
-                  );
-                }).toList(),
-                onChanged: (val) {
-                  setState(() => _tipoProdutoSelecionado = val);
-                  if (val != null) _carregarPreviewFluxo(val);
-                },
-                validator: (val) => val == null ? 'Selecione um tipo de produto' : null,
-              ),
-              const SizedBox(height: 20),
-
-              const Text('Data Prevista de Entrega', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87)),
-              const SizedBox(height: 8),
-              TextFormField(
-                controller: _dataEntregaController,
-                readOnly: true,
-                onTap: () => _selecionarData(context),
-                decoration: InputDecoration(
-                  hintText: 'dd / mm / aaaa',
-                  fillColor: Colors.grey.shade100,
-                  filled: true,
-                  suffixIcon: const Icon(Icons.calendar_month_outlined, color: Colors.black54),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                ),
-                validator: (val) => (val == null || val.isEmpty) ? 'Indique o prazo de entrega' : null,
-              ),
-              const SizedBox(height: 20),
-
-              const Text('Quantidade', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87)),
-              const SizedBox(height: 8),
-              TextFormField(
-                controller: _quantidadeController,
-                keyboardType: TextInputType.number,
-                decoration: InputDecoration(
-                  hintText: 'Ex: 100',
-                  fillColor: Colors.grey.shade100,
-                  filled: true,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                ),
-                validator: (val) {
-                  if (val == null || val.isEmpty) return 'Indique a quantidade';
-                  if (int.tryParse(val) == null || int.parse(val) <= 0) return 'Indique um número válido superior a 0';
-                  return null;
-                },
-              ),
-              const SizedBox(height: 32),
-
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: _isSaving ? null : _lancarEncomenda,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF111625),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 20),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    elevation: 0,
-                  ),
-                  child: _isSaving
-                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                      : const Text(
-                          'Lançar Encomenda',
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, letterSpacing: 0.5),
+                      )
+                    : SingleChildScrollView(
+                        child: Column(
+                          children: [
+                            _buildPainelEsquerdoForm(),
+                            const SizedBox(height: 24),
+                            _buildPainelDireitoPreview(eDesktop: false),
+                            const SizedBox(height: 24),
+                            _buildPainelDireitoUltimas(eDesktop: false),
+                          ],
                         ),
-                ),
+                      ),
               ),
             ],
           ),
@@ -462,7 +392,395 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
     );
   }
 
-  // --- COLUNA DA DIREITA (CIMA): PRÉ-VISUALIZAÇÃO ---
+  // --- COLUNA DA ESQUERDA: PEDIDOS APROVADOS & FORMULÁRIO DE LANÇAMENTO ---
+  Widget _buildPainelEsquerdoForm() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // --- SECÇÃO: PEDIDOS DA APP AGUARDANDO AGENDAMENTO ---
+        if (_pedidosAprovados.isNotEmpty) ...[
+          Card(
+            color: Colors.blue.shade50.withOpacity(0.6),
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: BorderSide(color: Colors.blue.shade200),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.move_to_inbox_rounded, color: Colors.blue.shade800, size: 20),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Pedidos Aprovados (App)',
+                            style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.blue.shade900),
+                          ),
+                        ],
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(color: Colors.blue.shade700, borderRadius: BorderRadius.circular(12)),
+                        child: Text(
+                          '${_pedidosAprovados.length} pendentes',
+                          style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Clique num pedido para preencher automaticamente o formulário de agendamento',
+                    style: TextStyle(fontSize: 12, color: Colors.blue.shade800),
+                  ),
+                  const SizedBox(height: 14),
+
+                  SizedBox(
+                    height: 110,
+                    child: Scrollbar(
+                      controller: _pedidosScrollController,
+                      thumbVisibility: true,
+                      child: ListView.builder(
+                        controller: _pedidosScrollController,
+                        scrollDirection: Axis.horizontal,
+                        itemCount: _pedidosAprovados.length,
+                        itemBuilder: (context, idx) {
+                          final ped = _pedidosAprovados[idx];
+                          final bool eOSelecionado = _pedidoSelecionadoId == ped['id'];
+                          final clienteNome = ped['clientes']?['nome_cliente'] ?? 'Cliente';
+                          final prodNome = ped['tipos_produto']?['nome_tipo_produto'] ?? 'Produto';
+
+                          return GestureDetector(
+                            onTap: () => _selecionarPedidoParaAgendar(ped),
+                            child: Container(
+                              width: 240,
+                              margin: const EdgeInsets.only(right: 12, bottom: 8),
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: eOSelecionado ? const Color(0xFF111625) : Colors.white,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: eOSelecionado ? const Color(0xFF111625) : Colors.blue.shade200,
+                                  width: eOSelecionado ? 2 : 1,
+                                ),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          clienteNome,
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 12,
+                                            color: eOSelecionado ? Colors.white : Colors.black87,
+                                          ),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      Text(
+                                        'Qtd: ${ped['quantidade'] ?? 1}',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 11,
+                                          color: eOSelecionado ? Colors.blue.shade200 : Colors.blue.shade700,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  Text(
+                                    prodNome,
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: eOSelecionado ? Colors.grey.shade300 : Colors.grey.shade700,
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  Text(
+                                    ped['observacoes'] != null && ped['observacoes'].toString().isNotEmpty
+                                        ? 'Obs: ${ped['observacoes']}'
+                                        : 'Sem observações',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontStyle: FontStyle.italic,
+                                      color: eOSelecionado ? Colors.grey.shade400 : Colors.grey.shade500,
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+        ],
+
+        // --- FORMULÁRIO PRINCIPAL DE LANÇAMENTO ---
+        Card(
+          color: Colors.white,
+          elevation: 1,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(color: Colors.grey.shade200),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(32),
+            child: Form(
+              key: _formKey,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Lançar Nova Encomenda',
+                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            _pedidoSelecionadoId != null
+                                ? 'Agendando pedido vindo da Aplicação B2B'
+                                : 'Preencha os dados para iniciar uma nova ordem de produção',
+                            style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+                          ),
+                        ],
+                      ),
+                      if (_pedidoSelecionadoId != null)
+                        TextButton.icon(
+                          onPressed: _limparSelecaoPedido,
+                          icon: const Icon(Icons.close_rounded, size: 16, color: Colors.redAccent),
+                          label: const Text('Entrada Manual', style: TextStyle(color: Colors.redAccent, fontSize: 12)),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+
+                  if (_pedidoSelecionadoId != null) ...[
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.amber.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.amber.shade300),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.link_rounded, color: Colors.amber.shade900, size: 18),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Vinculado ao Pedido #${_pedidoSelecionadoId!} da App${_observacoesPedido != null && _observacoesPedido!.isNotEmpty ? " • Nota: $_observacoesPedido" : ""}',
+                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.amber.shade900),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                  ],
+
+                  const Text('Seleção de Cliente', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87)),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<String>(
+                    value: _clienteSelecionado,
+                    decoration: InputDecoration(
+                      hintText: 'Selecione um cliente',
+                      fillColor: Colors.grey.shade100,
+                      filled: true,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                    ),
+                    items: _clientes.map((c) {
+                      return DropdownMenuItem<String>(
+                        value: c['id'].toString(),
+                        child: Text(c['nome_cliente'] ?? ''),
+                      );
+                    }).toList(),
+                    onChanged: (val) => setState(() => _clienteSelecionado = val),
+                    validator: (val) => val == null ? 'Selecione um cliente' : null,
+                  ),
+                  const SizedBox(height: 20),
+
+                  const Text('Tipo de Produto', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87)),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<String>(
+                    value: _tipoProdutoSelecionado,
+                    decoration: InputDecoration(
+                      hintText: 'Selecione o tipo de produto',
+                      fillColor: Colors.grey.shade100,
+                      filled: true,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                    ),
+                    items: _tiposProduto.map((p) {
+                      return DropdownMenuItem<String>(
+                        value: p['id'].toString(),
+                        child: Text(p['nome_tipo_produto'] ?? ''),
+                      );
+                    }).toList(),
+                    onChanged: (val) {
+                      setState(() => _tipoProdutoSelecionado = val);
+                      if (val != null) _carregarPreviewFluxo(val);
+                    },
+                    validator: (val) => val == null ? 'Selecione um tipo de produto' : null,
+                  ),
+                  const SizedBox(height: 20),
+
+                  Row(
+                    children: [
+                      Expanded(
+                        flex: 3,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Data Prevista de Entrega', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87)),
+                            const SizedBox(height: 8),
+                            TextFormField(
+                              controller: _dataEntregaController,
+                              readOnly: true,
+                              onTap: () => _selecionarData(context),
+                              decoration: InputDecoration(
+                                hintText: 'dd / mm / aaaa',
+                                fillColor: Colors.grey.shade100,
+                                filled: true,
+                                suffixIcon: const Icon(Icons.calendar_month_outlined, color: Colors.black54),
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                              ),
+                              validator: (val) => (val == null || val.isEmpty) ? 'Indique o prazo' : null,
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        flex: 2,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Quantidade', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87)),
+                            const SizedBox(height: 8),
+                            TextFormField(
+                              controller: _quantidadeController,
+                              keyboardType: TextInputType.number,
+                              decoration: InputDecoration(
+                                hintText: 'Ex: 100',
+                                fillColor: Colors.grey.shade100,
+                                filled: true,
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                              ),
+                              validator: (val) {
+                                if (val == null || val.isEmpty) return 'Obrigatório';
+                                if (int.tryParse(val) == null || int.parse(val) <= 0) return 'Inválido';
+                                return null;
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+
+                  // SELETOR DE PRIORIDADE DA ORDEM DE PRODUÇÃO
+                  const Text('Prioridade da Ordem', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87)),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<String>(
+                    value: _prioridadeSelecionada,
+                    decoration: InputDecoration(
+                      fillColor: Colors.grey.shade100,
+                      filled: true,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                    ),
+                    items: _niveisPrioridade.map((prio) {
+                      Color corIcone = Colors.grey.shade700;
+                      IconData icone = Icons.circle_outlined;
+
+                      if (prio == 'Urgente') {
+                        corIcone = Colors.orange.shade800;
+                        icone = Icons.warning_amber_rounded;
+                      } else if (prio == 'Crítica') {
+                        corIcone = Colors.red.shade800;
+                        icone = Icons.local_fire_department_rounded;
+                      }
+
+                      return DropdownMenuItem<String>(
+                        value: prio,
+                        child: Row(
+                          children: [
+                            Icon(icone, size: 16, color: corIcone),
+                            const SizedBox(width: 8),
+                            Text(
+                              prio,
+                              style: TextStyle(
+                                fontWeight: prio != 'Normal' ? FontWeight.bold : FontWeight.normal,
+                                color: corIcone,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                    onChanged: (val) {
+                      if (val != null) setState(() => _prioridadeSelecionada = val);
+                    },
+                  ),
+                  const SizedBox(height: 32),
+
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: _isSaving ? null : _lancarEncomenda,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF111625),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 20),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        elevation: 0,
+                      ),
+                      icon: _isSaving
+                          ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                          : const Icon(Icons.rocket_launch_outlined, size: 18),
+                      label: Text(
+                        _pedidoSelecionadoId != null ? 'Lançar Pedido da App para Produção' : 'Lançar Encomenda Manual',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, letterSpacing: 0.5),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // --- COLUNA DA DIREITA (CIMA): PRÉ-VISUALIZAÇÃO & CÁLCULO DE LEAD TIME ---
   Widget _buildPainelDireitoPreview({required bool eDesktop}) {
     Widget conteudo;
 
@@ -476,59 +794,104 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
         ),
       );
     } else {
-      conteudo = Scrollbar(
-        controller: _previewScrollController, 
-        thumbVisibility: true,
-        child: ListView.builder(
-          controller: _previewScrollController, 
-          itemCount: _previewFases.length,
-          padding: const EdgeInsets.only(right: 12),
-          itemBuilder: (context, idx) {
-            final f = _previewFases[idx];
-            return Container(
-              margin: const EdgeInsets.only(bottom: 12),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.grey.shade50,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.grey.shade200),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(6)),
-                    child: Text(
-                      '${f['ordem']}',
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+      conteudo = Column(
+        children: [
+          // ⏱️ CARTÃO INFORMATIVO DE TOTALIZADOR DO LEAD TIME (TEMPO DE PRODUÇÃO)
+          Container(
+            margin: const EdgeInsets.only(bottom: 16),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: Colors.blueGrey.shade50,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.blueGrey.shade100),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.timer_outlined, size: 18, color: Colors.blueGrey.shade800),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Tempo Total Estimado:',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.blueGrey.shade800,
+                      ),
                     ),
+                  ],
+                ),
+                Text(
+                  '${_formatarTempo(_calcularTempoTotalMinutos())} (${_formatarTempo(_calcularTempoUnitarioMinutos())}/unid.)',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.blueGrey.shade900,
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                ),
+              ],
+            ),
+          ),
+
+          // LISTA DE FASES DO FLUXO
+          Expanded(
+            child: Scrollbar(
+              controller: _previewScrollController,
+              thumbVisibility: true,
+              child: ListView.builder(
+                controller: _previewScrollController,
+                itemCount: _previewFases.length,
+                padding: const EdgeInsets.only(right: 12),
+                itemBuilder: (context, idx) {
+                  final f = _previewFases[idx];
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.grey.shade200),
+                    ),
+                    child: Row(
                       children: [
-                        Text(
-                          f['nome_fase_padrao'] ?? '',
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                        ),
-                        if (f['posto_trabalho'] != null && f['posto_trabalho'].toString().isNotEmpty)
-                          Text(
-                            'Posto: ${f['posto_trabalho']}',
-                            style: TextStyle(color: Colors.grey.shade600, fontSize: 11),
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(6)),
+                          child: Text(
+                            '${f['ordem']}',
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
                           ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                f['nome_fase_padrao'] ?? '',
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                              ),
+                              if (f['posto_trabalho'] != null && f['posto_trabalho'].toString().isNotEmpty)
+                                Text(
+                                  'Posto: ${f['posto_trabalho']}',
+                                  style: TextStyle(color: Colors.grey.shade600, fontSize: 11),
+                                ),
+                            ],
+                          ),
+                        ),
+                        Text(
+                          '⏱️ ${f['tempo_estimado']} min',
+                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey.shade600),
+                        ),
                       ],
                     ),
-                  ),
-                  Text(
-                    '⏱️ ${f['tempo_estimado']} min',
-                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey.shade600),
-                  ),
-                ],
+                  );
+                },
               ),
-            );
-          },
-        ),
+            ),
+          ),
+        ],
       );
     }
 
@@ -574,18 +937,31 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
       );
     } else {
       conteudo = Scrollbar(
-        controller: _ultimasScrollController, 
+        controller: _ultimasScrollController,
         thumbVisibility: true,
         child: ListView.builder(
-          controller: _ultimasScrollController, 
+          controller: _ultimasScrollController,
           itemCount: _ultimasEncomendas.length,
           padding: const EdgeInsets.only(right: 12),
           itemBuilder: (context, index) {
             final enc = _ultimasEncomendas[index];
             final idFormated = 'ORD-2026-${enc['id'].toString().padLeft(3, '0')}';
-            
+
             final nomeCliente = enc['clientes'] != null ? enc['clientes']['nome_cliente'] : 'Desconhecido';
             final nomeProduto = enc['tipos_produto'] != null ? enc['tipos_produto']['nome_tipo_produto'] : 'N/A';
+
+            // Tratamento de estilo para prioridade
+            final String prioridade = enc['prioridade'] ?? 'Normal';
+            Color corPrioText = Colors.grey.shade700;
+            Color bgPrio = Colors.grey.shade100;
+
+            if (prioridade == 'Urgente') {
+              corPrioText = Colors.orange.shade900;
+              bgPrio = Colors.orange.shade50;
+            } else if (prioridade == 'Crítica') {
+              corPrioText = Colors.red.shade900;
+              bgPrio = Colors.red.shade50;
+            }
 
             return Container(
               margin: const EdgeInsets.only(bottom: 12),
@@ -602,13 +978,15 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(
+                        Wrap(
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          spacing: 8,
+                          runSpacing: 4,
                           children: [
                             Text(
                               idFormated,
                               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87),
                             ),
-                            const SizedBox(width: 8),
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                               decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(4)),
@@ -617,6 +995,15 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
                                 style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.grey.shade700),
                               ),
                             ),
+                            if (prioridade != 'Normal')
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(color: bgPrio, borderRadius: BorderRadius.circular(4)),
+                                child: Text(
+                                  prioridade.toUpperCase(),
+                                  style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: corPrioText),
+                                ),
+                              ),
                           ],
                         ),
                         const SizedBox(height: 6),

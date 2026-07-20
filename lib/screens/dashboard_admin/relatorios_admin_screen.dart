@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../core/temas_cores.dart';
 
 class MouseDragScrollBehavior extends MaterialScrollBehavior {
@@ -25,7 +26,7 @@ class RelatoriosAdminScreen extends StatefulWidget {
 class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
   final _supabase = Supabase.instance.client;
   final _formKey = GlobalKey<FormState>();
-  
+
   final _dataInicioController = TextEditingController();
   final _dataFimController = TextEditingController();
   final ScrollController _feedbackScrollController = ScrollController();
@@ -38,9 +39,16 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
   double _taxaEntregaNoPrazo = 0.0;
   double _avaliacaoMedia = 0.0;
 
+  // Variáveis dos Filtros Avançados
+  int? _clienteSelecionadoId;
+  int? _tipoProdutoSelecionadoId;
+
+  List<dynamic> _clientesLista = [];
+  List<dynamic> _tiposProdutoLista = [];
   List<dynamic> _feedbacks = [];
   List<dynamic> _encomendasGeral = [];
   List<dynamic> _dadosHistorico = [];
+  List<dynamic> _historicoRelatorios = []; // Guarda os relatórios gerados da BD
   Map<int, int> _ultimaFasePorProduto = {};
 
   @override
@@ -64,26 +72,44 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
       if (!mounted) return;
       setState(() => _isLoading = true);
 
-      // 1. Procurar os Feedbacks Reais
+      // 1. Carregar lista de Clientes para o Dropdown
+      final dadosClientes = await _supabase
+          .from('clientes')
+          .select('id, nome_cliente')
+          .order('nome_cliente');
+
+      // 2. Carregar lista de Tipos de Produto para o Dropdown
+      final dadosTiposProduto = await _supabase
+          .from('tipos_produto')
+          .select('id, nome_tipo_produto')
+          .order('nome_tipo_produto');
+
+      // 3. Procurar os Feedbacks Reais
       final dadosAvaliacoes = await _supabase
           .from('avaliacoes')
           .select('nota, comentario, data_registo, encomendas(codigo_rastreio), clientes(nome_cliente)')
           .order('data_registo', ascending: false);
 
-      // 2. Procurar as encomendas trazendo relacionamentos para o PDF
+      // 4. Procurar as encomendas trazendo relacionamentos para o PDF e filtros
       final dadosEncomendas = await _supabase
           .from('encomendas')
-          .select('id, codigo_rastreio, data_entrega, fase_atual_id, tipos_produtos_id, clientes(nome_cliente), tipos_produto:tipos_produtos_id(nome_tipo_produto)');
+          .select('id, codigo_rastreio, data_entrega, fase_atual_id, cliente_id, tipos_produtos_id, clientes(nome_cliente), tipos_produto:tipos_produtos_id(nome_tipo_produto)');
 
-      // 3. Procurar o histórico de produção completo
+      // 5. Procurar o histórico de produção completo
       final dadosHistorico = await _supabase
           .from('historico_producao')
           .select('encomenda_id, data_conclusao, fase_concluida_id');
 
-      // 4. Procurar a tabela de fases para mapear qual é o fim de linha de cada produto
+      // 6. Procurar a tabela de fases para mapear qual é o fim de linha de cada produto
       final dadosFases = await _supabase
           .from('fases_padrao')
           .select('id, ordem, tipos_produto_id');
+
+      // 7. Procurar o histórico de relatórios emitidos anteriormente (Auditoria)
+      final dadosHistoricoRelatorios = await _supabase
+          .from('historico_relatorios')
+          .select('*')
+          .order('data_geracao', ascending: false);
 
       // --- MAPEAMENTO DAS ÚLTIMAS FASES ---
       Map<int, int> ultimaFasePorProduto = {};
@@ -126,11 +152,10 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
 
         final int? idUltimaFase = ultimaFasePorProduto[prodId];
         final historicoDaEncomenda = dadosHistorico.where((h) => h['encomenda_id'] == idEnc).toList();
-        
+
         bool estaConcluida = false;
         DateTime? dataConclusaoReal;
 
-        // Regra A: Verifica se a última fase do fluxo já foi guardada no histórico de conclusões
         if (idUltimaFase != null) {
           final registoFim = historicoDaEncomenda.where((h) => h['fase_concluida_id'] == idUltimaFase).toList();
           if (registoFim.isNotEmpty) {
@@ -139,7 +164,6 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
           }
         }
 
-        // Regra B: Se o admin alterou o estado diretamente na tabela encomendas para a fase final
         if (!estaConcluida && faseAtualId == idUltimaFase && idUltimaFase != null) {
           estaConcluida = true;
           if (historicoDaEncomenda.isNotEmpty) {
@@ -165,9 +189,12 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
 
       if (mounted) {
         setState(() {
+          _clientesLista = dadosClientes;
+          _tiposProdutoLista = dadosTiposProduto;
           _feedbacks = dadosAvaliacoes;
           _encomendasGeral = dadosEncomendas;
           _dadosHistorico = dadosHistorico;
+          _historicoRelatorios = dadosHistoricoRelatorios;
           _ultimaFasePorProduto = ultimaFasePorProduto;
           _encomendasConcluidas = concluidas;
           _taxaEntregaNoPrazo = concluidas > 0 ? (noPrazo / concluidas) : 0.0;
@@ -180,28 +207,61 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
     }
   }
 
-  // --- GERAÇÃO DO DOCUMENTO PDF REAL ---
+  // --- GERAÇÃO DO DOCUMENTO PDF REAL E UPLOAD EMPRESARIAL ---
 
   Future<void> _gerarRelatorioPDF() async {
     if (!_formKey.currentState!.validate()) return;
-    
+
     setState(() => _isExporting = true);
 
     try {
       final DateTime dataInicioFiltro = DateTime.parse(_dataInicioController.text);
       final DateTime dataFimFiltro = DateTime.parse(_dataFimController.text).add(const Duration(days: 1));
 
+      // Capturar dados do utilizador para auditoria
+      final currentUser = _supabase.auth.currentUser;
+      final String utilizadorAuditoria = currentUser?.email ?? 'Administrador';
+      final DateTime momentoEmissao = DateTime.now();
+      final String dataEmissaoStr = "${momentoEmissao.day.toString().padLeft(2, '0')}/${momentoEmissao.month.toString().padLeft(2, '0')}/${momentoEmissao.year} às ${momentoEmissao.hour.toString().padLeft(2, '0')}:${momentoEmissao.minute.toString().padLeft(2, '0')}";
+
+      // RESOLVIDO: Filtro de segurança contra conflitos de tipo em tempo de execução
+      String nomeClienteFiltro = 'Todos';
+      if (_clienteSelecionadoId != null) {
+        final clienteFiltrado = _clientesLista.where((c) => c['id'] == _clienteSelecionadoId);
+        if (clienteFiltrado.isNotEmpty) {
+          nomeClienteFiltro = clienteFiltrado.first['nome_cliente'] ?? 'Todos';
+        }
+      }
+
+      String nomeProdutoFiltro = 'Todos';
+      if (_tipoProdutoSelecionadoId != null) {
+        final produtoFiltrado = _tiposProdutoLista.where((p) => p['id'] == _tipoProdutoSelecionadoId);
+        if (produtoFiltrado.isNotEmpty) {
+          nomeProdutoFiltro = produtoFiltrado.first['nome_tipo_produto'] ?? 'Todos';
+        }
+      }
+
       int concluidasNoPeriodo = 0;
       int noPrazoNoPeriodo = 0;
       List<List<String>> linhasTabelaPDF = [];
 
-      // Processar dados apenas para o período selecionado
       for (var enc in _encomendasGeral) {
         final int idEnc = enc['id'];
+        final int? encClienteId = enc['cliente_id'];
         final int? prodId = enc['tipos_produtos_id'];
         final DateTime? dataPrometida = enc['data_entrega'] != null ? DateTime.parse(enc['data_entrega']) : null;
         final int? idUltimaFase = _ultimaFasePorProduto[prodId];
-        
+
+        // 1. Filtro de Cliente
+        if (_clienteSelecionadoId != null && encClienteId != _clienteSelecionadoId) {
+          continue;
+        }
+
+        // 2. Filtro de Tipo de Produto
+        if (_tipoProdutoSelecionadoId != null && prodId != _tipoProdutoSelecionadoId) {
+          continue;
+        }
+
         final historicoDaEncomenda = _dadosHistorico.where((h) => h['encomenda_id'] == idEnc).toList();
         DateTime? dataConclusaoReal;
         bool estaConcluida = false;
@@ -214,15 +274,18 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
           }
         }
 
-        // Se a ordem foi concluída dentro do intervalo escolhido pelo Admin
+        // 3. Filtro por Intervalo de Datas
         if (estaConcluida && dataConclusaoReal != null) {
           if (dataConclusaoReal.isAfter(dataInicioFiltro) && dataConclusaoReal.isBefore(dataFimFiltro)) {
             concluidasNoPeriodo++;
-            
-            final DateTime dataPrometidaDia = DateTime(dataPrometida!.year, dataPrometida.month, dataPrometida.day);
-            final DateTime dataConclusaoDia = DateTime(dataConclusaoReal.year, dataConclusaoReal.month, dataConclusaoReal.day);
 
-            bool dentroDoPrazo = dataConclusaoDia.isBefore(dataPrometidaDia) || dataConclusaoDia.isAtSameMomentAs(dataPrometidaDia);
+            bool dentroDoPrazo = false;
+            if (dataPrometida != null) {
+              final DateTime dataPrometidaDia = DateTime(dataPrometida.year, dataPrometida.month, dataPrometida.day);
+              final DateTime dataConclusaoDia = DateTime(dataConclusaoReal.year, dataConclusaoReal.month, dataConclusaoReal.day);
+              dentroDoPrazo = dataConclusaoDia.isBefore(dataPrometidaDia) || dataConclusaoDia.isAtSameMomentAs(dataPrometidaDia);
+            }
+
             if (dentroDoPrazo) {
               noPrazoNoPeriodo++;
             }
@@ -240,12 +303,24 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
 
       final double taxaNoPeriodo = concluidasNoPeriodo > 0 ? (noPrazoNoPeriodo / concluidasNoPeriodo) : 0.0;
 
-      // Desenhar a estrutura do PDF
+      // Desenhar a estrutura do PDF com Carimbo de Auditoria e Segmentação
       final pdf = pw.Document();
       pdf.addPage(
         pw.MultiPage(
           pageFormat: PdfPageFormat.a4,
           margin: const pw.EdgeInsets.all(32),
+          footer: (pw.Context context) {
+            return pw.Container(
+              alignment: pw.Alignment.centerRight,
+              margin: const pw.EdgeInsets.only(top: 10),
+              padding: const pw.EdgeInsets.only(top: 10),
+              decoration: const pw.BoxDecoration(border: pw.Border(top: pw.BorderSide(color: PdfColors.grey300))),
+              child: pw.Text(
+                'Documento Auditado - Gerado por: $utilizadorAuditoria em $dataEmissaoStr',
+                style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600),
+              ),
+            );
+          },
           build: (pw.Context context) => [
             pw.Row(
               mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
@@ -256,8 +331,23 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
             ),
             pw.SizedBox(height: 8),
             pw.Divider(thickness: 1, color: PdfColors.grey400),
-            pw.SizedBox(height: 12),
-            pw.Text('Periodo analisado: ${_dataInicioController.text} ate ${_dataFimController.text}', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
+            pw.SizedBox(height: 10),
+            
+            // Secção de Parâmetros de Filtro
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Text('Periodo: ${_dataInicioController.text} ate ${_dataFimController.text}', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+                pw.Text('Emitido por: $utilizadorAuditoria', style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
+              ],
+            ),
+            pw.SizedBox(height: 4),
+            pw.Row(
+              children: [
+                pw.Text('Filtros Aplicados: ', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: PdfColors.blueGrey800)),
+                pw.Text('Cliente: $nomeClienteFiltro  |  Produto: $nomeProdutoFiltro', style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey800)),
+              ],
+            ),
             pw.SizedBox(height: 20),
 
             pw.Text('Indicadores de Desempenho do Periodo', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold, color: PdfColors.blueGrey800)),
@@ -297,7 +387,7 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
             linhasTabelaPDF.isEmpty
                 ? pw.Padding(
                     padding: const pw.EdgeInsets.only(top: 16),
-                    child: pw.Center(child: pw.Text('Nenhuma ordem de producao foi finalizada neste intervalo.', style: pw.TextStyle(fontStyle: pw.FontStyle.italic, color: PdfColors.grey600))),
+                    child: pw.Center(child: pw.Text('Nenhuma ordem de producao corresponde aos filtros selecionados.', style: pw.TextStyle(fontStyle: pw.FontStyle.italic, color: PdfColors.grey600))),
                   )
                 : pw.Table.fromTextArray(
                     headers: ['Codigo', 'Cliente', 'Produto', 'Data Conclusao', 'Estado'],
@@ -318,15 +408,73 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
         ),
       );
 
-      // Disparar o visualizador nativo do sistema operacional
+      final bytesPDF = await pdf.save();
+
+      // --- PERSISTÊNCIA DE AUDITORIA NO SUPABASE ---
+      try {
+        final String nomeFicheiro = 'relatorio_${DateTime.now().millisecondsSinceEpoch}.pdf';
+
+        // 1. Upload do PDF físico
+        await _supabase.storage.from('relatorios').uploadBinary(
+              nomeFicheiro,
+              bytesPDF,
+              fileOptions: const FileOptions(contentType: 'application/pdf'),
+            );
+
+        // 2. Obter URL pública
+        final String urlPublica = _supabase.storage.from('relatorios').getPublicUrl(nomeFicheiro);
+
+        // 3. Registar o Log de Auditoria na Tabela Relacional
+        await _supabase.from('historico_relatorios').insert({
+          'periodo_inicio': _dataInicioController.text,
+          'periodo_fim': _dataFimController.text,
+          'total_concluidas': concluidasNoPeriodo,
+          'taxa_prazo': double.parse((taxaNoPeriodo * 100).toStringAsFixed(2)),
+          'url_pdf': urlPublica,
+          'gerado_por': utilizadorAuditoria,
+        });
+
+        // Recarregar os relatórios para atualizar a interface com o novo log
+        await _carregarDadosReais();
+      } catch (cloudError) {
+        debugPrint('Aviso de Auditoria Cloud: $cloudError');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Aviso: PDF gerado, mas o registo de auditoria falhou na nuvem: $cloudError'),
+              backgroundColor: Colors.orange.shade700,
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        }
+      }
+
+      // --- ABRIR VISUALIZADOR NATIVO DE IMPRESSÃO ---
       await Printing.layoutPdf(
-        onLayout: (format) async => pdf.save(),
+        onLayout: (format) async => bytesPDF,
         name: 'Relatorio_Fabrica_${_dataInicioController.text}.pdf',
       );
     } catch (e) {
-      debugPrint('Erro ao exportar PDF: $e');
+      debugPrint('Erro ao gerar relatório: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erro estrutural ao renderizar PDF: $e'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
     } finally {
       if (mounted) setState(() => _isExporting = false);
+    }
+  }
+
+  Future<void> _abrirUrlFicheiro(String url) async {
+    final Uri uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else {
+      debugPrint('Não foi possível abrir o ficheiro: $url');
     }
   }
 
@@ -413,7 +561,7 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
             children: [
               const Text('Gerar Relatório', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87)),
               const SizedBox(height: 4),
-              Text('Selecione o período para análise', style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+              Text('Selecione o período e os filtros para análise', style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
               const SizedBox(height: 24),
 
               const Text('Data de Início', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87)),
@@ -450,6 +598,60 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
                 ),
                 validator: (val) => (val == null || val.isEmpty) ? 'Obrigatório' : null,
               ),
+              const SizedBox(height: 16),
+
+              // --- FILTRO DE SEGMENTAÇÃO: CLIENTE ---
+              const Text('Filtrar por Cliente', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87)),
+              const SizedBox(height: 8),
+              DropdownButtonFormField<int?>(
+                value: _clienteSelecionadoId,
+                decoration: InputDecoration(
+                  fillColor: Colors.grey.shade100,
+                  filled: true,
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                ),
+                items: [
+                  const DropdownMenuItem<int?>(
+                    value: null,
+                    child: Text('Todos os Clientes', style: TextStyle(fontSize: 13)),
+                  ),
+                  ..._clientesLista.map((c) {
+                    return DropdownMenuItem<int?>(
+                      value: c['id'] as int,
+                      child: Text(c['nome_cliente'] ?? '', style: const TextStyle(fontSize: 13)),
+                    );
+                  }),
+                ],
+                onChanged: (val) => setState(() => _clienteSelecionadoId = val),
+              ),
+              const SizedBox(height: 16),
+
+              // --- FILTRO DE SEGMENTAÇÃO: TIPO DE PRODUTO ---
+              const Text('Filtrar por Tipo de Produto', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87)),
+              const SizedBox(height: 8),
+              DropdownButtonFormField<int?>(
+                value: _tipoProdutoSelecionadoId,
+                decoration: InputDecoration(
+                  fillColor: Colors.grey.shade100,
+                  filled: true,
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                ),
+                items: [
+                  const DropdownMenuItem<int?>(
+                    value: null,
+                    child: Text('Todos os Tipos de Produto', style: TextStyle(fontSize: 13)),
+                  ),
+                  ..._tiposProdutoLista.map((p) {
+                    return DropdownMenuItem<int?>(
+                      value: p['id'] as int,
+                      child: Text(p['nome_tipo_produto'] ?? '', style: const TextStyle(fontSize: 13)),
+                    );
+                  }),
+                ],
+                onChanged: (val) => setState(() => _tipoProdutoSelecionadoId = val),
+              ),
               const SizedBox(height: 24),
 
               SizedBox(
@@ -463,7 +665,7 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                     elevation: 0,
                   ),
-                  icon: _isExporting 
+                  icon: _isExporting
                       ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
                       : const Icon(Icons.picture_as_pdf_outlined, size: 18),
                   label: const Text('Gerar Relatório (PDF)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
@@ -475,7 +677,7 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
                 child: Divider(),
               ),
 
-              const Text('Estatísticas Rápidas', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.black87)),
+              const Text('Estatísticas Rápidas Globais', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.black87)),
               const SizedBox(height: 20),
 
               _buildRowIndicador('Encomendas Concluídas', '$_encomendasConcluidas'),
@@ -515,6 +717,88 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
                   ),
                 ],
               ),
+
+              // --- MÓDULO DE AUDITORIA E LOGS ---
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 24),
+                child: Divider(),
+              ),
+              const Text('Histórico e Logs de Auditoria', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.black87)),
+              const SizedBox(height: 4),
+              Text('Registos imutáveis com autoria das emissões', style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
+              const SizedBox(height: 16),
+
+              _historicoRelatorios.isEmpty
+                  ? Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      child: Text('Nenhum relatório emitido guardado.', style: TextStyle(fontSize: 12, color: Colors.grey.shade400, fontStyle: FontStyle.italic)),
+                    )
+                  : Column(
+                      children: List.generate(_historicoRelatorios.length, (idx) {
+                        final rel = _historicoRelatorios[idx];
+                        final String inicio = rel['periodo_inicio'] ?? '';
+                        final String fim = rel['periodo_fim'] ?? '';
+                        final int total = rel['total_concluidas'] ?? 0;
+                        final double taxa = (rel['taxa_prazo'] as num? ?? 0.0).toDouble();
+                        final String url = rel['url_pdf'] ?? '';
+                        final String autor = rel['gerado_por'] ?? 'Administrador';
+
+                        final String dataGeracaoRaw = rel['data_geracao'] ?? '';
+                        String dataHoraFormatada = '';
+                        if (dataGeracaoRaw.isNotEmpty) {
+                          try {
+                            final dt = DateTime.parse(dataGeracaoRaw).toLocal();
+                            dataHoraFormatada = "${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}";
+                          } catch (_) {
+                            dataHoraFormatada = dataGeracaoRaw;
+                          }
+                        }
+
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade50,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.grey.shade200),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text('$inicio até $fim', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.black87)),
+                                    const SizedBox(height: 3),
+                                    Text('Ordens: $total  |  Prazo: ${taxa.toInt()}%', style: TextStyle(fontSize: 11, color: Colors.grey.shade700)),
+                                    const SizedBox(height: 3),
+                                    Row(
+                                      children: [
+                                        Icon(Icons.person_outline_rounded, size: 12, color: Colors.grey.shade500),
+                                        const SizedBox(width: 4),
+                                        Expanded(
+                                          child: Text(
+                                            '$autor ${dataHoraFormatada.isNotEmpty ? "• $dataHoraFormatada" : ""}',
+                                            style: TextStyle(fontSize: 10, color: Colors.grey.shade500, fontWeight: FontWeight.w500),
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.open_in_new_rounded, size: 18, color: Color(0xFF111625)),
+                                tooltip: 'Abrir PDF impresso',
+                                onPressed: () => _abrirUrlFicheiro(url),
+                              )
+                            ],
+                          ),
+                        );
+                      }),
+                    ),
             ],
           ),
         ),
@@ -597,7 +881,7 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
                   const SizedBox(height: 4),
                   Text(data, style: TextStyle(fontSize: 11, color: Colors.grey.shade400)),
                   const SizedBox(height: 12),
-                  
+
                   Container(
                     width: double.infinity,
                     padding: const EdgeInsets.all(12),
