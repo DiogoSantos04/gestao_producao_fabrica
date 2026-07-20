@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import '../core/temas_cores.dart';
-import '../services/auth_service.dart'; // 👈 IMPORTADO: O teu serviço centralizado
-import 'dashboard_admin/dashboard_admin_shell.dart'; // 👈 IMPORTADO: A nova barra lateral
-import 'portal_cliente/historico_cliente_screen.dart';
+import '../services/auth_service.dart';
+import 'dashboard_admin/dashboard_admin_shell.dart';
+import 'portal_cliente/cliente_shell_screen.dart'; // 👈 IMPORTADO: Shell centralizada do cliente
 import 'portal_cliente/rastreio_cliente_screen.dart';
 import 'registo_screen.dart';
 import 'terminal_operador/operador_shell_screen.dart';
@@ -17,13 +17,12 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  final AuthService _authService = AuthService(); // 👈 INSTANCIADO: Serviço de autenticação
+  final AuthService _authService = AuthService();
   bool _isLoading = false;
 
   @override
   void initState() {
     super.initState();
-    // ⚡ VERIFICAÇÃO AUTOMÁTICA: Faz auto-login se já existir uma sessão ativa
     _verificarSessaoExistente();
   }
 
@@ -36,7 +35,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
   /// Verifica se o utilizador já tem sessão iniciada para saltar o login
   Future<void> _verificarSessaoExistente() async {
-    // Aguarda um milissegundo para garantir que o contexto do Flutter está pronto
     await Future.delayed(Duration.zero);
     
     setState(() => _isLoading = true);
@@ -74,7 +72,6 @@ class _LoginScreenState extends State<LoginScreen> {
     debugPrint('Tentativa de login para o e-mail: $email');
     
     try {
-      // ⚡ Chamas o teu AuthService que já valida se a conta está ativa ou pendente!
       final utilizador = await _authService.login(
         email: email,
         password: password,
@@ -89,13 +86,11 @@ class _LoginScreenState extends State<LoginScreen> {
       final String perfilNormalizado = utilizador.perfil.trim().toLowerCase();
       debugPrint('Utilizador autenticado. Perfil: $perfilNormalizado');
 
-      // Redireciona conforme as permissões
       _redirecionarPorPerfil(perfilNormalizado);
 
     } catch (erro) {
       debugPrint('Erro detetado no Login: $erro');
       if (mounted) {
-        // Remove o prefixo "Exception: " para mostrar uma mensagem limpa ao utilizador
         final mensagemLimpa = erro.toString().replaceAll('Exception: ', '');
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -115,17 +110,17 @@ class _LoginScreenState extends State<LoginScreen> {
     if (perfilNormalizado == 'admin' || perfilNormalizado == 'administrador') {
       debugPrint('Redirecionando para: DashboardAdminShell (Admin)');
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (context) => const DashboardAdminShell()), // 👈 ENTRA NA BARRA LATERAL INTEGRADA!
+        MaterialPageRoute(builder: (context) => const DashboardAdminShell()),
       );
     } else if (perfilNormalizado == 'operador' || perfilNormalizado == 'funcionario' || perfilNormalizado == 'funcionário') {
-        debugPrint('Redirecionando para: OperadorShellScreen (Operador Shell)');
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (context) => const OperadorShellScreen()), // Redirecionamento unificado
-        );
-    } else if (perfilNormalizado == 'cliente') {
-      debugPrint('Redirecionando para: HistoricoClienteScreen (Cliente)');
+      debugPrint('Redirecionando para: OperadorShellScreen (Operador Shell)');
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (context) => const HistoricoClienteScreen()),
+        MaterialPageRoute(builder: (context) => const OperadorShellScreen()),
+      );
+    } else if (perfilNormalizado == 'cliente') {
+      debugPrint('Redirecionando para: ClienteShellScreen (Portal Cliente)');
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (context) => const ClienteShellScreen()), // 👈 REDIRECIONA PARA A SHELL COMPLETA
       );
     } else {
       debugPrint('ERRO: Perfil normalizado "$perfilNormalizado" inválido.');

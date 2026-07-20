@@ -23,7 +23,6 @@ class _RastreioClienteScreenState extends State<RastreioClienteScreen> {
     super.dispose();
   }
 
-  // RF011: Procura a encomenda e as suas fases correspondentes para montar o progresso visual
   Future<void> _buscarRastreio() async {
     final codigo = _codigoController.text.trim().toUpperCase();
     if (codigo.isEmpty) return;
@@ -36,7 +35,6 @@ class _RastreioClienteScreenState extends State<RastreioClienteScreen> {
     });
 
     try {
-      // 1. Procurar a encomenda pelo código de rastreio único
       final encomendaData = await _supabase
           .from('encomendas')
           .select('''
@@ -45,6 +43,7 @@ class _RastreioClienteScreenState extends State<RastreioClienteScreen> {
             data_entrega,
             tipos_produtos_id,
             fase_atual_id,
+            tipos_produto ( nome_tipo_produto ),
             clientes ( nome_cliente )
           ''')
           .eq('codigo_rastreio', codigo)
@@ -58,7 +57,6 @@ class _RastreioClienteScreenState extends State<RastreioClienteScreen> {
         return;
       }
 
-      // 2. Procurar todas as fases padrão associadas a este tipo de produto para montar a linha temporal
       final tipoProdutoId = encomendaData['tipos_produtos_id'];
       final fasesData = await _supabase
           .from('fases_padrao')
@@ -79,103 +77,155 @@ class _RastreioClienteScreenState extends State<RastreioClienteScreen> {
     }
   }
 
+  String _formatarData(String? isoString) {
+    if (isoString == null) return 'A definir';
+    final dt = DateTime.tryParse(isoString);
+    if (dt == null) return isoString;
+    return '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Rastreio de Encomenda'),
-        backgroundColor: Colors.deepPurple.shade50,
-      ),
+      backgroundColor: const Color(0xFFF8FAFC),
       body: Center(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24.0),
+          padding: const EdgeInsets.all(32.0),
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 500),
+            constraints: const BoxConstraints(maxWidth: 650),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 const Icon(
                   Icons.local_shipping_outlined,
-                  size: 72,
+                  size: 64,
                   color: Colors.deepPurple,
                 ),
                 const SizedBox(height: 16),
                 const Text(
-                  'Acompanhe o seu Pedido',
+                  'Rastreio de Encomendas',
                   textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.deepPurple),
+                  style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
                 ),
                 const SizedBox(height: 8),
                 const Text(
-                  'Insira o código de rastreio que recebeu para consultar o estado de produção em tempo real.',
+                  'Insira o código de rastreio para acompanhar o estado do seu pedido em tempo real.',
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.grey),
+                  style: TextStyle(color: Color(0xFF64748B), fontSize: 14),
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 28),
                 
-                // Campo para inserção do código
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _codigoController,
-                        decoration: const InputDecoration(
-                          labelText: 'Código de Rastreio (Ex: TRC-XXXXXX)',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Icon(Icons.search),
+                // Card de Pesquisa
+                Card(
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: BorderSide(color: Colors.grey.shade200),
+                  ),
+                  color: Colors.white,
+                  child: Padding(
+                    padding: const EdgeInsets.all(8.0),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _codigoController,
+                            decoration: const InputDecoration(
+                              hintText: 'Código de Rastreio (Ex: TRC-XXXXXX)',
+                              border: InputBorder.none,
+                              prefixIcon: Icon(Icons.search, color: Color(0xFF94A3B8)),
+                              contentPadding: EdgeInsets.symmetric(vertical: 14),
+                            ),
+                            textCapitalization: TextCapitalization.characters,
+                            onSubmitted: (_) => _buscarRastreio(),
+                          ),
                         ),
-                        textCapitalization: TextCapitalization.characters,
-                        onSubmitted: (_) => _buscarRastreio(),
-                      ),
+                        ElevatedButton(
+                          onPressed: _isLoading ? null : _buscarRastreio,
+                          style: ElevatedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
+                            backgroundColor: Colors.deepPurple,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                          child: const Icon(Icons.arrow_forward),
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 12),
-                    ElevatedButton(
-                      onPressed: _isLoading ? null : _buscarRastreio,
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 24),
-                        backgroundColor: Colors.deepPurple,
-                        foregroundColor: Colors.white,
-                      ),
-                      child: const Icon(Icons.arrow_forward),
-                    ),
-                  ],
+                  ),
                 ),
-                const SizedBox(height: 32),
+                const SizedBox(height: 28),
 
                 if (_isLoading)
                   const Center(child: CircularProgressIndicator()),
 
                 if (_erro != null)
-                  Text(
-                    _erro!,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.red.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.red.shade200),
+                    ),
+                    child: Text(
+                      _erro!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+                    ),
                   ),
 
-                // Resultados e Linha Temporal (Máquina de Estados Visual)
+                // Cartão com Linha Temporal do Progresso
                 if (_encomenda != null) ...[
                   Card(
-                    elevation: 4,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      side: BorderSide(color: Colors.grey.shade200),
+                    ),
+                    color: Colors.white,
                     child: Padding(
-                      padding: const EdgeInsets.all(16.0),
+                      padding: const EdgeInsets.all(24.0),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            'Encomenda: ${_encomenda!['codigo_rastreio']}',
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                _encomenda!['codigo_rastreio'],
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 20, color: Color(0xFF1E293B)),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: Colors.deepPurple.shade50,
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Text(
+                                  _encomenda!['tipos_produto']?['nome_tipo_produto'] ?? 'Artigo',
+                                  style: const TextStyle(color: Colors.deepPurple, fontWeight: FontWeight.bold, fontSize: 12),
+                                ),
+                              ),
+                            ],
                           ),
-                          const SizedBox(height: 4),
-                          Text('Cliente: ${_encomenda!['clientes']?['nome_cliente'] ?? 'N/A'}'),
-                          Text('Previsão de Entrega: ${_encomenda!['data_entrega']}'),
-                          const Divider(height: 24),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              const Icon(Icons.event, size: 16, color: Color(0xFF64748B)),
+                              const SizedBox(width: 6),
+                              Text(
+                                'Data Prevista de Entrega: ${_formatarData(_encomenda!['data_entrega'])}',
+                                style: const TextStyle(color: Color(0xFF64748B), fontSize: 14, fontWeight: FontWeight.w500),
+                              ),
+                            ],
+                          ),
+                          const Divider(height: 32),
                           const Text(
-                            'Progresso de Fabrico:',
-                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                            'Etapas de Fabrico',
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF0F172A)),
                           ),
-                          const SizedBox(height: 16),
+                          const SizedBox(height: 20),
 
-                          // Desenhar a Linha Temporal das Fases
                           ListView.builder(
                             shrinkWrap: true,
                             physics: const NeverScrollableScrollPhysics(),
@@ -185,10 +235,7 @@ class _RastreioClienteScreenState extends State<RastreioClienteScreen> {
                               final faseId = fase['id'];
                               final faseAtualId = _encomenda!['fase_atual_id'];
                               
-                              // Lógica para determinar o estado de cada fase na lista
                               bool isFaseAtual = faseId == faseAtualId;
-                              
-                              // Determinar a ordem lógica para marcar como concluídas as anteriores
                               final ordemFaseAtual = _fasesDoProduto.firstWhere(
                                 (f) => f['id'] == faseAtualId,
                                 orElse: () => {'ordem': 999},
@@ -211,13 +258,14 @@ class _RastreioClienteScreenState extends State<RastreioClienteScreen> {
                                             ? Colors.green
                                             : isFaseAtual
                                                 ? Colors.orange
-                                                : Colors.grey,
+                                                : Colors.grey.shade300,
+                                        size: 22,
                                       ),
                                       if (index < _fasesDoProduto.length - 1)
                                         Container(
                                           width: 2,
-                                          height: 40,
-                                          color: isConcluida ? Colors.green : Colors.grey.shade300,
+                                          height: 36,
+                                          color: isConcluida ? Colors.green : Colors.grey.shade200,
                                         ),
                                     ],
                                   ),
@@ -229,28 +277,28 @@ class _RastreioClienteScreenState extends State<RastreioClienteScreen> {
                                         Text(
                                           fase['nome_fase_padrao'],
                                           style: TextStyle(
-                                            fontWeight: (isFaseAtual || isConcluida)
-                                                ? FontWeight.bold
-                                                : FontWeight.normal,
+                                            fontWeight: (isFaseAtual || isConcluida) ? FontWeight.bold : FontWeight.normal,
                                             color: isFaseAtual
-                                                ? Colors.orange
+                                                ? Colors.orange.shade800
                                                 : isConcluida
-                                                    ? Colors.green
-                                                    : Colors.black54,
+                                                    ? Colors.green.shade800
+                                                    : const Color(0xFF64748B),
+                                            fontSize: 14,
                                           ),
                                         ),
                                         Text(
                                           isConcluida
                                               ? 'Concluída'
                                               : isFaseAtual
-                                                  ? 'Fase Atual'
+                                                  ? 'Em Processamento'
                                                   : 'Pendente',
-                                          style: const TextStyle(fontSize: 12, color: Colors.grey),
+                                          style: const TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
                                         ),
+                                        const SizedBox(height: 12),
                                       ],
                                     ),
                                   ),
-                                ]
+                                ],
                               );
                             },
                           ),

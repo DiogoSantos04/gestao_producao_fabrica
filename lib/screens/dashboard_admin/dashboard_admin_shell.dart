@@ -12,6 +12,7 @@ import 'painel_controlo_screen.dart';
 import 'gestao_fluxos_screen.dart';
 import 'informacoes_clientes_screen.dart'; 
 import 'relatorios_admin_screen.dart';
+import 'pedidos_clientes_admin_screen.dart'; // 👈 IMPORTADO: Novo ecrã para gestão de pedidos
 
 class DashboardAdminShell extends StatefulWidget {
   const DashboardAdminShell({super.key});
@@ -24,7 +25,7 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
   final AuthService _authService = AuthService();
   final _supabase = Supabase.instance.client;
 
-  int _indiceAtual = 0; // 0 a 6: Menus Principais, 7: O Meu Perfil
+  int _indiceAtual = 0; // 0 a 7: Menus Principais, 8: O Meu Perfil
 
   // Dados dinâmicos do administrador autenticado
   String _nomeUtilizador = 'Administrador';
@@ -39,6 +40,7 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
     {'titulo': 'Dashboard', 'icone': Icons.dashboard_outlined},
     {'titulo': 'Fluxos Produtivos', 'icone': Icons.schema_outlined},
     {'titulo': 'Utilizadores', 'icone': Icons.people_alt_outlined},
+    {'titulo': 'Pedidos Clientes', 'icone': Icons.pending_actions_outlined}, // 👈 NOVO MENU
     {'titulo': 'Planeamento', 'icone': Icons.assignment_outlined},
     {'titulo': 'Ordens em Curso', 'icone': Icons.precision_manufacturing_outlined},
     {'titulo': 'Clientes', 'icone': Icons.business_center_outlined},
@@ -191,7 +193,6 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
                             );
 
                             // 2. Sincroniza a coluna 'password' na tabela pública 'utilizadores'
-                            // Como estamos a usar .stream(), qualquer mudança reflete-se na hora na app
                             if (user != null) {
                               await _supabase
                                   .from('utilizadores')
@@ -359,22 +360,23 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
     final double larguraEcra = MediaQuery.of(context).size.width;
     final bool eDesktop = larguraEcra > 950;
 
-    // Lista de ecrãs renderizados à direita
+    // Lista de ecrãs renderizados à direita (inclui o Pedidos no índice 3 e Perfil no índice 8)
     final List<Widget> telas = [
       const DashboardPrincipalScreen(),
       const GestaoFluxosScreen(), 
       const GestaoUtilizadoresScreen(),
+      const PedidosClientesAdminScreen(), // Index 3: Pedidos Clientes
       const CriarEncomendaScreen(),
       const PainelControloScreen(),
       const ClientesScreen(),
       const RelatoriosAdminScreen(),
-      _construirEcraPerfil(),
+      _construirEcraPerfil(),             // Index 8: Perfil do Administrador
     ];
 
     return Scaffold(
       appBar: !eDesktop
           ? AppBar(
-              title: Text(_indiceAtual == 7 
+              title: Text(_indiceAtual == 8 
                   ? 'O Meu Perfil' 
                   : _menuItens[_indiceAtual]['titulo']),
               backgroundColor: Colors.deepPurple.shade50,
@@ -480,7 +482,7 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
 
   // --- SECÇÃO DE LOGOUT / PERFIL ---
   Widget _buildRodapeSidebar(bool dentroDrawer) {
-    final bool estaNoPerfil = _indiceAtual == 7;
+    final bool estaNoPerfil = _indiceAtual == 8;
     final String iniciais = _obterIniciais(_nomeUtilizador);
     final String idDisplay = 'ADM-2026-${_nomeUtilizador.hashCode.abs().toString().padLeft(4, '0').substring(0, 4)}';
 
@@ -491,7 +493,7 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
           InkWell(
             onTap: () {
               setState(() {
-                _indiceAtual = 7;
+                _indiceAtual = 8;
               });
               if (dentroDrawer) {
                 Navigator.pop(context);
