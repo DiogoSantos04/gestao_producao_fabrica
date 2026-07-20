@@ -58,21 +58,44 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
       if (!mounted) return;
       setState(() => _isLoading = true);
 
-      // 1. Procurar os Feedbacks Reais (Join: avaliacoes -> encomendas + clientes)
+      // 1. Procurar os Feedbacks Reais
       final dadosAvaliacoes = await _supabase
           .from('avaliacoes')
           .select('nota, comentario, data_registo, encomendas(codigo_rastreio), clientes(nome_cliente)')
           .order('data_registo', ascending: false);
 
-      // 2. Procurar todas as encomendas para calcular métricas de prazos e totais
+      // 2. Procurar as encomendas trazendo o tipos_produtos_id
       final dadosEncomendas = await _supabase
           .from('encomendas')
-          .select('id, data_entrega, fase_atual_id');
+          .select('id, data_entrega, fase_atual_id, tipos_produtos_id');
 
-      // 3. Procurar o histórico de produção para validar as datas de conclusão reais
+      // 3. Procurar o histórico de produção completo
       final dadosHistorico = await _supabase
           .from('historico_producao')
           .select('encomenda_id, data_conclusao, fase_concluida_id');
+
+      // 4. Procurar a tabela de fases para mapear qual é o fim de linha de cada produto
+      final dadosFases = await _supabase
+          .from('fases_padrao')
+          .select('id, ordem, tipos_produto_id');
+
+      // --- MAPEAMENTO DAS ÚLTIMAS FASES ---
+      // Descobre qual o ID da fase com maior 'ordem' para cada tipo de produto
+      Map<int, int> ultimaFasePorProduto = {};
+      for (var fase in dadosFases) {
+        int prodId = fase['types_produto_id'] ?? fase['tipos_produto_id'];
+        int faseId = fase['id'];
+        int ordem = fase['ordem'];
+
+        if (!ultimaFasePorProduto.containsKey(prodId)) {
+          ultimaFasePorProduto[prodId] = faseId;
+        } else {
+          var faseExistente = dadosFases.firstWhere((f) => f['id'] == ultimaFasePorProduto[prodId]);
+          if (ordem > faseExistente['ordem']) {
+            ultimaFasePorProduto[prodId] = faseId;
+          }
+        }
+      }
 
       // --- CÁLCULOS LOGÍSTICOS ---
       int concluidas = 0;
@@ -89,22 +112,49 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
         _avaliacaoMedia = 0.0;
       }
 
-      // Analisar prazos e conclusões com base na tua Máquina de Estados
+      // Analisar prazos e conclusões reais
       for (var enc in dadosEncomendas) {
         final int idEnc = enc['id'];
+        final int? prodId = enc['tipos_produtos_id'];
+        final int? faseAtualId = enc['fase_atual_id'];
         final DateTime? dataPrometida = enc['data_entrega'] != null ? DateTime.parse(enc['data_entrega']) : null;
 
-        // Filtra o histórico desta encomenda para ver se ela passou pela última fase do fluxo
+        final int? idUltimaFase = ultimaFasePorProduto[prodId];
         final historicoDaEncomenda = dadosHistorico.where((h) => h['encomenda_id'] == idEnc).toList();
         
-        if (historicoDaEncomenda.isNotEmpty) {
-          concluidas++; // Encomenda avançou no chão de fábrica
+        bool estaConcluida = false;
+        DateTime? dataConclusaoReal;
 
-          if (dataPrometida != null) {
-            // Pega no timestamp do último movimento físico guardado no teu histórico
-            final DateTime dataFimReal = DateTime.parse(historicoDaEncomenda.last['data_conclusao']);
-            
-            if (dataFimReal.isBefore(dataPrometida) || dataFimReal.isAtSameMomentAs(dataPrometida)) {
+        // Regra A: Verifica se a última fase do fluxo já foi guardada no histórico de conclusões
+        if (idUltimaFase != null) {
+          final registoFim = historicoDaEncomenda.where((h) => h['fase_concluida_id'] == idUltimaFase).toList();
+          if (registoFim.isNotEmpty) {
+            estaConcluida = true;
+            dataConclusaoReal = DateTime.parse(registoFim.first['data_conclusao']);
+          }
+        }
+
+        // Regra B: Se o admin alterou o estado diretamente na tabela encomendas para a fase final
+        if (!estaConcluida && faseAtualId == idUltimaFase && idUltimaFase != null) {
+          estaConcluida = true;
+          if (historicoDaEncomenda.isNotEmpty) {
+            dataConclusaoReal = DateTime.parse(historicoDaEncomenda.last['data_conclusao']);
+          } else {
+            dataConclusaoReal = DateTime.now(); // Fallback de segurança caso não haja histórico nenhum
+          }
+        }
+
+        // Se passou em alguma das regras de validação, está terminada!
+        if (estaConcluida) {
+          concluidas++;
+
+          if (dataPrometida != null && dataConclusaoReal != null) {
+            // Normalização crucial: remove as horas/minutos para comparar apenas os dias calendários
+            final DateTime dataPrometidaDia = DateTime(dataPrometida.year, dataPrometida.month, dataPrometida.day);
+            final DateTime dataConclusaoDia = DateTime(dataConclusaoReal.year, dataConclusaoReal.month, dataConclusaoReal.day);
+
+            // Só incrementa o indicador se foi concluído antes ou no próprio dia limite
+            if (dataConclusaoDia.isBefore(dataPrometidaDia) || dataConclusaoDia.isAtSameMomentAs(dataPrometidaDia)) {
               noPrazo++;
             }
           }
@@ -129,7 +179,7 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
     if (!_formKey.currentState!.validate()) return;
     
     setState(() => _isExporting = true);
-    await Future.delayed(const Duration(seconds: 2)); // Simulação de escrita do ficheiro
+    await Future.delayed(const Duration(seconds: 2)); 
     setState(() => _isExporting = false);
     
     if (mounted) {
