@@ -54,6 +54,9 @@ class _ClientesScreenState extends State<ClientesScreen> {
   String _pesquisaQuery = '';
   String _filtroEstado = 'Todos'; // 'Todos', 'Ativos', 'Inativos', 'Com Encomendas'
 
+  // 🗂️ PAINEL LATERAL (DRAWER DETALHES DO CLIENTE)
+  dynamic _clienteDetalhesSelecionado;
+
   @override
   void initState() {
     super.initState();
@@ -93,6 +96,20 @@ class _ClientesScreenState extends State<ClientesScreen> {
     return _obterTotalEncomendas(cliente) > 0;
   }
 
+  List<dynamic> _obterListaEncomendas(dynamic cliente) {
+    if (cliente == null || cliente['encomendas'] == null) return [];
+    final enc = cliente['encomendas'];
+    if (enc is List) return enc;
+    return [];
+  }
+
+  List<dynamic> _obterListaPedidos(dynamic cliente) {
+    if (cliente == null || cliente['pedidos_encomenda'] == null) return [];
+    final ped = cliente['pedidos_encomenda'];
+    if (ped is List) return ped;
+    return [];
+  }
+
   // --- GETTER QUE DEVOLVE OS CLIENTES FILTRADOS EM TEMPO REAL ---
 
   List<dynamic> get _clientesFiltrados {
@@ -102,17 +119,21 @@ class _ClientesScreenState extends State<ClientesScreen> {
       final String nome = (cliente['nome_cliente'] ?? '').toString().toLowerCase();
       final String email = (cliente['email'] ?? '').toString().toLowerCase();
       final String contacto = (cliente['contacto'] ?? '').toString().toLowerCase();
+      final String nif = (cliente['nif'] ?? '').toString().toLowerCase();
+      final String pessoaContacto = (cliente['pessoa_contacto'] ?? '').toString().toLowerCase();
+      final String morada = (cliente['morada'] ?? '').toString().toLowerCase();
       final bool ativo = cliente['ativo'] == true;
 
-      // 1. Filtragem por Texto de Pesquisa
       final bool correspondePesquisa = _pesquisaQuery.isEmpty ||
           nome.contains(_pesquisaQuery) ||
           email.contains(_pesquisaQuery) ||
-          contacto.contains(_pesquisaQuery);
+          contacto.contains(_pesquisaQuery) ||
+          nif.contains(_pesquisaQuery) ||
+          pessoaContacto.contains(_pesquisaQuery) ||
+          morada.contains(_pesquisaQuery);
 
       if (!correspondePesquisa) return false;
 
-      // 2. Filtragem por Estado / Encomendas
       if (_filtroEstado == 'Ativos') {
         return ativo == true;
       } else if (_filtroEstado == 'Inativos') {
@@ -140,6 +161,12 @@ class _ClientesScreenState extends State<ClientesScreen> {
         schema: 'public',
         table: 'encomendas',
         callback: (payload) => _carregarClientes(),
+      )
+      .onPostgresChanges(
+        event: PostgresChangeEvent.all,
+        schema: 'public',
+        table: 'pedidos_encomenda',
+        callback: (payload) => _carregarClientes(),
       );
 
     _clientesSubscription?.subscribe();
@@ -149,13 +176,21 @@ class _ClientesScreenState extends State<ClientesScreen> {
     try {
       final data = await _supabase
           .from('clientes')
-          .select('id, nome_cliente, contacto, email, ativo, encomendas(id)')
+          .select('id, nome_cliente, contacto, email, ativo, nif, pessoa_contacto, morada, encomendas(id, codigo_rastreio, data_entrega, quantidade, prioridade, tipos_produto:tipos_produtos_id(nome_tipo_produto)), pedidos_encomenda(id, quantidade, observacoes, estado, tipos_produto:tipo_produto_id(nome_tipo_produto))')
           .order('nome_cliente', ascending: true);
 
       if (mounted) {
         setState(() {
           _clientes = data;
           _isLoading = false;
+
+          if (_clienteDetalhesSelecionado != null) {
+            final int idAtual = _clienteDetalhesSelecionado['id'];
+            final clienteAtualizado = _clientes.firstWhere((c) => c['id'] == idAtual, orElse: () => null);
+            if (clienteAtualizado != null) {
+              _clienteDetalhesSelecionado = clienteAtualizado;
+            }
+          }
         });
       }
     } catch (e) {
@@ -164,13 +199,24 @@ class _ClientesScreenState extends State<ClientesScreen> {
     }
   }
 
-  Future<void> _inserirCliente(String nome, String email, String contacto, bool ativo) async {
+  Future<void> _inserirCliente({
+    required String nome,
+    required String email,
+    required String contacto,
+    required String nif,
+    required String pessoaContacto,
+    required String morada,
+    required bool ativo,
+  }) async {
     try {
       setState(() => _isLoading = true);
       await _supabase.from('clientes').insert({
         'nome_cliente': nome,
         'email': email,
         'contacto': contacto,
+        'nif': nif,
+        'pessoa_contacto': pessoaContacto,
+        'morada': morada,
         'ativo': ativo,
       });
       _mostrarMensagem('Conta de cliente criada com sucesso!');
@@ -181,13 +227,25 @@ class _ClientesScreenState extends State<ClientesScreen> {
     }
   }
 
-  Future<void> _atualizarCliente(int id, String nome, String email, String contacto, bool ativo) async {
+  Future<void> _atualizarCliente({
+    required int id,
+    required String nome,
+    required String email,
+    required String contacto,
+    required String nif,
+    required String pessoaContacto,
+    required String morada,
+    required bool ativo,
+  }) async {
     try {
       setState(() => _isLoading = true);
       await _supabase.from('clientes').update({
         'nome_cliente': nome,
         'email': email,
         'contacto': contacto,
+        'nif': nif,
+        'pessoa_contacto': pessoaContacto,
+        'morada': morada,
         'ativo': ativo,
       }).eq('id', id);
 
@@ -244,111 +302,133 @@ class _ClientesScreenState extends State<ClientesScreen> {
       backgroundColor: Colors.grey.shade50,
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // 📊 CARTÕES DE MÉTRICAS (KPIs DO CARTEIRA DE CLIENTES)
-                  _buildKpiCards(),
-                  const SizedBox(height: 24),
+          : Stack(
+              children: [
+                SingleChildScrollView(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // 📊 CARTÕES DE MÉTRICAS (KPIs DA CARTEIRA DE CLIENTES)
+                      _buildKpiCards(),
+                      const SizedBox(height: 24),
 
-                  // TABELA DE CLIENTES & FERRAMENTAS DE PESQUISA
-                  Card(
-                    color: Colors.white,
-                    elevation: 1,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      side: BorderSide(color: Colors.grey.shade200),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // CABEÇALHO DO CARD COM BOTÃO
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      // TABELA DE CLIENTES & FERRAMENTAS DE PESQUISA
+                      Card(
+                        color: Colors.white,
+                        elevation: 1,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          side: BorderSide(color: Colors.grey.shade200),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
-                                  const Text(
-                                    'Base de Dados de Clientes',
-                                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87),
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text(
+                                        'Base de Dados de Clientes',
+                                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        'Gestão de informações fiscais, logísticas e credenciais de acesso',
+                                        style: TextStyle(fontSize: 13, color: Colors.grey.shade500),
+                                      ),
+                                    ],
                                   ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    'Gestão de informações e credenciais de acesso',
-                                    style: TextStyle(fontSize: 13, color: Colors.grey.shade500),
+                                  ElevatedButton.icon(
+                                    onPressed: () => _abrirDialogCliente(),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: const Color(0xFF111625),
+                                      foregroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                    ),
+                                    icon: const Icon(Icons.add, size: 18),
+                                    label: const Text('Criar Conta de Cliente', style: TextStyle(fontWeight: FontWeight.bold)),
                                   ),
                                 ],
                               ),
-                              ElevatedButton.icon(
-                                onPressed: () => _abrirDialogCliente(),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF111625),
-                                  foregroundColor: Colors.white,
-                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                ),
-                                icon: const Icon(Icons.add, size: 18),
-                                label: const Text('Criar Conta de Cliente', style: TextStyle(fontWeight: FontWeight.bold)),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 24),
+                              const SizedBox(height: 24),
 
-                          // 🔍 BARRA DE PESQUISA E FILTROS RÁPIDOS
-                          _buildBarraFiltros(),
-                          const SizedBox(height: 24),
+                              // 🔍 BARRA DE PESQUISA E FILTROS RÁPIDOS
+                              _buildBarraFiltros(),
+                              const SizedBox(height: 24),
 
-                          // TABELA OU MENSAGEM VAZIA
-                          if (_clientes.isEmpty)
-                            const Padding(
-                              padding: EdgeInsets.symmetric(vertical: 40),
-                              child: Center(
-                                child: Text('Nenhum cliente registado na base de dados.', style: TextStyle(color: Colors.grey)),
-                              ),
-                            )
-                          else if (listaExibida.isEmpty)
-                            Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 40),
-                              child: Center(
-                                child: Column(
+                              // TABELA OU MENSAGEM VAZIA
+                              if (_clientes.isEmpty)
+                                const Padding(
+                                  padding: EdgeInsets.symmetric(vertical: 40),
+                                  child: Center(
+                                    child: Text('Nenhum cliente registado na base de dados.', style: TextStyle(color: Colors.grey)),
+                                  ),
+                                )
+                              else if (listaExibida.isEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(vertical: 40),
+                                  child: Center(
+                                    child: Column(
+                                      children: [
+                                        Icon(Icons.search_off_rounded, size: 36, color: Colors.grey.shade400),
+                                        const SizedBox(height: 8),
+                                        Text(
+                                          'Nenhum cliente encontrado com os filtros aplicados.',
+                                          style: TextStyle(color: Colors.grey.shade600, fontSize: 13, fontWeight: FontWeight.w500),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                )
+                              else
+                                Column(
                                   children: [
-                                    Icon(Icons.search_off_rounded, size: 36, color: Colors.grey.shade400),
-                                    const SizedBox(height: 8),
-                                    Text(
-                                      'Nenhum cliente encontrado com os filtros aplicados.',
-                                      style: TextStyle(color: Colors.grey.shade600, fontSize: 13, fontWeight: FontWeight.w500),
+                                    _buildTableHeader(),
+                                    const Divider(height: 1, thickness: 1),
+                                    ListView.separated(
+                                      shrinkWrap: true,
+                                      physics: const NeverScrollableScrollPhysics(),
+                                      itemCount: listaExibida.length,
+                                      separatorBuilder: (context, index) => const Divider(height: 1, thickness: 1),
+                                      itemBuilder: (context, index) {
+                                        return _buildClienteRow(listaExibida[index]);
+                                      },
                                     ),
                                   ],
                                 ),
-                              ),
-                            )
-                          else
-                            Column(
-                              children: [
-                                _buildTableHeader(),
-                                const Divider(height: 1, thickness: 1),
-                                ListView.separated(
-                                  shrinkWrap: true,
-                                  physics: const NeverScrollableScrollPhysics(),
-                                  itemCount: listaExibida.length,
-                                  separatorBuilder: (context, index) => const Divider(height: 1, thickness: 1),
-                                  itemBuilder: (context, index) {
-                                    return _buildClienteRow(listaExibida[index]);
-                                  },
-                                ),
-                              ],
-                            ),
-                        ],
+                            ],
+                          ),
+                        ),
                       ),
+                    ],
+                  ),
+                ),
+
+                // 🗂️ OVERLAY & PAINEL LATERAL DESLIZANTE DE DETALHES DO CLIENTE
+                if (_clienteDetalhesSelecionado != null) ...[
+                  GestureDetector(
+                    onTap: () => setState(() => _clienteDetalhesSelecionado = null),
+                    child: Container(
+                      color: Colors.black.withOpacity(0.35),
+                      width: double.infinity,
+                      height: double.infinity,
                     ),
                   ),
+                  Positioned(
+                    top: 0,
+                    bottom: 0,
+                    right: 0,
+                    width: 520,
+                    child: _buildDrawerDetalhesCliente(),
+                  ),
                 ],
-              ),
+              ],
             ),
     );
   }
@@ -383,7 +463,7 @@ class _ClientesScreenState extends State<ClientesScreen> {
     return TextField(
       controller: _searchController,
       decoration: InputDecoration(
-        hintText: 'Pesquisar por nome, email ou contacto...',
+        hintText: 'Pesquisar por nome, email, NIF, contacto ou morada...',
         hintStyle: TextStyle(fontSize: 13, color: Colors.grey.shade400),
         prefixIcon: const Icon(Icons.search_rounded, size: 20, color: Colors.black54),
         suffixIcon: _searchController.text.isNotEmpty
@@ -554,15 +634,15 @@ class _ClientesScreenState extends State<ClientesScreen> {
         children: const [
           Expanded(
             flex: 3,
-            child: Text('Nome do Cliente', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey, fontSize: 13)),
+            child: Text('Cliente & NIF', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey, fontSize: 13)),
+          ),
+          Expanded(
+            flex: 3,
+            child: Text('Contacto / Interlocutor', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey, fontSize: 13)),
           ),
           Expanded(
             flex: 2,
-            child: Text('Contacto', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey, fontSize: 13)),
-          ),
-          Expanded(
-            flex: 2,
-            child: Text('Histórico de Encomendas', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey, fontSize: 13)),
+            child: Text('Histórico', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey, fontSize: 13)),
           ),
           Expanded(
             flex: 2,
@@ -583,112 +663,416 @@ class _ClientesScreenState extends State<ClientesScreen> {
   Widget _buildClienteRow(dynamic cliente) {
     final String nome = cliente['nome_cliente'] ?? 'N/A';
     final String email = cliente['email'] ?? 'Sem email'; 
+    final String nif = cliente['nif'] ?? '';
+    final String pessoaContacto = cliente['pessoa_contacto'] ?? '';
+    final String morada = cliente['morada'] ?? '';
     final bool ativo = cliente['ativo'] == true;          
 
     final String contacto = _formatarTelefone(cliente['contacto'] ?? '');
     final int totalEncomendas = _obterTotalEncomendas(cliente);
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
-      child: Row(
+    return InkWell(
+      onTap: () => setState(() => _clienteDetalhesSelecionado = cliente),
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            // COLUNA 1: NOME DA EMPRESA, NIF & EMAIL (LAYOUT LIMPO E ALINHADO)
+            Expanded(
+              flex: 3,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    nome,
+                    style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.black87, fontSize: 14),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      if (nif.isNotEmpty) ...[
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade200,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            'NIF $nif',
+                            style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey.shade800),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                      ],
+                      Icon(Icons.email_outlined, size: 12, color: Colors.grey.shade400),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          email,
+                          style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (morada.isNotEmpty) ...[
+                    const SizedBox(height: 3),
+                    Row(
+                      children: [
+                        Icon(Icons.location_on_outlined, size: 12, color: Colors.grey.shade400),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            morada,
+                            style: TextStyle(color: Colors.grey.shade500, fontSize: 11),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
+
+            // COLUNA 2: TELEFONE & PESSOA DE CONTACTO
+            Expanded(
+              flex: 3,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.phone_outlined, size: 14, color: Colors.grey.shade400),
+                      const SizedBox(width: 6),
+                      Text(
+                        contacto,
+                        style: TextStyle(color: Colors.grey.shade700, fontSize: 13, fontWeight: FontWeight.w500),
+                      ),
+                    ],
+                  ),
+                  if (pessoaContacto.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Icon(Icons.person_outline_rounded, size: 13, color: Colors.grey.shade400),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            pessoaContacto,
+                            style: TextStyle(color: Colors.grey.shade600, fontSize: 12, fontWeight: FontWeight.w500),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
+
+            // COLUNA 3: HISTÓRICO DE ENCOMENDAS
+            Expanded(
+              flex: 2,
+              child: Row(
+                children: [
+                  InkWell(
+                    onTap: () => setState(() => _clienteDetalhesSelecionado = cliente),
+                    borderRadius: BorderRadius.circular(6),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: Colors.grey.shade300),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.history_toggle_off_rounded, size: 13, color: Colors.grey.shade600),
+                          const SizedBox(width: 6),
+                          Text(
+                            '$totalEncomendas encomendas',
+                            style: TextStyle(color: Colors.grey.shade700, fontSize: 12, fontWeight: FontWeight.w600),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // COLUNA 4: ACESSO AO PORTAL
+            Expanded(
+              flex: 2,
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: ativo ? const Color(0xFF707070) : const Color(0xFFEAEAEA),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      ativo ? 'Ativo' : 'Inativo',
+                      style: TextStyle(
+                        color: ativo ? Colors.white : Colors.black54,
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // COLUNA 5: AÇÕES
+            Expanded(
+              flex: 2,
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: OutlinedButton.icon(
+                  onPressed: () => _abrirDialogCliente(clienteExistente: cliente),
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(color: Colors.grey.shade300),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                  ),
+                  icon: const Icon(Icons.edit_outlined, size: 14, color: Colors.black87),
+                  label: const Text('Editar Dados', style: TextStyle(color: Colors.black87, fontSize: 12, fontWeight: FontWeight.w500)),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // --- 🗂️ DRAWER LATERAL: PAINEL DE DETALHES DO CLIENTE ---
+
+  Widget _buildDrawerDetalhesCliente() {
+    final c = _clienteDetalhesSelecionado;
+    if (c == null) return const SizedBox.shrink();
+
+    final String nome = c['nome_cliente'] ?? 'Cliente';
+    final String email = c['email'] ?? '';
+    final String nif = c['nif'] ?? '';
+    final String contacto = _formatarTelefone(c['contacto'] ?? '');
+    final String pessoa = c['pessoa_contacto'] ?? '';
+    final String morada = c['morada'] ?? '';
+    final bool ativo = c['ativo'] == true;
+
+    final List<dynamic> encomendas = _obterListaEncomendas(c);
+    final List<dynamic> pedidos = _obterListaPedidos(c);
+
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(color: Colors.black26, blurRadius: 16, offset: Offset(-4, 0)),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            flex: 3,
+          // CABEÇALHO DO DRAWER (DESIGN ELEGANTE)
+          Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: const Color(0xFF111625),
+              border: Border(bottom: BorderSide(color: Colors.grey.shade800)),
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  nome,
-                  style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.black87, fontSize: 14),
-                ),
-                const SizedBox(height: 4),
                 Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Icon(Icons.email_outlined, size: 12, color: Colors.grey.shade400),
-                    const SizedBox(width: 4),
-                    Text(
-                      email,
-                      style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+                    Expanded(
+                      child: Text(
+                        nome,
+                        style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close_rounded, color: Colors.white70),
+                      onPressed: () => setState(() => _clienteDetalhesSelecionado = null),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: [
+                    if (nif.isNotEmpty)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(color: Colors.white12, borderRadius: BorderRadius.circular(4)),
+                        child: Text('NIF: $nif', style: const TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w500)),
+                      ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: ativo ? Colors.green.shade800 : Colors.red.shade800,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        ativo ? 'Portal Ativo' : 'Portal Bloqueado',
+                        style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                      ),
                     ),
                   ],
                 ),
               ],
             ),
           ),
+
+          // CONTEÚDO DO DRAWER COM SCROLL
           Expanded(
-            flex: 2,
-            child: Row(
-              children: [
-                Icon(Icons.phone_outlined, size: 14, color: Colors.grey.shade400),
-                const SizedBox(width: 6),
-                Text(
-                  contacto,
-                  style: TextStyle(color: Colors.grey.shade700, fontSize: 13, fontWeight: FontWeight.w500),
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            flex: 2,
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: Colors.grey.shade300),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // DADOS CADASTRAIS, FISCAIS E LOGÍSTICOS
+                  const Text('Informações Fiscais e Logísticas', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black87)),
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.grey.shade200),
+                    ),
+                    child: Column(
+                      children: [
+                        if (nif.isNotEmpty) ...[
+                          _buildLinhaDetalhe(Icons.badge_outlined, 'NIF / NIPC', nif),
+                          const Divider(height: 16),
+                        ],
+                        _buildLinhaDetalhe(Icons.email_outlined, 'Email', email.isNotEmpty ? email : 'Não registado'),
+                        const Divider(height: 16),
+                        _buildLinhaDetalhe(Icons.phone_outlined, 'Telefone', contacto),
+                        if (pessoa.isNotEmpty) ...[
+                          const Divider(height: 16),
+                          _buildLinhaDetalhe(Icons.person_outline_rounded, 'Interlocutor', pessoa),
+                        ],
+                        if (morada.isNotEmpty) ...[
+                          const Divider(height: 16),
+                          _buildLinhaDetalhe(Icons.location_on_outlined, 'Morada Carga', morada),
+                        ],
+                      ],
+                    ),
                   ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
+                  const SizedBox(height: 28),
+
+                  // SECÇÃO: PEDIDOS DA APP B2B
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Icon(Icons.history_toggle_off_rounded, size: 13, color: Colors.grey.shade600),
-                      const SizedBox(width: 6),
-                      Text(
-                        '$totalEncomendas encomendas',
-                        style: TextStyle(color: Colors.grey.shade700, fontSize: 12, fontWeight: FontWeight.w600),
+                      const Text('Pedidos da Aplicação B2B', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black87)),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(10)),
+                        child: Text('${pedidos.length}', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.blue.shade800)),
                       ),
                     ],
                   ),
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            flex: 2,
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: ativo ? const Color(0xFF707070) : const Color(0xFFEAEAEA),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    ativo ? 'Ativo' : 'Inativo',
-                    style: TextStyle(
-                      color: ativo ? Colors.white : Colors.black54,
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
+                  const SizedBox(height: 12),
+                  if (pedidos.isEmpty)
+                    Text('Nenhum pedido submetido na app.', style: TextStyle(fontSize: 12, color: Colors.grey.shade500, fontStyle: FontStyle.italic))
+                  else
+                    Column(
+                      children: pedidos.map((p) {
+                        final String prod = p['tipos_produto']?['nome_tipo_produto'] ?? 'Produto';
+                        final String estado = p['estado'] ?? 'Pendente';
+                        final int qtd = p['quantidade'] ?? 1;
+
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 8),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: Colors.grey.shade200),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(prod, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                                  Text('Qtd: $qtd unidades', style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                                ],
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(color: Colors.amber.shade50, borderRadius: BorderRadius.circular(4)),
+                                child: Text(estado, style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.amber.shade900)),
+                              ),
+                            ],
+                          ),
+                        );
+                      }).toList(),
                     ),
+                  const SizedBox(height: 28),
+
+                  // SECÇÃO: HISTÓRICO DE ENCOMENDAS
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Ordens de Produção Lançadas', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black87)),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(10)),
+                        child: Text('${encomendas.length}', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey.shade800)),
+                      ),
+                    ],
                   ),
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            flex: 2,
-            child: Align(
-              alignment: Alignment.centerRight,
-              child: OutlinedButton.icon(
-                onPressed: () => _abrirDialogCliente(clienteExistente: cliente),
-                style: OutlinedButton.styleFrom(
-                  side: BorderSide(color: Colors.grey.shade300),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                ),
-                icon: const Icon(Icons.edit_outlined, size: 14, color: Colors.black87),
-                label: const Text('Editar Dados', style: TextStyle(color: Colors.black87, fontSize: 12, fontWeight: FontWeight.w500)),
+                  const SizedBox(height: 12),
+                  if (encomendas.isEmpty)
+                    Text('Nenhuma ordem de produção associada.', style: TextStyle(fontSize: 12, color: Colors.grey.shade500, fontStyle: FontStyle.italic))
+                  else
+                    Column(
+                      children: encomendas.map((e) {
+                        final String cod = e['codigo_rastreio'] ?? 'TRC-N/A';
+                        final String prod = e['tipos_produto']?['nome_tipo_produto'] ?? 'Produto';
+                        final String dataEnt = e['data_entrega'] ?? '';
+                        final int qtd = e['quantidade'] ?? 1;
+
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 8),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: Colors.grey.shade200),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(cod, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.black87)),
+                                  Text('$prod • Qtd: $qtd', style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                                ],
+                              ),
+                              Text(dataEnt, style: TextStyle(fontSize: 11, color: Colors.grey.shade500, fontWeight: FontWeight.w500)),
+                            ],
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                ],
               ),
             ),
           ),
@@ -697,10 +1081,35 @@ class _ClientesScreenState extends State<ClientesScreen> {
     );
   }
 
+  Widget _buildLinhaDetalhe(IconData icone, String titulo, String valor) {
+    return Row(
+      children: [
+        Icon(icone, size: 16, color: Colors.grey.shade600),
+        const SizedBox(width: 10),
+        SizedBox(
+          width: 100,
+          child: Text(titulo, style: TextStyle(fontSize: 12, color: Colors.grey.shade600, fontWeight: FontWeight.w500)),
+        ),
+        Expanded(
+          child: Text(
+            valor,
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black87),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    );
+  }
+
+  // --- DIÁLOGO DE CRIAÇÃO / EDIÇÃO DE CLIENTE ---
+
   void _abrirDialogCliente({Map<String, dynamic>? clienteExistente}) {
     final nomeController = TextEditingController(text: clienteExistente?['nome_cliente'] ?? '');
     final emailController = TextEditingController(text: clienteExistente?['email'] ?? '');
-    
+    final nifController = TextEditingController(text: clienteExistente?['nif'] ?? '');
+    final pessoaContactoController = TextEditingController(text: clienteExistente?['pessoa_contacto'] ?? '');
+    final moradaController = TextEditingController(text: clienteExistente?['morada'] ?? '');
+
     final contactoController = TextEditingController(
       text: clienteExistente != null ? _formatarTelefone(clienteExistente['contacto'] ?? '') : '',
     );
@@ -713,40 +1122,82 @@ class _ClientesScreenState extends State<ClientesScreen> {
           builder: (context, setDialogState) {
             return AlertDialog(
               title: Text(clienteExistente == null ? 'Criar Conta de Cliente' : 'Editar Dados do Cliente'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                    controller: nomeController,
-                    decoration: const InputDecoration(labelText: 'Nome do Cliente / Empresa *'),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: emailController,
-                    decoration: const InputDecoration(labelText: 'Email de Contacto'),
-                    keyboardType: TextInputType.emailAddress,
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: contactoController,
-                    decoration: const InputDecoration(labelText: 'Contacto Telefónico *'),
-                    keyboardType: TextInputType.phone,
-                    inputFormatters: [
-                      LengthLimitingTextInputFormatter(16),
-                      TelefoneInputFormatter(),
+              content: SingleChildScrollView(
+                child: SizedBox(
+                  width: 480,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      TextField(
+                        controller: nomeController,
+                        decoration: const InputDecoration(labelText: 'Nome do Cliente / Empresa *'),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: nifController,
+                              decoration: const InputDecoration(labelText: 'NIF / NIPC', hintText: '9 dígitos'),
+                              keyboardType: TextInputType.number,
+                              inputFormatters: [
+                                LengthLimitingTextInputFormatter(9),
+                                FilteringTextInputFormatter.digitsOnly,
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: TextField(
+                              controller: emailController,
+                              decoration: const InputDecoration(labelText: 'Email de Contacto'),
+                              keyboardType: TextInputType.emailAddress,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: contactoController,
+                              decoration: const InputDecoration(labelText: 'Contacto Telefónico *'),
+                              keyboardType: TextInputType.phone,
+                              inputFormatters: [
+                                LengthLimitingTextInputFormatter(16),
+                                TelefoneInputFormatter(),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: TextField(
+                              controller: pessoaContactoController,
+                              decoration: const InputDecoration(labelText: 'Pessoa de Contacto / Cargo', hintText: 'Ex: Engª Ana Silva'),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: moradaController,
+                        decoration: const InputDecoration(labelText: 'Morada de Carga / Entrega', hintText: 'Rua, Código Postal, Cidade'),
+                      ),
+                      const SizedBox(height: 16),
+                      SwitchListTile(
+                        title: const Text('Acesso ao Portal de Rastreio', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+                        subtitle: Text(acessoAtivo ? 'Cliente consegue rastrear encomendas' : 'Acesso temporariamente bloqueado'),
+                        value: acessoAtivo,
+                        activeColor: Colors.black87,
+                        onChanged: (val) {
+                          setDialogState(() => acessoAtivo = val);
+                        },
+                      ),
                     ],
                   ),
-                  const SizedBox(height: 16),
-                  SwitchListTile(
-                    title: const Text('Acesso ao Portal de Rastreio', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
-                    subtitle: Text(acessoAtivo ? 'Cliente consegue rastrear encomendas' : 'Acesso temporariamente bloqueado'),
-                    value: acessoAtivo,
-                    activeColor: Colors.black87,
-                    onChanged: (val) {
-                      setDialogState(() => acessoAtivo = val);
-                    },
-                  ),
-                ],
+                ),
               ),
               actions: [
                 TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
@@ -756,18 +1207,24 @@ class _ClientesScreenState extends State<ClientesScreen> {
                       Navigator.pop(context);
                       if (clienteExistente == null) {
                         _inserirCliente(
-                          nomeController.text.trim(),
-                          emailController.text.trim(),
-                          contactoController.text.trim(),
-                          acessoAtivo,
+                          nome: nomeController.text.trim(),
+                          email: emailController.text.trim(),
+                          contacto: contactoController.text.trim(),
+                          nif: nifController.text.trim(),
+                          pessoaContacto: pessoaContactoController.text.trim(),
+                          morada: moradaController.text.trim(),
+                          ativo: acessoAtivo,
                         );
                       } else {
                         _atualizarCliente(
-                          clienteExistente['id'] as int,
-                          nomeController.text.trim(),
-                          emailController.text.trim(),
-                          contactoController.text.trim(),
-                          acessoAtivo,
+                          id: clienteExistente['id'] as int,
+                          nome: nomeController.text.trim(),
+                          email: emailController.text.trim(),
+                          contacto: contactoController.text.trim(),
+                          nif: nifController.text.trim(),
+                          pessoaContacto: pessoaContactoController.text.trim(),
+                          morada: moradaController.text.trim(),
+                          ativo: acessoAtivo,
                         );
                       }
                     }
