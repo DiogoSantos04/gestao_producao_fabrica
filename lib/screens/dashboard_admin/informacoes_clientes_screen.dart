@@ -3,7 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/temas_cores.dart';
 
-// 📜 1. FORMATADOR COSTUMIZADO (Declarado no escopo global/topo do ficheiro)
+// 📜 FORMATADOR COSTUMIZADO PARA TELEFONE
 class TelefoneInputFormatter extends TextInputFormatter {
   @override
   TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
@@ -49,19 +49,80 @@ class _ClientesScreenState extends State<ClientesScreen> {
   List<dynamic> _clientes = [];
   bool _isLoading = true;
 
+  // 🔍 CONTROLADORES E ESTADOS DE FILTRAGEM
+  final TextEditingController _searchController = TextEditingController();
+  String _pesquisaQuery = '';
+  String _filtroEstado = 'Todos'; // 'Todos', 'Ativos', 'Inativos', 'Com Encomendas'
+
   @override
   void initState() {
     super.initState();
     _carregarClientes();
     _inicializarSubscricaoRealtime();
+
+    _searchController.addListener(() {
+      if (mounted) {
+        setState(() {
+          _pesquisaQuery = _searchController.text.trim().toLowerCase();
+        });
+      }
+    });
   }
 
   @override
   void dispose() {
+    _searchController.dispose();
     if (_clientesSubscription != null) {
       _supabase.removeChannel(_clientesSubscription!);
     }
     super.dispose();
+  }
+
+  // --- HELPERS ULTRA-SEGURA CONTRA ERROS DE TIPO NO FLUTTER WEB ---
+
+  int _obterTotalEncomendas(dynamic cliente) {
+    if (cliente == null || cliente['encomendas'] == null) return 0;
+    final enc = cliente['encomendas'];
+    if (enc is List) {
+      return enc.length;
+    }
+    return 0;
+  }
+
+  bool _temEncomendas(dynamic cliente) {
+    return _obterTotalEncomendas(cliente) > 0;
+  }
+
+  // --- GETTER QUE DEVOLVE OS CLIENTES FILTRADOS EM TEMPO REAL ---
+
+  List<dynamic> get _clientesFiltrados {
+    return _clientes.where((cliente) {
+      if (cliente == null) return false;
+
+      final String nome = (cliente['nome_cliente'] ?? '').toString().toLowerCase();
+      final String email = (cliente['email'] ?? '').toString().toLowerCase();
+      final String contacto = (cliente['contacto'] ?? '').toString().toLowerCase();
+      final bool ativo = cliente['ativo'] == true;
+
+      // 1. Filtragem por Texto de Pesquisa
+      final bool correspondePesquisa = _pesquisaQuery.isEmpty ||
+          nome.contains(_pesquisaQuery) ||
+          email.contains(_pesquisaQuery) ||
+          contacto.contains(_pesquisaQuery);
+
+      if (!correspondePesquisa) return false;
+
+      // 2. Filtragem por Estado / Encomendas
+      if (_filtroEstado == 'Ativos') {
+        return ativo == true;
+      } else if (_filtroEstado == 'Inativos') {
+        return ativo == false;
+      } else if (_filtroEstado == 'Com Encomendas') {
+        return _temEncomendas(cliente);
+      }
+
+      return true;
+    }).toList();
   }
 
   // --- LIGAÇÃO À BASE DE DADOS & REALTIME (SUPABASE) ---
@@ -106,7 +167,6 @@ class _ClientesScreenState extends State<ClientesScreen> {
   Future<void> _inserirCliente(String nome, String email, String contacto, bool ativo) async {
     try {
       setState(() => _isLoading = true);
-      // 🛠️ CORREÇÃO: Bloco perfeitamente fechado aqui com });
       await _supabase.from('clientes').insert({
         'nome_cliente': nome,
         'email': email,
@@ -131,7 +191,7 @@ class _ClientesScreenState extends State<ClientesScreen> {
         'ativo': ativo,
       }).eq('id', id);
 
-      _mostrarMensagem('Dados do cliente updated!');
+      _mostrarMensagem('Dados do cliente atualizados!');
       _carregarClientes();
     } catch (e) {
       _mostrarMensagem('Erro ao atualizar cliente: $e', eErro: true);
@@ -178,83 +238,312 @@ class _ClientesScreenState extends State<ClientesScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final listaExibida = _clientesFiltrados;
+
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
               padding: const EdgeInsets.all(24),
-              child: Card(
-                color: Colors.white,
-                elevation: 1,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  side: BorderSide(color: Colors.grey.shade200),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // 📊 CARTÕES DE MÉTRICAS (KPIs DO CARTEIRA DE CLIENTES)
+                  _buildKpiCards(),
+                  const SizedBox(height: 24),
+
+                  // TABELA DE CLIENTES & FERRAMENTAS DE PESQUISA
+                  Card(
+                    color: Colors.white,
+                    elevation: 1,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      side: BorderSide(color: Colors.grey.shade200),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                          // CABEÇALHO DO CARD COM BOTÃO
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              const Text(
-                                'Base de Dados de Clientes',
-                                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'Base de Dados de Clientes',
+                                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Gestão de informações e credenciais de acesso',
+                                    style: TextStyle(fontSize: 13, color: Colors.grey.shade500),
+                                  ),
+                                ],
                               ),
-                              const SizedBox(height: 4),
-                              Text(
-                                'Gestão de informações e credenciais de acesso',
-                                style: TextStyle(fontSize: 13, color: Colors.grey.shade500),
+                              ElevatedButton.icon(
+                                onPressed: () => _abrirDialogCliente(),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF111625),
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                ),
+                                icon: const Icon(Icons.add, size: 18),
+                                label: const Text('Criar Conta de Cliente', style: TextStyle(fontWeight: FontWeight.bold)),
                               ),
                             ],
                           ),
-                          ElevatedButton.icon(
-                            onPressed: () => _abrirDialogCliente(),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF111625),
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                            ),
-                            icon: const Icon(Icons.add, size: 18),
-                            label: const Text('Criar Conta de Cliente', style: TextStyle(fontWeight: FontWeight.bold)),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 32),
+                          const SizedBox(height: 24),
 
-                      _clientes.isEmpty
-                          ? const Padding(
+                          // 🔍 BARRA DE PESQUISA E FILTROS RÁPIDOS
+                          _buildBarraFiltros(),
+                          const SizedBox(height: 24),
+
+                          // TABELA OU MENSAGEM VAZIA
+                          if (_clientes.isEmpty)
+                            const Padding(
                               padding: EdgeInsets.symmetric(vertical: 40),
                               child: Center(
                                 child: Text('Nenhum cliente registado na base de dados.', style: TextStyle(color: Colors.grey)),
                               ),
                             )
-                          : Column(
+                          else if (listaExibida.isEmpty)
+                            Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 40),
+                              child: Center(
+                                child: Column(
+                                  children: [
+                                    Icon(Icons.search_off_rounded, size: 36, color: Colors.grey.shade400),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      'Nenhum cliente encontrado com os filtros aplicados.',
+                                      style: TextStyle(color: Colors.grey.shade600, fontSize: 13, fontWeight: FontWeight.w500),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            )
+                          else
+                            Column(
                               children: [
                                 _buildTableHeader(),
                                 const Divider(height: 1, thickness: 1),
                                 ListView.separated(
                                   shrinkWrap: true,
                                   physics: const NeverScrollableScrollPhysics(),
-                                  itemCount: _clientes.length,
+                                  itemCount: listaExibida.length,
                                   separatorBuilder: (context, index) => const Divider(height: 1, thickness: 1),
                                   itemBuilder: (context, index) {
-                                    return _buildClienteRow(_clientes[index]);
+                                    return _buildClienteRow(listaExibida[index]);
                                   },
                                 ),
                               ],
                             ),
-                    ],
+                        ],
+                      ),
+                    ),
                   ),
-                ),
+                ],
               ),
             ),
+    );
+  }
+
+  // --- BARRA DE PESQUISA E FILTROS RÁPIDOS ---
+
+  Widget _buildBarraFiltros() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final bool eMobile = constraints.maxWidth < 650;
+
+        return eMobile
+            ? Column(
+                children: [
+                  _buildCampoPesquisa(),
+                  const SizedBox(height: 12),
+                  _buildDropdownFiltro(),
+                ],
+              )
+            : Row(
+                children: [
+                  Expanded(flex: 3, child: _buildCampoPesquisa()),
+                  const SizedBox(width: 16),
+                  Expanded(flex: 2, child: _buildDropdownFiltro()),
+                ],
+              );
+      },
+    );
+  }
+
+  Widget _buildCampoPesquisa() {
+    return TextField(
+      controller: _searchController,
+      decoration: InputDecoration(
+        hintText: 'Pesquisar por nome, email ou contacto...',
+        hintStyle: TextStyle(fontSize: 13, color: Colors.grey.shade400),
+        prefixIcon: const Icon(Icons.search_rounded, size: 20, color: Colors.black54),
+        suffixIcon: _searchController.text.isNotEmpty
+            ? IconButton(
+                icon: const Icon(Icons.clear_rounded, size: 18),
+                onPressed: () => _searchController.clear(),
+              )
+            : null,
+        fillColor: Colors.grey.shade100,
+        filled: true,
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      ),
+    );
+  }
+
+  Widget _buildDropdownFiltro() {
+    return DropdownButtonFormField<String>(
+      value: _filtroEstado,
+      decoration: InputDecoration(
+        fillColor: Colors.grey.shade100,
+        filled: true,
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      ),
+      items: const [
+        DropdownMenuItem(value: 'Todos', child: Text('Todos os Clientes', style: TextStyle(fontSize: 13))),
+        DropdownMenuItem(value: 'Ativos', child: Text('Ativos no Portal', style: TextStyle(fontSize: 13))),
+        DropdownMenuItem(value: 'Inativos', child: Text('Inativos', style: TextStyle(fontSize: 13))),
+        DropdownMenuItem(value: 'Com Encomendas', child: Text('Com Encomendas', style: TextStyle(fontSize: 13))),
+      ],
+      onChanged: (val) {
+        if (val != null) setState(() => _filtroEstado = val);
+      },
+    );
+  }
+
+  // --- WIDGET DOS CARTÕES DE MÉTRICAS (KPIS) ---
+
+  Widget _buildKpiCards() {
+    final int totalClientes = _clientes.length;
+    final int ativosPortal = _clientes.where((c) => c['ativo'] == true).length;
+    final int comEncomendas = _clientes.where((c) => _temEncomendas(c)).length;
+    final int totalEncomendas = _clientes.fold<int>(0, (sum, c) => sum + _obterTotalEncomendas(c));
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final bool eWide = constraints.maxWidth > 900;
+        final double cardWidth = eWide ? (constraints.maxWidth - 48) / 4 : (constraints.maxWidth - 16) / 2;
+
+        return Wrap(
+          spacing: 16,
+          runSpacing: 16,
+          children: [
+            _buildKpiCard(
+              largura: cardWidth,
+              titulo: 'Total de Clientes',
+              valor: '$totalClientes',
+              subtitulo: 'Empresas registadas',
+              icone: Icons.business_rounded,
+              corIcone: const Color(0xFF111625),
+            ),
+            _buildKpiCard(
+              largura: cardWidth,
+              titulo: 'Acesso ao Portal',
+              valor: '$ativosPortal',
+              subtitulo: 'Contas ativas',
+              icone: Icons.verified_user_outlined,
+              corIcone: Colors.green.shade700,
+            ),
+            _buildKpiCard(
+              largura: cardWidth,
+              titulo: 'Clientes c/ Encomendas',
+              valor: '$comEncomendas',
+              subtitulo: 'Com histórico associado',
+              icone: Icons.shopping_bag_outlined,
+              corIcone: Colors.blue.shade700,
+            ),
+            _buildKpiCard(
+              largura: cardWidth,
+              titulo: 'Volume de Encomendas',
+              valor: '$totalEncomendas',
+              subtitulo: 'Total acumulado',
+              icone: Icons.inventory_2_outlined,
+              corIcone: Colors.amber.shade800,
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildKpiCard({
+    required double largura,
+    required String titulo,
+    required String valor,
+    required String subtitulo,
+    required IconData icone,
+    required Color corIcone,
+  }) {
+    return Container(
+      width: largura,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.02),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  titulo,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey.shade600,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  valor,
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  subtitulo,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Colors.grey.shade500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: corIcone.withOpacity(0.08),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icone, color: corIcone, size: 22),
+          ),
+        ],
+      ),
     );
   }
 
@@ -291,15 +580,13 @@ class _ClientesScreenState extends State<ClientesScreen> {
     );
   }
 
-  Widget _buildClienteRow(Map<String, dynamic> cliente) {
+  Widget _buildClienteRow(dynamic cliente) {
     final String nome = cliente['nome_cliente'] ?? 'N/A';
     final String email = cliente['email'] ?? 'Sem email'; 
-    final bool ativo = cliente['ativo'] ?? true;          
+    final bool ativo = cliente['ativo'] == true;          
 
     final String contacto = _formatarTelefone(cliente['contacto'] ?? '');
-
-    final List<dynamic> encomendasAssociadas = cliente['encomendas'] ?? [];
-    final int totalEncomendas = encomendasAssociadas.length;
+    final int totalEncomendas = _obterTotalEncomendas(cliente);
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
@@ -446,7 +733,7 @@ class _ClientesScreenState extends State<ClientesScreen> {
                     keyboardType: TextInputType.phone,
                     inputFormatters: [
                       LengthLimitingTextInputFormatter(16),
-                      TelefoneInputFormatter(), // 👈 Ativado e limpo!
+                      TelefoneInputFormatter(),
                     ],
                   ),
                   const SizedBox(height: 16),
@@ -454,7 +741,7 @@ class _ClientesScreenState extends State<ClientesScreen> {
                     title: const Text('Acesso ao Portal de Rastreio', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
                     subtitle: Text(acessoAtivo ? 'Cliente consegue rastrear encomendas' : 'Acesso temporariamente bloqueado'),
                     value: acessoAtivo,
-                    activeThumbColor: Colors.black87, // 👈 Atualizado para evitar warnings
+                    activeColor: Colors.black87,
                     onChanged: (val) {
                       setDialogState(() => acessoAtivo = val);
                     },
