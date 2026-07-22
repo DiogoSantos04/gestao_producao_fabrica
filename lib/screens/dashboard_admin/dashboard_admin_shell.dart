@@ -12,7 +12,8 @@ import 'painel_controlo_screen.dart';
 import 'gestao_fluxos_screen.dart';
 import 'informacoes_clientes_screen.dart'; 
 import 'relatorios_admin_screen.dart';
-import 'pedidos_clientes_admin_screen.dart'; // 👈 IMPORTADO: Novo ecrã para gestão de pedidos
+import 'pedidos_clientes_admin_screen.dart';
+import 'postos_trabalho_screen.dart'; // 👈 IMPORTADO: Novo ecrã de Gestão de Postos
 
 class DashboardAdminShell extends StatefulWidget {
   const DashboardAdminShell({super.key});
@@ -25,7 +26,7 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
   final AuthService _authService = AuthService();
   final _supabase = Supabase.instance.client;
 
-  int _indiceAtual = 0; // 0 a 7: Menus Principais, 8: O Meu Perfil
+  int _indiceAtual = 0; // 0 a 8: Menus Principais, 9: O Meu Perfil
 
   // Dados dinâmicos do administrador autenticado
   String _nomeUtilizador = 'Administrador';
@@ -40,9 +41,10 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
     {'titulo': 'Dashboard', 'icone': Icons.dashboard_outlined},
     {'titulo': 'Fluxos Produtivos', 'icone': Icons.schema_outlined},
     {'titulo': 'Utilizadores', 'icone': Icons.people_alt_outlined},
-    {'titulo': 'Pedidos Clientes', 'icone': Icons.pending_actions_outlined}, // 👈 NOVO MENU
+    {'titulo': 'Pedidos Clientes', 'icone': Icons.pending_actions_outlined},
     {'titulo': 'Planeamento', 'icone': Icons.assignment_outlined},
     {'titulo': 'Ordens em Curso', 'icone': Icons.precision_manufacturing_outlined},
+    {'titulo': 'Postos de Trabalho', 'icone': Icons.factory_outlined}, // 👈 NOVO MENU (Índice 6)
     {'titulo': 'Clientes', 'icone': Icons.business_center_outlined},
     {'titulo': 'Relatórios', 'icone': Icons.analytics_outlined},
   ];
@@ -360,23 +362,24 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
     final double larguraEcra = MediaQuery.of(context).size.width;
     final bool eDesktop = larguraEcra > 950;
 
-    // Lista de ecrãs renderizados à direita (inclui o Pedidos no índice 3 e Perfil no índice 8)
+    // Lista de ecrãs renderizados à direita (Postos de Trabalho no índice 6 e Perfil no índice 9)
     final List<Widget> telas = [
       const DashboardPrincipalScreen(),
       const GestaoFluxosScreen(), 
       const GestaoUtilizadoresScreen(),
-      const PedidosClientesAdminScreen(), // Index 3: Pedidos Clientes
+      const PedidosClientesAdminScreen(),
       const CriarEncomendaScreen(),
       const PainelControloScreen(),
+      const PostosTrabalhoScreen(),        // 👈 Index 6: Postos de Trabalho
       const ClientesScreen(),
       const RelatoriosAdminScreen(),
-      _construirEcraPerfil(),             // Index 8: Perfil do Administrador
+      _construirEcraPerfil(),             // 👈 Index 9: Perfil do Administrador
     ];
 
     return Scaffold(
       appBar: !eDesktop
           ? AppBar(
-              title: Text(_indiceAtual == 8 
+              title: Text(_indiceAtual == 9 
                   ? 'O Meu Perfil' 
                   : _menuItens[_indiceAtual]['titulo']),
               backgroundColor: Colors.deepPurple.shade50,
@@ -482,7 +485,7 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
 
   // --- SECÇÃO DE LOGOUT / PERFIL ---
   Widget _buildRodapeSidebar(bool dentroDrawer) {
-    final bool estaNoPerfil = _indiceAtual == 8;
+    final bool estaNoPerfil = _indiceAtual == 9;
     final String iniciais = _obterIniciais(_nomeUtilizador);
     final String idDisplay = 'ADM-2026-${_nomeUtilizador.hashCode.abs().toString().padLeft(4, '0').substring(0, 4)}';
 
@@ -493,7 +496,7 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
           InkWell(
             onTap: () {
               setState(() {
-                _indiceAtual = 8;
+                _indiceAtual = 9;
               });
               if (dentroDrawer) {
                 Navigator.pop(context);
