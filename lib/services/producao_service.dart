@@ -6,10 +6,38 @@ class ProducaoService {
   final SupabaseClient _supabase = Supabase.instance.client;
 
   // =========================================================================
-  // BLOCO 1: CONSULTA DE FLUXOS (Fases Padrão)
+  // BLOCO 1: ENGENHARIA DE PRODUTO & FLUXOS (Tipos de Produto e Roteiros)
   // =========================================================================
 
-  /// Procura todas as fases padrão associadas a uma tipologia de produto,
+  /// Obtém a lista de todos os tipos/famílias de produtos no catálogo da fábrica.
+  Future<List<Map<String, dynamic>>> obterTiposProduto() async {
+    try {
+      final response = await _supabase
+          .from('tipos_produto')
+          .select('*')
+          .order('id', ascending: true);
+
+      return List<Map<String, dynamic>>.from(response);
+    } catch (e) {
+      print('❌ Erro no ProducaoService (obterTiposProduto): $e');
+      throw Exception('Falha ao carregar a lista de tipos de produto.');
+    }
+  }
+
+  /// Regista um novo tipo de produto no catálogo.
+  Future<void> criarTipoProduto(String nomeTipoProduto) async {
+    try {
+      await _supabase.from('tipos_produto').insert({
+        'nome_tipo_produto': nomeTipoProduto.trim(),
+      });
+      print('✅ Tipo de produto "$nomeTipoProduto" criado com sucesso.');
+    } catch (e) {
+      print('❌ Erro no ProducaoService (criarTipoProduto): $e');
+      throw Exception('Falha ao criar o novo tipo de produto.');
+    }
+  }
+
+  /// Procura todas as fases padrão associadas a uma tipologia de produto (Modelo Typed),
   /// ordenadas de forma rígida pela coluna 'ordem' (ex: 1, 2, 3).
   Future<List<FaseModel>> obterFasesDoProduto(int tipoProdutoId) async {
     try {
@@ -23,6 +51,56 @@ class ProducaoService {
     } catch (e) {
       print('❌ Erro no ProducaoService (obterFasesDoProduto): $e');
       throw Exception('Falha ao carregar o fluxo produtivo do produto.');
+    }
+  }
+
+  /// Procura todas as fases padrão associadas a um produto (Retorno em Map para UI Admin).
+  Future<List<Map<String, dynamic>>> obterFasesDoProdutoMap(int tipoProdutoId) async {
+    try {
+      final response = await _supabase
+          .from('fases_padrao')
+          .select('*')
+          .eq('tipos_produto_id', tipoProdutoId)
+          .order('ordem', ascending: true);
+
+      return List<Map<String, dynamic>>.from(response);
+    } catch (e) {
+      print('❌ Erro no ProducaoService (obterFasesDoProdutoMap): $e');
+      throw Exception('Falha ao carregar as fases do produto.');
+    }
+  }
+
+  /// Adiciona um novo passo/operação à gama operatória (roteiro) de um artigo.
+  Future<void> adicionarFasePadrao({
+    required int tipoProdutoId,
+    required String nomeFase,
+    required int ordem,
+    required int tempoEstimado,
+    required String postoTrabalho,
+  }) async {
+    try {
+      await _supabase.from('fases_padrao').insert({
+        'tipos_produto_id': tipoProdutoId,
+        'nome_fase_padrao': nomeFase.trim(),
+        'ordem': ordem,
+        'tempo_estimado': tempoEstimado,
+        'posto_trabalho': postoTrabalho,
+      });
+      print('✅ Passo "$nomeFase" adicionado ao roteiro com sucesso (Ordem: $ordem).');
+    } catch (e) {
+      print('❌ Erro no ProducaoService (adicionarFasePadrao): $e');
+      throw Exception('Falha ao adicionar o passo ao roteiro de produção.');
+    }
+  }
+
+  /// Elimina um passo da gama operatória de um artigo.
+  Future<void> removerFasePadrao(int faseId) async {
+    try {
+      await _supabase.from('fases_padrao').delete().eq('id', faseId);
+      print('🗑️ Passo ID $faseId removido do roteiro.');
+    } catch (e) {
+      print('❌ Erro no ProducaoService (removerFasePadrao): $e');
+      throw Exception('Falha ao remover a fase do roteiro.');
     }
   }
 
@@ -52,7 +130,7 @@ class ProducaoService {
         'codigo_rastreio': codigoRastreio.trim(),
         'data_entrega': "${dataEntrega.year}-${dataEntrega.month.toString().padLeft(2, '0')}-${dataEntrega.day.toString().padLeft(2, '0')}",
         'cliente_id': clienteId,
-        'types_produtos_id': tiposProdutosId, // Nota: valida se na tabela está 'tipos_produtos_id' ou 'types_produtos_id' conforme o teu ERD
+        'types_produtos_id': tiposProdutosId,
         'fase_atual_id': primeiraFaseId,
       };
 

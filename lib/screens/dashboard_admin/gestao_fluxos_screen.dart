@@ -19,6 +19,17 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
   bool _isLoadingTipologias = true;
   bool _isLoadingFases = false;
 
+  // Catálogo oficial e padronizado de Postos de Trabalho da Fábrica
+  final List<String> _postosTrabalhoDisponiveis = [
+    'Posto de Corte (CNC)',
+    'Posto de Lixagem',
+    'Posto de Pintura / Lacagem',
+    'Posto de Secagem',
+    'Posto de Montagem',
+    'Posto de Controlo de Qualidade',
+    'Posto de Embalamento'
+  ];
+
   @override
   void initState() {
     super.initState();
@@ -49,8 +60,6 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
     try {
       setState(() => _isLoadingFases = true);
       
-      // 🥇 CORREÇÃO: Forçar explicitamente a ordenação ascendente (ascending: true)
-      // Isto garante que a Fase 1 fique sempre no topo (índice 0) e as novas fiquem em baixo
       final data = await _supabase
           .from('fases_padrao')
           .select()
@@ -75,10 +84,64 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
 
   Future<void> _criarTipologia(String nome) async {
     try {
-      await _supabase.from('tipos_produto').insert({'nome_tipo_produto': nome});
-      _carregarTipologias();
+      final response = await _supabase
+          .from('tipos_produto')
+          .insert({'nome_tipo_produto': nome.trim()})
+          .select()
+          .single();
+
+      await _carregarTipologias();
+      _selecionarTipologia(response);
     } catch (e) {
       _mostrarErro('Erro ao criar tipologia: $e');
+    }
+  }
+
+  /// 📋 FUNCIONALIDADE: Clona uma tipologia inteira com todo o seu roteiro de fases
+  Future<void> _duplicarFluxo(String novoNome) async {
+    if (_tipoProdutoSelecionado == null) return;
+
+    try {
+      // 1. Criar o novo registo na tabela tipos_produto
+      final novoProduto = await _supabase
+          .from('tipos_produto')
+          .insert({'nome_tipo_produto': novoNome.trim()})
+          .select()
+          .single();
+
+      final int novoProdutoId = novoProduto['id'];
+
+      // 2. Copiar todas as fases do produto de origem para a nova tipologia
+      if (_fases.isNotEmpty) {
+        final novasFasesPayload = _fases.map((fase) {
+          return {
+            'tipos_produto_id': novoProdutoId,
+            'nome_fase_padrao': fase['nome_fase_padrao'],
+            'descricao': fase['descricao'],
+            'posto_trabalho': fase['posto_trabalho'],
+            'tempo_estimado': fase['tempo_estimado'],
+            'checklist': fase['checklist'],
+            'ordem': fase['ordem'],
+          };
+        }).toList();
+
+        await _supabase.from('fases_padrao').insert(novasFasesPayload);
+      }
+
+      // 3. Atualizar a lista de tipologias e selecionar a nova
+      await _carregarTipologias();
+      _selecionarTipologia(novoProduto);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Fluxo "$novoNome" duplicado com sucesso!'),
+            backgroundColor: Colors.green.shade700,
+          ),
+        );
+      }
+    } catch (e) {
+      _mostrarErro('Erro ao duplicar fluxo produtivo: $e');
     }
   }
 
@@ -91,7 +154,7 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
       });
       _carregarTipologias();
     } catch (e) {
-      _mostrarErro('Erro ao eliminar tipologia: $e');
+      _mostrarErro('Erro ao eliminar tipologia. Verifique se existem encomendas associadas a este produto.');
     }
   }
 
@@ -104,9 +167,11 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
     required List<String> checklist,
   }) async {
     try {
-      if (_tipoProdutoSelecionado == null) return;
+      if (_tipoProdutoSelecionado == null) {
+        _mostrarErro('Nenhum produto selecionado.');
+        return;
+      }
 
-      // Garantir que o cálculo da nova ordem é feito com base no tamanho atual da lista ordenada
       final dadosFase = {
         'tipos_produto_id': _tipoProdutoSelecionado!['id'],
         'nome_fase_padrao': nome,
@@ -125,9 +190,9 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
         await _supabase.from('fases_padrao').update(dadosFase).eq('id', id);
       }
 
-      _carregarFases(_tipoProdutoSelecionado!['id']);
+      await _carregarFases(_tipoProdutoSelecionado!['id']);
     } catch (e) {
-      _mostrarErro('Erro ao guardar fase: $e');
+      _mostrarErro('Erro ao guardar fase no Supabase: $e');
     }
   }
 
@@ -136,7 +201,7 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
       await _supabase.from('fases_padrao').delete().eq('id', id);
       _carregarFases(_tipoProdutoSelecionado!['id']);
     } catch (e) {
-      _mostrarErro('Erro ao eliminar fase: $e');
+      _mostrarErro('Erro ao eliminar fase. Tente novamente.');
     }
   }
 
@@ -149,7 +214,6 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
     });
 
     try {
-      // Atualiza sequencialmente na BD respeitando a nova ordenação visual do ecrã
       for (int i = 0; i < _fases.length; i++) {
         await _supabase
             .from('fases_padrao')
@@ -338,15 +402,32 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
                     ),
                   ],
                 ),
-                ElevatedButton.icon(
-                  onPressed: () => _abrirDialogFase(),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.black,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                  ),
-                  icon: const Icon(Icons.add, size: 18),
-                  label: const Text('Adicionar Fase'),
+                Row(
+                  children: [
+                    // BOTÃO DUPLICAR FLUXO
+                    OutlinedButton.icon(
+                      onPressed: _abrirDialogDuplicarFluxo,
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.blue.shade700,
+                        side: BorderSide(color: Colors.blue.shade300),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      icon: const Icon(Icons.copy, size: 16),
+                      label: const Text('Duplicar Fluxo'),
+                    ),
+                    const SizedBox(width: 8),
+                    // BOTÃO ADICIONAR FASE
+                    ElevatedButton.icon(
+                      onPressed: () => _abrirDialogFase(),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.black,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      icon: const Icon(Icons.add, size: 18),
+                      label: const Text('Adicionar Fase'),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -559,10 +640,72 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
     );
   }
 
+  void _abrirDialogDuplicarFluxo() {
+    if (_tipoProdutoSelecionado == null) return;
+
+    final nomeAtual = _tipoProdutoSelecionado!['nome_tipo_produto'] ?? '';
+    final controller = TextEditingController(text: '$nomeAtual (Cópia)');
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Duplicar Fluxo Produtivo'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Irá ser criada uma nova tipologia clonando todas as fases, postos e tempos do fluxo "$nomeAtual".',
+                style: const TextStyle(fontSize: 13, color: Colors.black87),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: controller,
+                decoration: const InputDecoration(
+                  labelText: 'Nome da Nova Tipologia *',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancelar'),
+            ),
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue.shade700,
+                foregroundColor: Colors.white,
+              ),
+              icon: const Icon(Icons.copy, size: 16),
+              label: const Text('Duplicar'),
+              onPressed: () {
+                if (controller.text.trim().isNotEmpty) {
+                  Navigator.pop(context);
+                  _duplicarFluxo(controller.text.trim());
+                } else {
+                  _mostrarErro('O nome da nova tipologia é obrigatório.');
+                }
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   void _abrirDialogFase({Map<String, dynamic>? faseExistente}) {
     final nomeController = TextEditingController(text: faseExistente?['nome_fase_padrao'] ?? '');
     final descController = TextEditingController(text: faseExistente?['descricao'] ?? '');
-    final postoController = TextEditingController(text: faseExistente?['posto_trabalho'] ?? '');
+    
+    String postoSelecionado = faseExistente?['posto_trabalho'] ?? _postosTrabalhoDisponiveis.first;
+    if (!_postosTrabalhoDisponiveis.contains(postoSelecionado)) {
+      postoSelecionado = _postosTrabalhoDisponiveis.first;
+    }
+
     final tempoController = TextEditingController(text: faseExistente?['tempo_estimado']?.toString() ?? '15');
     
     List<String> checklistLocal = List<String>.from(faseExistente?['checklist'] ?? []);
@@ -583,31 +726,46 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
                     children: [
                       TextField(
                         controller: nomeController,
-                        decoration: const InputDecoration(labelText: 'Nome da Fase * (Ex: Corte, Costura)'),
+                        decoration: const InputDecoration(
+                          labelText: 'Nome da Fase * (Ex: Corte de Painéis)',
+                        ),
                       ),
                       const SizedBox(height: 8),
                       TextField(
                         controller: descController,
                         decoration: const InputDecoration(labelText: 'Descrição sumária da atividade'),
                       ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextField(
-                              controller: postoController,
-                              decoration: const InputDecoration(labelText: 'Posto de Trabalho (Ex: CNC-01)'),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: TextField(
-                              controller: tempoController,
-                              keyboardType: TextInputType.number,
-                              decoration: const InputDecoration(labelText: 'Tempo Estimado (min)'),
-                            ),
-                          ),
-                        ],
+                      const SizedBox(height: 12),
+                      
+                      DropdownButtonFormField<String>(
+                        value: postoSelecionado,
+                        decoration: const InputDecoration(
+                          labelText: 'Posto de Trabalho Associado *',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                        items: _postosTrabalhoDisponiveis.map((posto) {
+                          return DropdownMenuItem<String>(
+                            value: posto,
+                            child: Text(posto, style: const TextStyle(fontSize: 13)),
+                          );
+                        }).toList(),
+                        onChanged: (novoPosto) {
+                          if (novoPosto != null) {
+                            setDialogState(() => postoSelecionado = novoPosto);
+                          }
+                        },
+                      ),
+                      
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: tempoController,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                          labelText: 'Tempo Estimado (minutos)',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
                       ),
                       const SizedBox(height: 16),
                       const Divider(),
@@ -673,17 +831,20 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
                 TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
                 ElevatedButton(
                   onPressed: () {
-                    if (nomeController.text.isNotEmpty) {
-                      _salvarFase(
-                        id: faseExistente?['id'],
-                        nome: nomeController.text.trim(),
-                        descricao: descController.text.trim(),
-                        posto: postoController.text.trim(),
-                        tempo: int.tryParse(tempoController.text) ?? 15,
-                        checklist: checklistLocal,
-                      );
-                      Navigator.pop(context);
+                    if (nomeController.text.trim().isEmpty) {
+                      _mostrarErro('O nome da fase é obrigatório.');
+                      return;
                     }
+                    
+                    _salvarFase(
+                      id: faseExistente?['id'],
+                      nome: nomeController.text.trim(),
+                      descricao: descController.text.trim(),
+                      posto: postoSelecionado,
+                      tempo: int.tryParse(tempoController.text) ?? 15,
+                      checklist: checklistLocal,
+                    );
+                    Navigator.pop(context);
                   },
                   child: const Text('Gravar'),
                 ),
