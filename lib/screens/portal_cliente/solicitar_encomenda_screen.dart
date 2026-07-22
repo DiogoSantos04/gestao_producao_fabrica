@@ -5,10 +5,10 @@ class SolicitarEncomendaScreen extends StatefulWidget {
   const SolicitarEncomendaScreen({super.key});
 
   @override
-  State<SolicitarEncomendaScreen> createState() => _SolicitarEncomendaScreenState();
+  State<SolicitarEncomendaScreen> createState() => SolicitarEncomendaScreenState();
 }
 
-class _SolicitarEncomendaScreenState extends State<SolicitarEncomendaScreen> {
+class SolicitarEncomendaScreenState extends State<SolicitarEncomendaScreen> {
   final _supabase = Supabase.instance.client;
   final _formKey = GlobalKey<FormState>();
 
@@ -33,6 +33,14 @@ class _SolicitarEncomendaScreenState extends State<SolicitarEncomendaScreen> {
     _quantidadeController.dispose();
     _observacoesController.dispose();
     super.dispose();
+  }
+
+  /// Método chamado para preencher o formulário quando o cliente clica em "Repetir Pedido"
+  void preencherParaRepeticao({required String tipoProdutoId, required int quantidade}) {
+    setState(() {
+      _tipoProdutoSelecionadoId = tipoProdutoId;
+      _quantidadeController.text = quantidade.toString();
+    });
   }
 
   Future<void> _carregarDadosIniciais() async {
@@ -73,8 +81,10 @@ class _SolicitarEncomendaScreenState extends State<SolicitarEncomendaScreen> {
         setState(() {
           _tiposProduto = produtosData as List<dynamic>;
           _clienteId = clienteIdEncontrado;
+          
+          // Mantém o valor se já tiver sido preenchido por "Repetir Pedido"
           if (_tiposProduto.isNotEmpty) {
-            _tipoProdutoSelecionadoId = _tiposProduto.first['id'].toString();
+            _tipoProdutoSelecionadoId ??= _tiposProduto.first['id'].toString();
           }
           _carregandoInicial = false;
         });

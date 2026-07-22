@@ -48,6 +48,7 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
 
   final _dataEntregaController = TextEditingController();
   final _quantidadeController = TextEditingController(text: '1');
+  final _requisitosQualidadeController = TextEditingController(); // 📋 Novo: Campo para SOP e FAI (Requisitos de Qualidade)
 
   bool _isLoadingData = true;
   bool _isLoadingPreview = false;
@@ -69,6 +70,7 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
   void dispose() {
     _dataEntregaController.dispose();
     _quantidadeController.dispose();
+    _requisitosQualidadeController.dispose();
     _previewScrollController.dispose();
     _ultimasScrollController.dispose();
     _pedidosScrollController.dispose();
@@ -78,7 +80,7 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
     super.dispose();
   }
 
-  // --- CÁLCULOS DO LEAD TIME (TEMPO ESTIMADO DE PRODUÇÃO) ---
+  // --- CÁLCULOS DO LEAD TIME (TEMPO ESTIMADO DE PRODUÇÃO) & GARGALO ---
 
   int _calcularTempoUnitarioMinutos() {
     int totalUnitario = 0;
@@ -101,6 +103,20 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
     if (horas == 0) return '${minsRestantes}m';
     if (minsRestantes == 0) return '${horas}h';
     return '${horas}h ${minsRestantes}m';
+  }
+
+  /// ⚠️ Identifica qual a fase com maior tempo de ciclo (Posto Gargalo da linha)
+  Map<String, dynamic>? _obterFaseGargalo() {
+    if (_previewFases.isEmpty) return null;
+    var gargalo = _previewFases.first;
+    for (var f in _previewFases) {
+      final int tFase = (f['tempo_estimado'] as num? ?? 0).toInt();
+      final int tGargalo = (gargalo['tempo_estimado'] as num? ?? 0).toInt();
+      if (tFase > tGargalo) {
+        gargalo = f;
+      }
+    }
+    return gargalo;
   }
 
   // --- BUSCA DE DADOS & REALTIME (SUPABASE) ---
@@ -209,6 +225,7 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
       _tipoProdutoSelecionado = pedido['tipo_produto_id']?.toString();
       _quantidadeController.text = (pedido['quantidade'] ?? 1).toString();
       _observacoesPedido = pedido['observacoes'];
+      _requisitosQualidadeController.text = pedido['observacoes'] ?? ''; // Preenche o campo de qualidade
       _prioridadeSelecionada = 'Normal';
     });
 
@@ -225,6 +242,7 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
       _observacoesPedido = null;
       _dataEntregaController.clear();
       _quantidadeController.text = '1';
+      _requisitosQualidadeController.clear();
       _prioridadeSelecionada = 'Normal';
       _previewFases = [];
     });
@@ -261,7 +279,7 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
       final faseInicialId = faseInicialData['id'];
       final codigoRastreio = _gerarCodigoRastreio();
 
-      // 1. Criar a Ordem Oficial de Produção com Prioridade
+      // 1. Criar a Ordem Oficial de Produção com Prioridade e Instruções de Qualidade
       await _supabase.from('encomendas').insert({
         'codigo_rastreio': codigoRastreio,
         'data_entrega': _dataEntregaController.text,
@@ -270,6 +288,7 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
         'fase_atual_id': faseInicialId,
         'quantidade': int.parse(_quantidadeController.text),
         'prioridade': _prioridadeSelecionada,
+        'observacoes': _requisitosQualidadeController.text.trim(),
       });
 
       // 2. Se a ordem veio de um Pedido da App, atualizar o estado do pedido para 'Em Produção'
@@ -661,7 +680,7 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
                               readOnly: true,
                               onTap: () => _selecionarData(context),
                               decoration: InputDecoration(
-                                hintText: 'dd / mm / aaaa',
+                                hintText: 'aaaa-mm-dd',
                                 fillColor: Colors.grey.shade100,
                                 filled: true,
                                 suffixIcon: const Icon(Icons.calendar_month_outlined, color: Colors.black54),
@@ -749,6 +768,22 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
                       if (val != null) setState(() => _prioridadeSelecionada = val);
                     },
                   ),
+                  const SizedBox(height: 20),
+
+                  // 📋 NOVO: REQUISITOS ESPECIAIS DE QUALIDADE / OBSERVAÇÕES S.O.P
+                  const Text('Instruções Técnicas & Requisitos de Qualidade (SOP / FAI)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87)),
+                  const SizedBox(height: 8),
+                  TextFormField(
+                    controller: _requisitosQualidadeController,
+                    maxLines: 2,
+                    decoration: InputDecoration(
+                      hintText: 'Ex: Tolerância crítica na furação; Validação da 1ª peça (FAI); Cor RAL 3020.',
+                      fillColor: Colors.grey.shade100,
+                      filled: true,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+                      contentPadding: const EdgeInsets.all(14),
+                    ),
+                  ),
                   const SizedBox(height: 32),
 
                   SizedBox(
@@ -780,7 +815,7 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
     );
   }
 
-  // --- COLUNA DA DIREITA (CIMA): PRÉ-VISUALIZAÇÃO & CÁLCULO DE LEAD TIME ---
+  // --- COLUNA DA DIREITA (CIMA): PRÉ-VISUALIZAÇÃO & CÁLCULO DE LEAD TIME / GARGALO ---
   Widget _buildPainelDireitoPreview({required bool eDesktop}) {
     Widget conteudo;
 
@@ -794,42 +829,83 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
         ),
       );
     } else {
+      final int tempoTotalMins = _calcularTempoTotalMinutos();
+      final int tempoUnitarioMins = _calcularTempoUnitarioMinutos();
+      final Map<String, dynamic>? gargalo = _obterFaseGargalo();
+      final bool eCargaElevada = tempoTotalMins > 480; // Mais de 8 horas de fábrica
+
       conteudo = Column(
         children: [
-          // ⏱️ CARTÃO INFORMATIVO DE TOTALIZADOR DO LEAD TIME (TEMPO DE PRODUÇÃO)
+          // ⏱️ CARTÃO INFORMATIVO DE TOTALIZADOR DO LEAD TIME (TEMPO DE PRODUÇÃO) & GARGALO
           Container(
             margin: const EdgeInsets.only(bottom: 16),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               color: Colors.blueGrey.shade50,
               borderRadius: BorderRadius.circular(8),
               border: Border.all(color: Colors.blueGrey.shade100),
             ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            child: Column(
               children: [
                 Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Icon(Icons.timer_outlined, size: 18, color: Colors.blueGrey.shade800),
-                    const SizedBox(width: 8),
+                    Row(
+                      children: [
+                        Icon(Icons.timer_outlined, size: 18, color: Colors.blueGrey.shade800),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Carga Total Estimada:',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.blueGrey.shade800,
+                          ),
+                        ),
+                      ],
+                    ),
                     Text(
-                      'Tempo Total Estimado:',
+                      '${_formatarTempo(tempoTotalMins)} (${_formatarTempo(tempoUnitarioMins)}/unid)',
                       style: TextStyle(
                         fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.blueGrey.shade800,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.blueGrey.shade900,
                       ),
                     ),
                   ],
                 ),
-                Text(
-                  '${_formatarTempo(_calcularTempoTotalMinutos())} (${_formatarTempo(_calcularTempoUnitarioMinutos())}/unid.)',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.blueGrey.shade900,
+                
+                // ⚠️ Linha de Detação de Gargalo
+                if (gargalo != null) ...[
+                  const Divider(height: 14),
+                  Row(
+                    children: [
+                      Icon(Icons.warning_amber_rounded, size: 15, color: Colors.amber.shade900),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'Gargalo: ${gargalo['nome_fase_padrao']} (${gargalo['tempo_estimado']} min no ${gargalo['posto_trabalho'] ?? 'Posto'})',
+                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.amber.shade900),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
                   ),
-                ),
+                ],
+
+                // 🔴 Alerta de Carga Elevada
+                if (eCargaElevada) ...[
+                  const SizedBox(height: 6),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(color: Colors.orange.shade100, borderRadius: BorderRadius.circular(4)),
+                    child: Text(
+                      '⚡ Esta encomenda representa uma carga de fabrico elevada (+8 horas).',
+                      style: TextStyle(fontSize: 10, color: Colors.orange.shade900, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ]
               ],
             ),
           ),

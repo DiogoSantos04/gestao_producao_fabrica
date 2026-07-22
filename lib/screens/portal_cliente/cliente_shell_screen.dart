@@ -18,7 +18,10 @@ class _ClienteShellScreenState extends State<ClienteShellScreen> {
   final AuthService _authService = AuthService();
   final _supabase = Supabase.instance.client;
 
-  int _indiceAtual = 0;
+  // Chave global para comunicar com o ecrã de Solicitar Encomenda
+  final GlobalKey<SolicitarEncomendaScreenState> _solicitarKey = GlobalKey();
+
+  int _indiceAtual = 0; // 0: Início, 1: Histórico, 2: Novo Pedido, 3: Perfil
 
   String _nomeUtilizador = 'Cliente';
   String _emailUtilizador = 'carregando...';
@@ -394,8 +397,28 @@ class _ClienteShellScreenState extends State<ClienteShellScreen> {
 
     final List<Widget> telas = [
       const RastreioClienteScreen(),
-      const HistoricoClienteScreen(),
-      const SolicitarEncomendaScreen(),
+      HistoricoClienteScreen(
+        onRepetirEncomenda: (tipoProdutoId, quantidade) {
+          // Preenche os dados no formulário através da chave global
+          _solicitarKey.currentState?.preencherParaRepeticao(
+            tipoProdutoId: tipoProdutoId.toString(),
+            quantidade: quantidade,
+          );
+
+          setState(() {
+            _indiceAtual = 2; // Redireciona para o separador Novo Pedido
+          });
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Pedido preenchido com sucesso! Reveja os dados e submeta.'),
+              backgroundColor: Colors.deepPurple,
+              duration: Duration(seconds: 4),
+            ),
+          );
+        },
+      ),
+      SolicitarEncomendaScreen(key: _solicitarKey),
       _construirEcraPerfil(),
     ];
 
