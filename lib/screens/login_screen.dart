@@ -115,12 +115,14 @@ class _LoginScreenState extends State<LoginScreen> {
     } else if (perfilNormalizado == 'operador' || perfilNormalizado == 'funcionario' || perfilNormalizado == 'funcionário') {
       debugPrint('Redirecionando para: OperadorShellScreen (Operador Shell)');
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (context) => const OperadorShellScreen()),
+        MaterialPageRoute(
+          builder: (context) => const OperadorShellScreen(),
+        ),
       );
     } else if (perfilNormalizado == 'cliente') {
       debugPrint('Redirecionando para: ClienteShellScreen (Portal Cliente)');
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (context) => const ClienteShellScreen()), // 👈 REDIRECIONA PARA A SHELL COMPLETA
+        MaterialPageRoute(builder: (context) => const ClienteShellScreen()),
       );
     } else {
       debugPrint('ERRO: Perfil normalizado "$perfilNormalizado" inválido.');

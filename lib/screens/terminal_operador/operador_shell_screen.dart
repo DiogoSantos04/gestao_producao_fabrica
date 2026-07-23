@@ -10,7 +10,9 @@ import 'historico_operador_screen.dart';
 import 'relatorios_operador_screen.dart';
 
 class OperadorShellScreen extends StatefulWidget {
-  const OperadorShellScreen({super.key});
+  final String? utilizadorId;
+
+  const OperadorShellScreen({super.key, this.utilizadorId});
 
   @override
   State<OperadorShellScreen> createState() => _OperadorShellScreenState();
@@ -45,7 +47,6 @@ class _OperadorShellScreenState extends State<OperadorShellScreen> {
 
   @override
   void dispose() {
-    // Cancela a escuta do WebSocket ao destruir o Widget para evitar leilões de memória
     _utilizadorStreamSubscription?.cancel();
     super.dispose();
   }
@@ -54,12 +55,17 @@ class _OperadorShellScreenState extends State<OperadorShellScreen> {
   void _iniciarEscutaEmTempoReal() {
     try {
       final user = _supabase.auth.currentUser;
-      if (user == null) return;
+      final String? userId = widget.utilizadorId ?? user?.id;
+
+      if (userId == null) {
+        if (mounted) setState(() => _carregandoPerfil = false);
+        return;
+      }
 
       _utilizadorStreamSubscription = _supabase
           .from('utilizadores')
           .stream(primaryKey: ['utilizador_id'])
-          .eq('utilizador_id', user.id)
+          .eq('utilizador_id', userId)
           .listen(
             (dados) {
               if (mounted && dados.isNotEmpty) {
@@ -73,7 +79,7 @@ class _OperadorShellScreenState extends State<OperadorShellScreen> {
                       : 'Operador';
                   _emailUtilizador = (emailDb != null && emailDb.trim().isNotEmpty)
                       ? emailDb
-                      : (user.email ?? 'operador@factory.com');
+                      : (user?.email ?? 'operador@factory.com');
                   _carregandoPerfil = false;
                 });
               }
@@ -175,19 +181,19 @@ class _OperadorShellScreenState extends State<OperadorShellScreen> {
 
                           try {
                             final novaSenha = novaSenhaController.text.trim();
-                            final user = _supabase.auth.currentUser;
+                            final String? userId = widget.utilizadorId ?? _supabase.auth.currentUser?.id;
 
-                            // 1. Atualiza no Supabase Auth (módulo de autenticação)
+                            // 1. Atualiza no Supabase Auth
                             await _supabase.auth.updateUser(
                               UserAttributes(password: novaSenha),
                             );
 
                             // 2. Sincroniza a tabela pública 'utilizadores'
-                            if (user != null) {
+                            if (userId != null) {
                               await _supabase
                                   .from('utilizadores')
                                   .update({'password': novaSenha})
-                                  .eq('utilizador_id', user.id);
+                                  .eq('utilizador_id', userId);
                             }
 
                             if (context.mounted) {
@@ -267,7 +273,7 @@ class _OperadorShellScreenState extends State<OperadorShellScreen> {
     );
 
     try {
-      final String? authUserId = _supabase.auth.currentUser?.id; 
+      final String? authUserId = widget.utilizadorId ?? _supabase.auth.currentUser?.id; 
       
       int avancosSessao = 0;
       int incidenciasSessao = 0;
@@ -325,7 +331,7 @@ class _OperadorShellScreenState extends State<OperadorShellScreen> {
     final bool eDesktop = larguraEcra > 950;
 
     final List<Widget> telas = [
-      const FilaTrabalhoScreen(),
+      const FilaTrabalhoScreen(), // 👈 FIX: Chamada limpa sem parâmetros desconhecidos
       const HistoricoOperadorScreen(),
       const RelatoriosOperadorScreen(),
       _construirEcraPerfil(),

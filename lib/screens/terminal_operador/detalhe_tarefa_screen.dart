@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'popups/bloquear_tarefa_screen.dart';
@@ -20,16 +21,20 @@ class DetalheTarefaScreen extends StatefulWidget {
 class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
   final _supabase = Supabase.instance.client;
   bool _isLoading = true;
+  String? _errorMessage;
 
   Map<String, dynamic>? _encomenda;
   List<dynamic> _fasesDoProduto = [];
   int? _faseAtualId;
   bool _isBloqueada = false;
 
+  // --- REGISTO ESTÁTICO EM MEMÓRIA (PERSISTE ENTRE PÁGINAS E NAVEGAÇÃO) ---
+  static final Map<String, DateTime> _temposInicioFase = {};
+
   // --- MÓDULO ANDON & CRONÓMETRO ---
   Timer? _timerAndon;
   int _segundosDecorridos = 0;
-  int _tempoEstimadoMinutos = 15; // Valor padrão por omissão
+  int _tempoEstimadoMinutos = 15;
 
   @override
   void initState() {
@@ -45,7 +50,6 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
 
   void _iniciarCronometroAndon() {
     _timerAndon?.cancel();
-    _segundosDecorridos = 0;
     _timerAndon = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (mounted) {
         setState(() {
@@ -56,43 +60,112 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
   }
 
   Future<void> _carregarDetalhesTarefa() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
     try {
-      // 1. Carrega dados da encomenda e tipo de produto
-      final encomendaData = await _supabase
+      // 1. Carrega a encomenda pelo ID
+      final encomendaRes = await _supabase
           .from('encomendas')
-          .select('''
-            id,
-            codigo_rastreio,
-            tipos_produtos_id,
-            fase_atual_id,
-            tipos_produto ( nome_tipo_produto )
-          ''')
+          .select('*')
           .eq('id', widget.encomendaId)
           .single();
 
-      _faseAtualId = encomendaData['fase_atual_id'];
+      _encomenda = encomendaRes;
+      _faseAtualId = _encomenda!['fase_atual_id'];
+      final bool emSuspenso = _encomenda!['em_suspenso'] == true;
 
-      // 2. Carrega todas as fases padrão deste tipo de produto (incluindo tempo_estimado e checklist jsonb)
-      final fasesData = await _supabase
-          .from('fases_padrao')
-          .select('id, nome_fase_padrao, ordem, tempo_estimado, checklist')
-          .eq('tipos_produto_id', encomendaData['tipos_produtos_id'])
-          .order('ordem', ascending: true);
+      // Extrai ID do tipo de produto
+      dynamic rawTipoId = _encomenda!['tipos_produtos_id'] ?? _encomenda!['tipos_produto_id'] ?? _encomenda!['tipo_produto_id'];
+      int? tipoProdutoId = rawTipoId is int ? rawTipoId : int.tryParse(rawTipoId?.toString() ?? '');
 
-      // 3. Verifica se a encomenda tem alguma incidência em aberto
-      final incidenciasData = await _supabase
-          .from('incidencias')
-          .select('id, historico_producao!inner(encomenda_id)')
-          .eq('historico_producao.encomenda_id', widget.encomendaId);
+      // 2. Busca o Nome Real do Produto
+      String nomeProduto = 'Artigo';
+      if (tipoProdutoId != null) {
+        try {
+          final tpRes = await _supabase
+              .from('tipos_produto')
+              .select('nome_tipo_produto')
+              .eq('id', tipoProdutoId)
+              .maybeSingle();
 
-      _isBloqueada = (incidenciasData as List).isNotEmpty;
+          if (tpRes != null && tpRes['nome_tipo_produto'] != null) {
+            nomeProduto = tpRes['nome_tipo_produto'].toString();
+          }
+        } catch (e) {
+          debugPrint('Aviso ao carregar tipo_produto: $e');
+        }
+      }
+      _encomenda!['nome_tipo_produto'] = nomeProduto;
 
-      // Determinar o tempo estimado da fase atual para o Andon
-      if (_faseAtualId != null && fasesData.isNotEmpty) {
-        final faseAtual = (fasesData as List).firstWhere(
-          (f) => f['id'] == _faseAtualId,
-          orElse: () => null,
-        );
+      // 3. Busca as Fases de Produção do Produto
+      List<dynamic> fases = [];
+      if (tipoProdutoId != null) {
+        try {
+          fases = await _supabase
+              .from('fases_padrao')
+              .select('*')
+              .eq('tipos_produto_id', tipoProdutoId)
+              .order('ordem', ascending: true);
+        } catch (e) {
+          debugPrint('Aviso na busca de fases por tipos_produto_id: $e');
+        }
+
+        if (fases.isEmpty) {
+          try {
+            fases = await _supabase
+                .from('fases_padrao')
+                .select('*')
+                .eq('tipos_produtos_id', tipoProdutoId)
+                .order('ordem', ascending: true);
+          } catch (e) {
+            debugPrint('Aviso no fallback de fases: $e');
+          }
+        }
+      }
+
+      // Fallback: Se a encomenda tem fase_atual_id, descobre a sequência
+      if (fases.isEmpty && _faseAtualId != null) {
+        try {
+          final faseAtualBD = await _supabase
+              .from('fases_padrao')
+              .select('*')
+              .eq('id', _faseAtualId!)
+              .maybeSingle();
+
+          if (faseAtualBD != null) {
+            final dynamic realTipoIdRaw = faseAtualBD['tipos_produto_id'] ?? faseAtualBD['tipos_produtos_id'];
+            final int? realTipoId = realTipoIdRaw is int ? realTipoIdRaw : int.tryParse(realTipoIdRaw?.toString() ?? '');
+
+            if (realTipoId != null) {
+              fases = await _supabase
+                  .from('fases_padrao')
+                  .select('*')
+                  .eq('tipos_produto_id', realTipoId)
+                  .order('ordem', ascending: true);
+            }
+          }
+        } catch (e) {
+          debugPrint('Aviso na busca por fase_atual_id: $e');
+        }
+      }
+
+      _fasesDoProduto = fases;
+
+      // Se a fase atual não estiver na lista, ajusta para a primeira
+      if (_fasesDoProduto.isNotEmpty) {
+        final existeFase = _fasesDoProduto.any((f) => f['id'] == _faseAtualId);
+        if (!existeFase) {
+          _faseAtualId = _fasesDoProduto.first['id'];
+        }
+      }
+
+      // 4. Ajusta o Tempo Estimado da Fase Atual
+      if (_faseAtualId != null && _fasesDoProduto.isNotEmpty) {
+        final fasesCorrespondentes = _fasesDoProduto.where((f) => f['id'] == _faseAtualId);
+        final dynamic faseAtual = fasesCorrespondentes.isNotEmpty ? fasesCorrespondentes.first : _fasesDoProduto.first;
 
         if (faseAtual != null && faseAtual['tempo_estimado'] != null) {
           _tempoEstimadoMinutos = faseAtual['tempo_estimado'] is int
@@ -101,29 +174,88 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
         }
       }
 
-      setState(() {
-        _encomenda = encomendaData;
-        _fasesDoProduto = fasesData;
-        _isLoading = false;
-      });
+      // =======================================================================
+      // 5. CÁLCULO CONTINUO DO TEMPO (IMUNE A NAVEGAÇÕES ENTRE PÁGINAS)
+      // =======================================================================
+      if (_faseAtualId != null) {
+        final String chaveFase = '${widget.encomendaId}_$_faseAtualId';
 
-      // Inicia a contagem Andon se a tarefa não estiver concluída nem bloqueada
+        if (_temposInicioFase.containsKey(chaveFase)) {
+          // Já foi iniciada anteriormente durante a sessão
+          final inicio = _temposInicioFase[chaveFase]!;
+          _segundosDecorridos = DateTime.now().difference(inicio).inSeconds;
+          if (_segundosDecorridos < 0) _segundosDecorridos = 0;
+        } else {
+          // Primeira vez que entra nesta fase nesta sessão
+          DateTime? inicioBD;
+          try {
+            final historicoAnterior = await _supabase
+                .from('historico_producao')
+                .select('data_conclusao')
+                .eq('encomenda_id', widget.encomendaId)
+                .order('data_conclusao', ascending: false)
+                .limit(1)
+                .maybeSingle();
+
+            if (historicoAnterior != null && historicoAnterior['data_conclusao'] != null) {
+              inicioBD = DateTime.tryParse(historicoAnterior['data_conclusao'].toString())?.toLocal();
+            }
+          } catch (e) {
+            debugPrint('Aviso ao ler histórico: $e');
+          }
+
+          final agora = DateTime.now();
+          if (inicioBD != null && agora.difference(inicioBD).inSeconds >= 0 && agora.difference(inicioBD).inHours < 12) {
+            _temposInicioFase[chaveFase] = inicioBD;
+            _segundosDecorridos = agora.difference(inicioBD).inSeconds;
+          } else {
+            _temposInicioFase[chaveFase] = agora;
+            _segundosDecorridos = 0;
+          }
+        }
+      }
+
+      // 6. Verifica se há incidências pendentes
+      bool temIncidenciaAtiva = false;
+      try {
+        final incidenciasData = await _supabase
+            .from('incidencias')
+            .select('id, line_clearance_validado')
+            .eq('encomenda_id', widget.encomendaId);
+
+        if (incidenciasData is List) {
+          temIncidenciaAtiva = incidenciasData.any((inc) => inc['line_clearance_validado'] != true);
+        }
+      } catch (e) {
+        debugPrint('Aviso em incidências: $e');
+      }
+
+      _isBloqueada = emSuspenso || temIncidenciaAtiva;
+
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+
       if (!_isBloqueada && _faseAtualId != null) {
         _iniciarCronometroAndon();
       }
-    } catch (e) {
-      debugPrint('Erro ao carregar detalhes da tarefa: $e');
+    } catch (e, stack) {
+      debugPrint('Erro ao carregar detalhes: $e\n$stack');
       if (mounted) {
-        setState(() => _isLoading = false);
+        setState(() {
+          _errorMessage = e.toString();
+          _isLoading = false;
+        });
       }
     }
   }
 
-  /// Poka-Yoke: Abre modal de Checklist Obrigatória antes de concluir a fase
+  /// Poka-Yoke: Checklist Obrigatória antes de concluir a fase
   Future<bool> _validarChecklistQualidade(List<dynamic> checklistRaw) async {
-    if (checklistRaw.isEmpty) return true; // Se não tiver checklist, prossegue logo
+    if (checklistRaw.isEmpty) return true;
 
-    // Suporta tanto lista de Strings como lista de Objetos JSON
     final List<String> itens = checklistRaw.map((e) {
       if (e is Map) return e['item']?.toString() ?? e.toString();
       return e.toString();
@@ -219,44 +351,52 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
     return result ?? false;
   }
 
-  /// Inicia o processo de conclusão da fase com verificação de Checklist Poka-Yoke
   Future<void> _solicitarConclusaoFase() async {
     if (_encomenda == null || _faseAtualId == null) return;
 
-    // Encontra a fase atual
-    final faseAtual = _fasesDoProduto.firstWhere((f) => f['id'] == _faseAtualId, orElse: () => null);
+    final fasesCorrespondentes = _fasesDoProduto.where((f) => f['id'] == _faseAtualId);
+    final dynamic faseAtual = fasesCorrespondentes.isNotEmpty ? fasesCorrespondentes.first : null;
 
     if (faseAtual != null && faseAtual['checklist'] != null) {
-      final List<dynamic> checklist = faseAtual['checklist'] is List ? faseAtual['checklist'] : [];
-      
+      final dynamic rawChecklist = faseAtual['checklist'];
+      List<dynamic> checklist = [];
+
+      if (rawChecklist is List) {
+        checklist = rawChecklist;
+      } else if (rawChecklist is String) {
+        try {
+          checklist = jsonDecode(rawChecklist);
+        } catch (_) {}
+      }
+
       if (checklist.isNotEmpty) {
         final bool validado = await _validarChecklistQualidade(checklist);
-        if (!validado) return; // Cancela se não preencheu a checklist
+        if (!validado) return;
       }
     }
 
     _concluirFase();
   }
 
-  // Transição para a próxima fase no Supabase
+  // Transição de Fase no Supabase
   Future<void> _concluirFase() async {
+    if (_faseAtualId == null || _encomenda == null) return;
+
     setState(() => _isLoading = true);
     _timerAndon?.cancel();
 
     try {
-      final int tipoProdutoId = _encomenda!['tipos_produtos_id'];
-      
       final indexFaseAtual = _fasesDoProduto.indexWhere((f) => f['id'] == _faseAtualId);
-      final int ordemAtual = _fasesDoProduto[indexFaseAtual]['ordem'];
 
-      final proximaFaseData = await _supabase
-          .from('fases_padrao')
-          .select('id, nome_fase_padrao')
-          .eq('tipos_produto_id', tipoProdutoId)
-          .eq('ordem', ordemAtual + 1)
-          .maybeSingle();
+      int? proximaFaseId;
+      if (indexFaseAtual != -1 && indexFaseAtual + 1 < _fasesDoProduto.length) {
+        proximaFaseId = _fasesDoProduto[indexFaseAtual + 1]['id'];
+      }
 
       final utilizadorId = _supabase.auth.currentUser?.id;
+
+      // Limpa a fase antiga da memória
+      _temposInicioFase.remove('${widget.encomendaId}_$_faseAtualId');
 
       // 1. Regista no Histórico de Produção
       await _supabase.from('historico_producao').insert({
@@ -266,26 +406,23 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
         'data_conclusao': DateTime.now().toIso8601String(),
       });
 
-      // 2. Atualiza a fase da encomenda
-      if (proximaFaseData != null) {
-        await _supabase
-            .from('encomendas')
-            .update({'fase_atual_id': proximaFaseData['id']})
-            .eq('id', widget.encomendaId);
-      } else {
-        await _supabase
-            .from('encomendas')
-            .update({'fase_atual_id': null})
-            .eq('id', widget.encomendaId);
-      }
+      // 2. Atualiza a encomenda com o ID da próxima fase
+      await _supabase
+          .from('encomendas')
+          .update({'fase_atual_id': proximaFaseId})
+          .eq('id', widget.encomendaId);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Etapa concluída com sucesso! 🚀'), backgroundColor: Colors.green),
+          const SnackBar(
+            content: Text('Etapa concluída com sucesso! Encomenda avançada. 🚀'),
+            backgroundColor: Colors.green,
+          ),
         );
         Navigator.of(context).pop(true);
       }
     } catch (e) {
+      debugPrint('Erro ao concluir fase: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Erro ao atualizar fase: $e'), backgroundColor: Colors.red),
@@ -297,7 +434,7 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
 
   void _abrirPopupIncidencia() async {
     if (_faseAtualId == null) return;
-    
+
     _timerAndon?.cancel();
 
     final result = await showDialog<bool>(
@@ -347,18 +484,26 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    if (_errorMessage != null)
+                      Container(
+                        margin: const EdgeInsets.only(bottom: 20),
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(color: Colors.red.shade100, borderRadius: BorderRadius.circular(8)),
+                        child: Text('Erro ao carregar dados: $_errorMessage', style: TextStyle(color: Colors.red.shade900)),
+                      ),
+
                     Text(
                       widget.codigoRastreio,
                       style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Produto: ${_encomenda?['tipos_produto']?['nome_tipo_produto'] ?? 'Artigo'}',
+                      'Produto: ${_encomenda?['nome_tipo_produto'] ?? 'Artigo'}',
                       style: const TextStyle(fontSize: 14, color: Color(0xFF64748B)),
                     ),
                     const SizedBox(height: 24),
 
-                    // --- BLOCO ANDON VISUAL (DENTRO / ATENÇÃO / EXCEDIDO) ---
+                    // --- BLOCO ANDON VISUAL ---
                     if (!_isBloqueada && _faseAtualId != null) _construirCardAndon(),
 
                     const SizedBox(height: 24),
@@ -366,7 +511,7 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Coluna da Esquerda: Especificações + Botões
+                        // Coluna Esquerda: Especificações + Botões
                         Expanded(
                           flex: 3,
                           child: Column(
@@ -398,8 +543,8 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
                                 ),
                               ),
                               const SizedBox(height: 24),
-                              
-                              // Botões de Ação
+
+                              // Botões
                               Row(
                                 children: [
                                   Expanded(
@@ -438,7 +583,7 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
                         ),
                         const SizedBox(width: 32),
 
-                        // Coluna da Direita: Timeline de Fases
+                        // Coluna Direita: Timeline de Fases
                         Expanded(
                           flex: 2,
                           child: Card(
@@ -472,19 +617,18 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
     );
   }
 
-  /// Constrói o Painel Andon de Controlo Visual
   Widget _construirCardAndon() {
     final int tempoEstimadoSegundos = _tempoEstimadoMinutos * 60;
     final double racio = tempoEstimadoSegundos > 0 ? (_segundosDecorridos / tempoEstimadoSegundos) : 0;
 
-    Color corAndon = const Color(0xFF10B981); // Verde por defeito
+    Color corAndon = const Color(0xFF10B981);
     String estadoAndon = 'DENTRO DO PRAZO';
 
     if (racio > 1.0) {
-      corAndon = const Color(0xFFEF4444); // Vermelho Excedido
+      corAndon = const Color(0xFFEF4444);
       estadoAndon = 'TEMPO ESTIMADO EXCEDIDO';
     } else if (racio >= 0.8) {
-      corAndon = const Color(0xFFF59E0B); // Amarelo/Laranja Próximo do limite
+      corAndon = const Color(0xFFF59E0B);
       estadoAndon = 'ATENÇÃO AO LIMITE';
     }
 
@@ -547,6 +691,16 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
   }
 
   Widget _construirTimelineFases() {
+    if (_fasesDoProduto.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 12.0),
+        child: Text(
+          'Nenhuma fase configurada para este produto.',
+          style: TextStyle(fontSize: 13, color: Colors.grey, fontStyle: FontStyle.italic),
+        ),
+      );
+    }
+
     final indexFaseAtual = _fasesDoProduto.indexWhere((f) => f['id'] == _faseAtualId);
 
     return ListView.builder(
@@ -555,16 +709,16 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
       itemCount: _fasesDoProduto.length,
       itemBuilder: (context, index) {
         final fase = _fasesDoProduto[index];
-        final String nome = fase['nome_fase_padrao'];
-        
+        final String nome = fase['nome_fase_padrao'] ?? fase['nome_fase'] ?? 'Fase #${index + 1}';
+
         bool isConcluida = false;
         bool isAtual = false;
 
         if (_faseAtualId == null) {
           isConcluida = true;
-        } else if (index < indexFaseAtual) {
+        } else if (indexFaseAtual != -1 && index < indexFaseAtual) {
           isConcluida = true;
-        } else if (index == indexFaseAtual) {
+        } else if (index == indexFaseAtual || (indexFaseAtual == -1 && index == 0)) {
           isAtual = true;
         }
 
@@ -577,13 +731,13 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
                     width: 32,
                     height: 32,
                     decoration: BoxDecoration(
-                      color: isConcluida 
-                          ? const Color(0xFF10B981) 
+                      color: isConcluida
+                          ? const Color(0xFF10B981)
                           : (isAtual ? const Color(0xFF3B82F6) : Colors.grey.shade100),
                       shape: BoxShape.circle,
                       border: Border.all(
-                        color: isConcluida 
-                            ? Colors.transparent 
+                        color: isConcluida
+                            ? Colors.transparent
                             : (isAtual ? Colors.transparent : Colors.grey.shade300),
                         width: 1,
                       ),
@@ -611,7 +765,7 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
                 ],
               ),
               const SizedBox(width: 16),
-              
+
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -622,20 +776,20 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: isAtual ? FontWeight.bold : FontWeight.w500,
-                        color: isAtual 
-                            ? const Color(0xFF1E293B) 
+                        color: isAtual
+                            ? const Color(0xFF1E293B)
                             : (isConcluida ? const Color(0xFF64748B) : Colors.grey.shade400),
                       ),
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      isConcluida 
-                          ? 'Concluída' 
+                      isConcluida
+                          ? 'Concluída'
                           : (isAtual ? 'Em andamento...' : 'Aguardando'),
                       style: TextStyle(
                         fontSize: 11,
-                        color: isConcluida 
-                            ? const Color(0xFF10B981) 
+                        color: isConcluida
+                            ? const Color(0xFF10B981)
                             : (isAtual ? const Color(0xFF3B82F6) : Colors.grey.shade400),
                         fontWeight: isAtual ? FontWeight.bold : FontWeight.normal,
                       ),

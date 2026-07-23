@@ -39,7 +39,7 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
           .ilike('perfil', 'operador')
           .order('nome_utilizador', ascending: true);
 
-      // 3. Carregar Encomendas em Curso
+      // 3. Carregar Encomendas em Curso com Fases Padrão
       final encomendasResponse = await _supabase
           .from('encomendas')
           .select('''
@@ -93,7 +93,10 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
     }
   }
 
-  Map<String, dynamic>? _obterOrdemAtivaDoPosto(int postoId) {
+  // CORRIGIDO: Agora compara pelo nome do posto (Texto), pois fases_padrao.posto_trabalho guarda 'Corte', 'Montagem', etc.
+  Map<String, dynamic>? _obterOrdemAtivaDoPosto(String? nomePosto) {
+    if (nomePosto == null || nomePosto.trim().isEmpty) return null;
+
     for (var enc in _encomendasAtivas) {
       final faseData = enc['fases_padrao'];
       Map<String, dynamic>? fase;
@@ -104,8 +107,12 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
         fase = faseData.first as Map<String, dynamic>?;
       }
 
-      if (fase != null && fase['posto_trabalho'] == postoId) {
-        return enc;
+      if (fase != null) {
+        final String? postoNaFase = fase['posto_trabalho']?.toString();
+        if (postoNaFase != null &&
+            postoNaFase.trim().toLowerCase() == nomePosto.trim().toLowerCase()) {
+          return enc;
+        }
       }
     }
     return null;
@@ -215,7 +222,9 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
     for (var posto in _postos) {
       final String estadoBD = (posto['estado'] ?? 'LIVRE').toString().toUpperCase();
       final String? operadorId = posto['operador_id']?.toString();
-      final ordem = _obterOrdemAtivaDoPosto(posto['id']);
+      final String? nomePosto = posto['nome_posto']?.toString();
+
+      final ordem = _obterOrdemAtivaDoPosto(nomePosto);
       final int? encId = ordem != null ? (ordem['id'] as int?) : null;
       final bool emSuspenso = ordem?['em_suspenso'] == true;
       final inc = _obterIncidenciaAtivaDoPosto(posto['id'], encId);
@@ -325,9 +334,10 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
                               final posto = _postos[index];
                               final String estadoBD = (posto['estado'] ?? 'LIVRE').toString().toUpperCase();
                               final String? operadorIdAtual = posto['operador_id']?.toString();
+                              final String? nomePosto = posto['nome_posto']?.toString();
 
-                              // Obter a ordem associada
-                              final ordemAtiva = _obterOrdemAtivaDoPosto(posto['id']);
+                              // Obter a ordem associada usando o nome do posto
+                              final ordemAtiva = _obterOrdemAtivaDoPosto(nomePosto);
                               final int? encomendaId = ordemAtiva != null ? (ordemAtiva['id'] as int?) : null;
                               final bool emSuspenso = ordemAtiva?['em_suspenso'] == true;
 
@@ -478,7 +488,8 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
                                                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                                     children: [
                                                       Text(
-                                                        'ORD-2026-${ordemAtiva['id'].toString().padLeft(3, '0')}',
+                                                        ordemAtiva['codigo_rastreio'] ??
+                                                            'ORD-2026-${ordemAtiva['id'].toString().padLeft(3, '0')}',
                                                         style: TextStyle(
                                                           fontWeight: FontWeight.bold,
                                                           color: temIncidencia ? Colors.red.shade900 : Colors.blue.shade900,
