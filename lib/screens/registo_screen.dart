@@ -46,7 +46,8 @@ class _RegistoScreenState extends State<RegistoScreen> {
           'nome_utilizador': _nomeController.text.trim(),
           'email': _emailController.text.trim(),
           'perfil': 'Pendente',
-          'password': _passwordController.text.trim(),
+          // NOTA: a password NÃO é guardada aqui. É gerida de forma segura
+          // (encriptada) pelo Supabase Auth via signUp acima.
         });
 
         if (mounted) {

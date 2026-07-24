@@ -17,6 +17,7 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _passwordFocus = FocusNode();
   final AuthService _authService = AuthService();
   bool _isLoading = false;
 
@@ -30,6 +31,7 @@ class _LoginScreenState extends State<LoginScreen> {
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
+    _passwordFocus.dispose();
     super.dispose();
   }
 
@@ -139,89 +141,133 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24.0),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 400),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const Icon(Icons.factory_outlined, size: 80, color: Colors.deepPurple),
-                const SizedBox(height: 16),
-                const Text(
-                  'Gestão de Produção',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.deepPurple),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFF4527A0), Color(0xFF7E57C2), Color(0xFFEDE7F6)],
+          ),
+        ),
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24.0),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: Card(
+                elevation: 12,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
                 ),
-                const SizedBox(height: 32),
-                TextField(
-                  controller: _emailController,
-                  enabled: !_isLoading,
-                  decoration: const InputDecoration(
-                    labelText: 'E-mail', 
-                    border: OutlineInputBorder(), 
-                    prefixIcon: Icon(Icons.email),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 40),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Center(
+                        child: Container(
+                          padding: const EdgeInsets.all(18),
+                          decoration: const BoxDecoration(
+                            color: Color(0xFFEDE7F6),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.factory_outlined, size: 56, color: Colors.deepPurple),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      const Text(
+                        'Gestão de Produção',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: Colors.deepPurple),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Inicie sessão para continuar',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
+                      ),
+                      const SizedBox(height: 32),
+                      TextField(
+                        controller: _emailController,
+                        enabled: !_isLoading,
+                        autofocus: true,
+                        textInputAction: TextInputAction.next,
+                        onSubmitted: (_) => _passwordFocus.requestFocus(),
+                        decoration: const InputDecoration(
+                          labelText: 'E-mail',
+                          border: OutlineInputBorder(),
+                          prefixIcon: Icon(Icons.email),
+                        ),
+                        keyboardType: TextInputType.emailAddress,
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: _passwordController,
+                        focusNode: _passwordFocus,
+                        enabled: !_isLoading,
+                        textInputAction: TextInputAction.done,
+                        onSubmitted: (_) {
+                          if (!_isLoading) _fazerLogin();
+                        },
+                        decoration: const InputDecoration(
+                          labelText: 'Palavra-passe',
+                          border: OutlineInputBorder(),
+                          prefixIcon: Icon(Icons.lock),
+                        ),
+                        obscureText: true,
+                      ),
+                      const SizedBox(height: 24),
+                      ElevatedButton(
+                        onPressed: _isLoading ? null : _fazerLogin,
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          backgroundColor: Colors.deepPurple,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: _isLoading
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                              )
+                            : const Text('Entrar', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Text('Não tem conta?'),
+                          TextButton(
+                            onPressed: _isLoading ? null : () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(builder: (context) => const RegistoScreen()),
+                              );
+                            },
+                            child: const Text('Solicitar acesso', style: TextStyle(fontWeight: FontWeight.bold)),
+                          ),
+                        ],
+                      ),
+                      const Divider(),
+                      TextButton.icon(
+                        onPressed: _isLoading ? null : () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(builder: (context) => const RastreioClienteScreen()),
+                          );
+                        },
+                        icon: const Icon(Icons.search, color: Colors.deepPurple),
+                        label: const Text(
+                          'Consultar código de rastreio público',
+                          style: TextStyle(color: Colors.deepPurple, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ],
                   ),
-                  keyboardType: TextInputType.emailAddress,
                 ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: _passwordController,
-                  enabled: !_isLoading,
-                  decoration: const InputDecoration(
-                    labelText: 'Palavra-passe', 
-                    border: OutlineInputBorder(), 
-                    prefixIcon: Icon(Icons.lock),
-                  ),
-                  obscureText: true,
-                ),
-                const SizedBox(height: 24),
-                ElevatedButton(
-                  onPressed: _isLoading ? null : _fazerLogin,
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    backgroundColor: Colors.deepPurple,
-                    foregroundColor: Colors.white,
-                  ),
-                  child: _isLoading
-                      ? const SizedBox(
-                          width: 20, 
-                          height: 20, 
-                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                        )
-                      : const Text('Entrar', style: TextStyle(fontSize: 16)),
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Text('Não tem conta?'),
-                    TextButton(
-                      onPressed: _isLoading ? null : () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(builder: (context) => const RegistoScreen()),
-                        );
-                      },
-                      child: const Text('Solicitar acesso', style: TextStyle(fontWeight: FontWeight.bold)),
-                    ),
-                  ],
-                ),
-                const Divider(),
-                TextButton.icon(
-                  onPressed: _isLoading ? null : () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(builder: (context) => const RastreioClienteScreen()),
-                    );
-                  },
-                  icon: const Icon(Icons.search, color: Colors.deepPurple),
-                  label: const Text(
-                    'Consultar código de rastreio público',
-                    style: TextStyle(color: Colors.deepPurple, fontWeight: FontWeight.bold),
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
         ),
