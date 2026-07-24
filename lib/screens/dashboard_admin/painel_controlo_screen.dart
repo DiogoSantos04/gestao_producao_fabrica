@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/temas_cores.dart';
+import '../../core/formatos.dart';
 
 class PainelControloScreen extends StatefulWidget {
   const PainelControloScreen({super.key});
@@ -144,9 +145,12 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
         final cliente = (e['clientes'] != null ? e['clientes']['nome_cliente'] : '').toString().toLowerCase();
         final matchTexto = codigo.contains(query) || cliente.contains(query);
 
+        final bool cancelada = e['cancelada'] == true;
         final bool emHold = e['em_suspenso'] == true;
         final bool concluida = e['fase_atual_id'] == null;
 
+        if (_filtroEstado == 'CANCELADA') return matchTexto && cancelada;
+        if (cancelada) return false; // canceladas só aparecem no seu próprio filtro
         if (_filtroEstado == 'EM_PRODUCAO') return matchTexto && !emHold && !concluida;
         if (_filtroEstado == 'ON_HOLD') return matchTexto && emHold;
         if (_filtroEstado == 'CONCLUIDA') return matchTexto && concluida;
@@ -204,46 +208,34 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
 
   // --- AVANÇAR FASE ---
 
+  /// Avança a ordem para a fase seguinte.
+  ///
+  /// O registo no histórico e a atualização da encomenda correm dentro de uma
+  /// única transação no servidor (`avancar_fase_encomenda`). Antes eram duas
+  /// escritas independentes: se a segunda falhasse, ficava histórico órfão e a
+  /// ordem presa na fase anterior.
   Future<void> _avancarFase(Map<String, dynamic> enc) async {
     try {
-      final int prodId = enc['tipos_produtos_id'];
-      final int? faseAtualId = enc['fase_atual_id'];
+      final resultado = await _supabase.rpc(
+        'avancar_fase_encomenda',
+        params: {'p_encomenda_id': enc['id']},
+      );
 
-      if (faseAtualId == null) return;
-
-      final user = _supabase.auth.currentUser;
-
-      await _supabase.from('historico_producao').insert({
-        'encomenda_id': enc['id'],
-        'fase_concluida_id': faseAtualId,
-        'utilizador_id': user?.id,
-        'data_conclusao': DateTime.now().toIso8601String(),
-      });
-
-      final fasesDoProduto = List<dynamic>.from(_fasesPorProduto[prodId] ?? []);
-      fasesDoProduto.sort((a, b) => (a['ordem'] as int).compareTo(b['ordem'] as int));
-
-      final indexAtual = fasesDoProduto.indexWhere((f) => f['id'] == faseAtualId);
-
-      if (indexAtual != -1 && indexAtual + 1 < fasesDoProduto.length) {
-        final proximaFase = fasesDoProduto[indexAtual + 1];
-        await _supabase.from('encomendas').update({
-          'fase_atual_id': proximaFase['id'],
-        }).eq('id', enc['id']);
-
-        _mostrarMensagem('Ordem avançada para a fase: ${proximaFase['nome_fase_padrao']}!');
-      } else {
-        await _supabase.from('encomendas').update({
-          'fase_atual_id': null,
-        }).eq('id', enc['id']);
-
-        _mostrarMensagem('🏁 Ordem de produção concluída com sucesso!');
-      }
+      final bool concluida = resultado?['concluida'] == true;
+      _mostrarMensagem(concluida
+          ? '🏁 Ordem de produção concluída com sucesso!'
+          : 'Ordem avançada para a fase: ${resultado?['proxima_fase_nome'] ?? ''}!');
 
       _carregarDados(mostrarLoader: false);
     } catch (e) {
-      _mostrarMensagem('Erro ao avançar fase: $e', eErro: true);
+      _mostrarMensagem('Erro ao avançar fase: ${_limparErro(e)}', eErro: true);
     }
+  }
+
+  /// As RPCs devolvem mensagens de negócio legíveis; retiramos o ruído do driver.
+  String _limparErro(Object e) {
+    if (e is PostgrestException) return e.message;
+    return e.toString().replaceAll('Exception: ', '');
   }
 
   // --- AÇÕES DE WIP HOLD, REGISTO TÉCNICO HÍBRIDO E LINE CLEARANCE ---
@@ -353,25 +345,15 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
 
                           try {
                             final int encId = int.parse(enc['id'].toString());
-                            final reasonObjeto = reasonCodesMap[selectedReasonId];
 
-                            final String cat = reasonObjeto?['categoria'] ?? 'Geral';
-                            final String desc = reasonObjeto?['descricao'] ?? '';
-
-                            await _supabase.from('incidencias').insert({
-                              'encomenda_id': encId,
-                              'reason_code_id': selectedReasonId,
-                              'motivo': '[$cat] $desc',
-                              'descricao_operador': notasController.text.trim(),
-                              'data_registo': DateTime.now().toIso8601String(),
-                              'manutencao_concluida': false,
-                              'line_clearance_validado': false,
-                              'estado': 'PENDENTE',
+                            // Criar a incidência e suspender a ordem é uma só
+                            // transação — e o posto de trabalho é resolvido no
+                            // servidor a partir da fase atual.
+                            await _supabase.rpc('aplicar_wip_hold', params: {
+                              'p_encomenda_id': encId,
+                              'p_reason_code_id': selectedReasonId,
+                              'p_descricao_operador': notasController.text.trim(),
                             });
-
-                            await _supabase.from('encomendas').update({
-                              'em_suspenso': true,
-                            }).eq('id', encId);
 
                             notasController.dispose();
                             if (dialogContext.mounted) {
@@ -382,7 +364,7 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
                             _carregarDados(mostrarLoader: false);
                           } catch (e) {
                             setDialogState(() => isSubmitting = false);
-                            _mostrarMensagem('Erro ao aplicar WIP Hold: $e', eErro: true);
+                            _mostrarMensagem('Erro ao aplicar WIP Hold: ${_limparErro(e)}', eErro: true);
                           }
                         },
                 ),
@@ -689,22 +671,14 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
                           setDialogState(() => isSubmitting = true);
 
                           try {
-                            final user = _supabase.auth.currentUser;
-                            final int encId = int.parse(enc['id'].toString());
-
-                            if (incidenciaAtiva != null) {
-                              final int incId = int.parse(incidenciaAtiva['id'].toString());
-                              await _supabase.from('incidencias').update({
-                                'line_clearance_validado': true,
-                                'line_clearance_por': user?.id,
-                                'data_line_clearance': DateTime.now().toIso8601String(),
-                                'estado': 'RESOLVIDO',
-                              }).eq('id', incId);
+                            if (incidenciaAtiva == null) {
+                              throw Exception('Não há incidência ativa para validar.');
                             }
 
-                            await _supabase.from('encomendas').update({
-                              'em_suspenso': false,
-                            }).eq('id', encId);
+                            // Fechar a incidência e libertar a ordem numa só transação.
+                            await _supabase.rpc('aprovar_line_clearance', params: {
+                              'p_incidencia_id': int.parse(incidenciaAtiva['id'].toString()),
+                            });
 
                             if (dialogContext.mounted) {
                               Navigator.pop(dialogContext);
@@ -714,7 +688,7 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
                             _carregarDados(mostrarLoader: false);
                           } catch (e) {
                             setDialogState(() => isSubmitting = false);
-                            _mostrarMensagem('Erro ao aprovar Line Clearance: $e', eErro: true);
+                            _mostrarMensagem('Erro ao aprovar Line Clearance: ${_limparErro(e)}', eErro: true);
                           }
                         },
                 ),
@@ -730,7 +704,7 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
 
   Future<void> _abrirDialogHistorico(Map<String, dynamic> enc) async {
     final int encId = int.parse(enc['id'].toString());
-    final idFormatado = 'ORD-2026-${encId.toString().padLeft(3, '0')}';
+    final idFormatado = Formatos.referenciaOrdem(encId, criadaEm: enc['created_at']);
 
     showDialog(
       context: context,
@@ -934,14 +908,22 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
     );
   }
 
-  Future<void> _cancelarOrdem(int id) async {
+  /// Cancela a ordem preservando todo o histórico de produção e incidências.
+  ///
+  /// Antes fazia-se `DELETE`, o que destruía a rastreabilidade da ordem — algo
+  /// inaceitável num contexto fabril. Agora a ordem fica marcada como cancelada,
+  /// com motivo, autor e data.
+  Future<void> _cancelarOrdem(int id, String motivo) async {
     try {
       setState(() => _isLoading = true);
-      await _supabase.from('encomendas').delete().eq('id', id);
-      _mostrarMensagem('Ordem de produção cancelada e removida com sucesso!');
+      await _supabase.rpc('cancelar_ordem', params: {
+        'p_encomenda_id': id,
+        'p_motivo': motivo,
+      });
+      _mostrarMensagem('Ordem cancelada. O histórico foi preservado para auditoria.');
       _carregarDados(mostrarLoader: true);
     } catch (e) {
-      _mostrarMensagem('Erro ao cancelar ordem: $e', eErro: true);
+      _mostrarMensagem('Erro ao cancelar ordem: ${_limparErro(e)}', eErro: true);
       if (mounted) setState(() => _isLoading = false);
     }
   }
@@ -1045,6 +1027,11 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
                                 label: Text('Concluídas', style: TextStyle(fontSize: 12)),
                                 icon: Icon(Icons.flag_rounded, size: 14),
                               ),
+                              ButtonSegment(
+                                value: 'CANCELADA',
+                                label: Text('Canceladas', style: TextStyle(fontSize: 12)),
+                                icon: Icon(Icons.block_rounded, size: 14),
+                              ),
                             ],
                             selected: {_filtroEstado},
                             onSelectionChanged: (set) {
@@ -1083,14 +1070,15 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
   }
 
   Widget _buildOrdemCard(Map<String, dynamic> enc) {
-    final idFormatado = 'ORD-2026-${enc['id'].toString().padLeft(3, '0')}';
+    final idFormatado = Formatos.referenciaOrdem(enc['id'], criadaEm: enc['created_at']);
     final String codigoRastreio = enc['codigo_rastreio'] ?? 'N/A';
     final String nomeCliente = enc['clientes'] != null ? enc['clientes']['nome_cliente'] : 'N/A';
     final String nomeProduto = enc['tipos_produto'] != null ? enc['tipos_produto']['nome_tipo_produto'] : 'N/A';
     final String prioridade = enc['prioridade'] ?? 'Normal';
 
-    final bool emHold = enc['em_suspenso'] == true;
-    final bool concluida = enc['fase_atual_id'] == null;
+    final bool cancelada = enc['cancelada'] == true;
+    final bool emHold = !cancelada && enc['em_suspenso'] == true;
+    final bool concluida = !cancelada && enc['fase_atual_id'] == null;
 
     final faseAtual = enc['fase_atual'];
     final String faseNome = concluida
@@ -1154,18 +1142,26 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                             decoration: BoxDecoration(
-                              color: emHold ? Colors.red.shade50 : (concluida ? Colors.green.shade50 : Colors.blue.shade50),
+                              color: cancelada
+                                  ? Colors.grey.shade200
+                                  : (emHold ? Colors.red.shade50 : (concluida ? Colors.green.shade50 : Colors.blue.shade50)),
                               borderRadius: BorderRadius.circular(4),
                               border: Border.all(
-                                color: emHold ? Colors.red.shade300 : (concluida ? Colors.green.shade300 : Colors.blue.shade300),
+                                color: cancelada
+                                    ? Colors.grey.shade400
+                                    : (emHold ? Colors.red.shade300 : (concluida ? Colors.green.shade300 : Colors.blue.shade300)),
                               ),
                             ),
                             child: Text(
-                              emHold ? 'ON HOLD' : (concluida ? 'CONCLUÍDA' : 'EM PRODUÇÃO'),
+                              cancelada
+                                  ? 'CANCELADA'
+                                  : (emHold ? 'ON HOLD' : (concluida ? 'CONCLUÍDA' : 'EM PRODUÇÃO')),
                               style: TextStyle(
                                 fontSize: 10,
                                 fontWeight: FontWeight.bold,
-                                color: emHold ? Colors.red.shade800 : (concluida ? Colors.green.shade800 : Colors.blue.shade800),
+                                color: cancelada
+                                    ? Colors.grey.shade700
+                                    : (emHold ? Colors.red.shade800 : (concluida ? Colors.green.shade800 : Colors.blue.shade800)),
                               ),
                             ),
                           ),
@@ -1229,7 +1225,10 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
                     Row(
                       children: [
                         // BOTÕES CONDICIONAIS DE WIP HOLD / REGISTO TÉCNICO / LINE CLEARANCE
-                        if (emHold) ...[
+                        // (uma ordem cancelada só permite consultar o histórico)
+                        if (cancelada) ...[
+                          // sem ações operacionais
+                        ] else if (emHold) ...[
                           if (!manutencaoConcluida)
                             ElevatedButton.icon(
                               onPressed: () => _abrirDialogRegistoTecnico(enc, incidenciaAtiva),
@@ -1290,27 +1289,29 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
                         ),
                         const SizedBox(width: 8),
 
-                        OutlinedButton.icon(
-                          onPressed: () => _abrirDialogEditar(enc),
-                          style: OutlinedButton.styleFrom(
-                            side: BorderSide(color: Colors.grey.shade300),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                        if (!cancelada) ...[
+                          OutlinedButton.icon(
+                            onPressed: () => _abrirDialogEditar(enc),
+                            style: OutlinedButton.styleFrom(
+                              side: BorderSide(color: Colors.grey.shade300),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                            ),
+                            icon: const Icon(Icons.edit_outlined, size: 14, color: Colors.black87),
+                            label: const Text('Editar', style: TextStyle(color: Colors.black87, fontSize: 12)),
                           ),
-                          icon: const Icon(Icons.edit_outlined, size: 14, color: Colors.black87),
-                          label: const Text('Editar', style: TextStyle(color: Colors.black87, fontSize: 12)),
-                        ),
-                        const SizedBox(width: 8),
-                        OutlinedButton.icon(
-                          onPressed: () => _confirmarCancelamento(enc['id'], idFormatado),
-                          style: OutlinedButton.styleFrom(
-                            side: BorderSide(color: Colors.grey.shade300),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                          const SizedBox(width: 8),
+                          OutlinedButton.icon(
+                            onPressed: () => _confirmarCancelamento(enc['id'], idFormatado),
+                            style: OutlinedButton.styleFrom(
+                              side: BorderSide(color: Colors.grey.shade300),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                            ),
+                            icon: const Icon(Icons.cancel_outlined, size: 14, color: Colors.black87),
+                            label: const Text('Cancelar', style: TextStyle(color: Colors.black87, fontSize: 12)),
                           ),
-                          icon: const Icon(Icons.cancel_outlined, size: 14, color: Colors.black87),
-                          label: const Text('Cancelar', style: TextStyle(color: Colors.black87, fontSize: 12)),
-                        ),
+                        ],
                       ],
                     ),
                     const SizedBox(height: 16),
@@ -1323,6 +1324,33 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
               ],
             ),
           ),
+
+          // MOTIVO DO CANCELAMENTO (rasto de auditoria)
+          if (cancelada) ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              margin: const EdgeInsets.only(left: 20, right: 20, bottom: 16),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: Colors.grey.shade300),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.block_rounded, color: Colors.grey.shade700, size: 18),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'ORDEM CANCELADA em ${_formatarDataHora(enc['data_cancelamento'])} — '
+                      '${enc['motivo_cancelamento'] ?? 'sem motivo registado'}',
+                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey.shade800),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
 
           // BANNER ALERTA DE INCIDÊNCIA ATIVA / ESTADO DA REPARAÇÃO
           if (emHold && incidenciaAtiva != null) ...[
@@ -1393,23 +1421,64 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
   // --- POPUPS E DIALOGS ADICIONAIS ---
 
   void _confirmarCancelamento(int id, String refOrdem) {
+    final motivoController = TextEditingController();
+
     showDialog(
       context: context,
       builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Cancelar Ordem de Produção'),
-          content: Text('Tem a certeza de que deseja cancelar e apagar a ordem $refOrdem do sistema?'),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Não')),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.pop(dialogContext);
-                _cancelarOrdem(id);
-              },
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
-              child: const Text('Sim, Cancelar'),
-            ),
-          ],
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Cancelar Ordem de Produção'),
+              content: SizedBox(
+                width: 420,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'A ordem $refOrdem será marcada como cancelada. O histórico de '
+                      'produção e as incidências são preservados para auditoria.',
+                      style: const TextStyle(fontSize: 13),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: motivoController,
+                      maxLines: 2,
+                      autofocus: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Motivo do cancelamento *',
+                        hintText: 'Ex: Anulação a pedido do cliente.',
+                        border: OutlineInputBorder(),
+                      ),
+                      onChanged: (_) => setDialogState(() {}),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    motivoController.dispose();
+                    Navigator.pop(dialogContext);
+                  },
+                  child: const Text('Não'),
+                ),
+                ElevatedButton(
+                  onPressed: motivoController.text.trim().isEmpty
+                      ? null
+                      : () {
+                          final motivo = motivoController.text.trim();
+                          motivoController.dispose();
+                          Navigator.pop(dialogContext);
+                          _cancelarOrdem(id, motivo);
+                        },
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+                  child: const Text('Sim, Cancelar'),
+                ),
+              ],
+            );
+          },
         );
       },
     );

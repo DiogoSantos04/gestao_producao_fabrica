@@ -71,71 +71,20 @@ class _PedidosClientesAdminScreenState extends State<PedidosClientesAdminScreen>
     dataEntregaSelecionada = dataPick;
 
     try {
-      final int tipoProdutoId = pedido['tipo_produto_id'];
-      final int clienteId = pedido['cliente_id'];
-      final int quantidade = pedido['quantidade'] ?? 1;
-
-      // 1. Procura a 1ª fase de fabrico do tipo de produto (com menor 'ordem')
-      final fases = await _supabase
-          .from('fases_padrao')
-          .select('id, ordem')
-          .eq('tipos_produto_id', tipoProdutoId)
-          .order('ordem', ascending: true)
-          .limit(1);
-
-      if (fases.isEmpty) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Erro: Este tipo de produto não tem fases de fabrico associadas.'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-        return;
-      }
-
-      final int primeiraFaseId = fases.first['id'];
       final String codigoRastreio = _gerarCodigoRastreio();
-      final String dataFormatted = "${dataEntregaSelecionada.year}-${dataEntregaSelecionada.month.toString().padLeft(2, '0')}-${dataEntregaSelecionada.day.toString().padLeft(2, '0')}";
+      final String dataFormatted =
+          "${dataEntregaSelecionada.year}-${dataEntregaSelecionada.month.toString().padLeft(2, '0')}-${dataEntregaSelecionada.day.toString().padLeft(2, '0')}";
 
-      // 2. Insere a nova encomenda real em produção
-      await _supabase.from('encomendas').insert({
-        'codigo_rastreio': codigoRastreio,
-        'cliente_id': clienteId,
-        'tipos_produtos_id': tipoProdutoId,
-        'fase_atual_id': primeiraFaseId,
-        'quantidade': quantidade,
-        'data_entrega': dataFormatted,
+      // Lançar a ordem, atualizar o pedido e notificar o cliente corre tudo numa
+      // única transação no servidor. A notificação usa a ligação real
+      // `clientes.utilizador_id` — antes procurava-se o utilizador comparando
+      // `nome_utilizador` com `nome_cliente`, o que falhava ou acertava na pessoa
+      // errada perante nomes repetidos ou ligeiramente diferentes.
+      await _supabase.rpc('aprovar_pedido_encomenda', params: {
+        'p_pedido_id': pedido['id'],
+        'p_data_entrega': dataFormatted,
+        'p_codigo_rastreio': codigoRastreio,
       });
-
-      // 3. Atualiza o estado do pedido de cliente
-      await _supabase
-          .from('pedidos_encomenda')
-          .update({'estado': 'Aprovado'})
-          .eq('id', pedido['id']);
-
-      // 4. Procura o utilizador correspondente para emitir a notificação
-      final nomeCliente = pedido['clientes']?['nome_cliente'];
-      final String nomeProduto = pedido['tipos_produto']?['nome_tipo_produto'] ?? 'Artigo';
-
-      if (nomeCliente != null) {
-        final userMatch = await _supabase
-            .from('utilizadores')
-            .select('utilizador_id')
-            .eq('nome_utilizador', nomeCliente)
-            .maybeSingle();
-
-        if (userMatch != null) {
-          // Insere a notificação que faz disparar o aviso em tempo real no ecrã do cliente
-          await _supabase.from('notificacoes').insert({
-            'utilizador_id': userMatch['utilizador_id'],
-            'titulo': 'Encomenda Aprovada! 🚀',
-            'mensagem': 'O seu pedido de $quantidade x $nomeProduto foi aprovado e entrou em produção. Código: $codigoRastreio',
-            'lida': false,
-          });
-        }
-      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -149,8 +98,9 @@ class _PedidosClientesAdminScreenState extends State<PedidosClientesAdminScreen>
     } catch (e) {
       debugPrint('Erro ao lançar encomenda: $e');
       if (mounted) {
+        final msg = e is PostgrestException ? e.message : e.toString();
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro ao processar: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text('Erro ao processar: $msg'), backgroundColor: Colors.red),
         );
       }
     }

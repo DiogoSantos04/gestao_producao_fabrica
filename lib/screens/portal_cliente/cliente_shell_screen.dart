@@ -223,18 +223,12 @@ class _ClienteShellScreenState extends State<ClienteShellScreen> {
 
                           try {
                             final novaSenha = novaSenhaController.text.trim();
-                            final user = _supabase.auth.currentUser;
 
+                            // A palavra-passe vive apenas no Supabase Auth, encriptada.
+                            // Nunca a guardamos na tabela pública `utilizadores`.
                             await _supabase.auth.updateUser(
                               UserAttributes(password: novaSenha),
                             );
-
-                            if (user != null) {
-                              await _supabase
-                                  .from('utilizadores')
-                                  .update({'password': novaSenha})
-                                  .eq('utilizador_id', user.id);
-                            }
 
                             if (context.mounted) {
                               Navigator.pop(context);

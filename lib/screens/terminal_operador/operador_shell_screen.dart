@@ -181,20 +181,12 @@ class _OperadorShellScreenState extends State<OperadorShellScreen> {
 
                           try {
                             final novaSenha = novaSenhaController.text.trim();
-                            final String? userId = widget.utilizadorId ?? _supabase.auth.currentUser?.id;
 
-                            // 1. Atualiza no Supabase Auth
+                            // A palavra-passe vive apenas no Supabase Auth, encriptada.
+                            // Nunca a guardamos na tabela pública `utilizadores`.
                             await _supabase.auth.updateUser(
                               UserAttributes(password: novaSenha),
                             );
-
-                            // 2. Sincroniza a tabela pública 'utilizadores'
-                            if (userId != null) {
-                              await _supabase
-                                  .from('utilizadores')
-                                  .update({'password': novaSenha})
-                                  .eq('utilizador_id', userId);
-                            }
 
                             if (context.mounted) {
                               Navigator.pop(context);

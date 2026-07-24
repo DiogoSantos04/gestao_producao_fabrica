@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/temas_cores.dart';
+import '../../core/supabase_config.dart';
 
 class GestaoUtilizadoresScreen extends StatefulWidget {
   const GestaoUtilizadoresScreen({super.key});
@@ -26,17 +28,60 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
   // Mapa operador_id -> posto de trabalho atribuído (para chip e painel de detalhe)
   Map<String, Map<String, dynamic>> _postoPorOperador = {};
 
+  // Subscrição em tempo real aos postos, para manter os chips atualizados
+  RealtimeChannel? _postosSub;
+  // Atualização periódica (fallback que funciona mesmo sem Realtime replication)
+  Timer? _timerPostos;
+
   @override
   void initState() {
     super.initState();
     _carregarUtilizadores();
     _searchController.addListener(_filtrarUtilizadores);
+    _subscreverPostos();
+    // Recarrega o mapa de postos a cada 10s para refletir alterações feitas noutros ecrãs
+    _timerPostos = Timer.periodic(const Duration(seconds: 10), (_) => _recarregarPostos());
   }
 
   @override
   void dispose() {
     _searchController.dispose();
+    _timerPostos?.cancel();
+    if (_postosSub != null) _supabase.removeChannel(_postosSub!);
     super.dispose();
+  }
+
+  /// Escuta alterações na tabela postos_trabalho e atualiza os chips sem recarregar tudo
+  void _subscreverPostos() {
+    _postosSub = _supabase
+        .channel('utilizadores-postos-changes')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'postos_trabalho',
+          callback: (_) => _recarregarPostos(),
+        )
+        .subscribe();
+  }
+
+  /// Recarrega apenas o mapa de postos (leve) e reaplica os filtros
+  Future<void> _recarregarPostos() async {
+    try {
+      final postos = await _supabase
+          .from('postos_trabalho')
+          .select('id, nome_posto, estado, operador_id')
+          .not('operador_id', 'is', null);
+
+      final mapaPostos = <String, Map<String, dynamic>>{};
+      for (final p in (postos as List)) {
+        final opId = p['operador_id']?.toString();
+        if (opId != null) mapaPostos[opId] = Map<String, dynamic>.from(p);
+      }
+
+      if (mounted) setState(() => _postoPorOperador = mapaPostos);
+    } catch (e) {
+      debugPrint('Erro ao recarregar postos: $e');
+    }
   }
 
   // --- LIGAÇÃO À BASE DE DADOS (SUPABASE) ---
@@ -126,14 +171,14 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
     _filtrarUtilizadores();
   }
 
-  /// Atualiza o perfil e estado do utilizador diretamente no Supabase
-  Future<void> _atualizarUtilizador(String uid, String novoNome, String novoEmail, String novoPerfil, String novoEstado) async {
+  /// Atualiza o perfil e estado do utilizador diretamente no Supabase.
+  /// O email não é alterado aqui — é a credencial gerida pelo Auth.
+  Future<void> _atualizarUtilizador(String uid, String novoNome, String novoPerfil, String novoEstado) async {
     try {
       setState(() => _isLoading = true);
 
       await _supabase.from('utilizadores').update({
         'nome_utilizador': novoNome,
-        'email': novoEmail,
         'perfil': novoPerfil,
         'estado_conta': novoEstado,
       }).eq('utilizador_id', uid);
@@ -314,16 +359,28 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
             style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87),
           ),
         ),
-        ElevatedButton.icon(
-          onPressed: _abrirDialogAdicionar,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.black,
-            foregroundColor: Colors.white,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-          ),
-          icon: const Icon(Icons.add, size: 18),
-          label: const Text('Adicionar Novo Utilizador', style: TextStyle(fontWeight: FontWeight.bold)),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              onPressed: _carregarUtilizadores,
+              icon: const Icon(Icons.refresh),
+              tooltip: 'Atualizar lista',
+              color: Colors.black54,
+            ),
+            const SizedBox(width: 8),
+            ElevatedButton.icon(
+              onPressed: _abrirDialogAdicionar,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.black,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              icon: const Icon(Icons.add, size: 18),
+              label: const Text('Adicionar Novo Utilizador', style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
+          ],
         ),
       ],
     );
@@ -685,7 +742,7 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
 
   Future<void> _aprovarRapido(Map<String, dynamic> ut) async {
     final uid = ut['utilizador_id'] as String;
-    await _atualizarUtilizador(uid, ut['nome_utilizador'], ut['email'], 'Operador', 'Ativo');
+    await _atualizarUtilizador(uid, ut['nome_utilizador'], 'Operador', 'Ativo');
   }
 
   Future<void> _rejeitarRegisto(Map<String, dynamic> ut) async {
@@ -946,9 +1003,17 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
                     decoration: const InputDecoration(labelText: 'Nome do Utilizador'),
                   ),
                   const SizedBox(height: 12),
+                  // O email de login vive no Supabase Auth e não pode ser alterado
+                  // a partir daqui. Editá-lo só nesta tabela dessincronizava os dois
+                  // e o utilizador deixava de conseguir entrar com o email que via.
                   TextField(
                     controller: emailController,
-                    decoration: const InputDecoration(labelText: 'Email'),
+                    enabled: false,
+                    decoration: const InputDecoration(
+                      labelText: 'Email (credencial de acesso)',
+                      helperText: 'Alterável apenas pelo próprio, no seu perfil.',
+                      helperMaxLines: 2,
+                    ),
                   ),
                   const SizedBox(height: 16),
                   DropdownButtonFormField<String>(
@@ -987,7 +1052,6 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
                     _atualizarUtilizador(
                       uid,
                       nomeController.text.trim(),
-                      emailController.text.trim(),
                       perfilSelecionado == 'Administrador' ? 'Admin' : perfilSelecionado,
                       estadoSelecionado,
                     );
@@ -1002,21 +1066,157 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
     );
   }
 
+  /// Cria a conta de um novo funcionário SEM afetar a sessão do admin.
+  /// Usa um cliente Supabase temporário e isolado para o signUp, para que
+  /// a sessão ativa do administrador não seja substituída pela do novo utilizador.
+  Future<void> _criarFuncionario(String nome, String email, String password) async {
+    final tempClient = SupabaseClient(
+      SupabaseConfig.url,
+      SupabaseConfig.anonKey,
+      // Fluxo 'implicit' evita o PKCE, que exigiria asyncStorage neste
+      // cliente isolado. Aqui só precisamos de criar a conta, não persistir sessão.
+      authOptions: const AuthClientOptions(authFlowType: AuthFlowType.implicit),
+    );
+    try {
+      // 1. Cria a credencial encriptada no Supabase Auth (no cliente isolado)
+      final AuthResponse res = await tempClient.auth.signUp(
+        email: email,
+        password: password,
+      );
+
+      final novoUser = res.user;
+      if (novoUser == null) {
+        throw Exception('Não foi possível criar a credencial do funcionário.');
+      }
+
+      // 2. Cria a ficha na tabela utilizadores (já ativa, perfil de Operador).
+      //    A password NÃO é guardada aqui — fica só no Auth (encriptada).
+      await tempClient.from('utilizadores').insert({
+        'utilizador_id': novoUser.id,
+        'nome_utilizador': nome,
+        'email': email,
+        'perfil': 'Operador',
+        'estado_conta': 'Ativo',
+      });
+
+      _mostrarMensagem('Funcionário "$nome" criado com sucesso!');
+      _carregarUtilizadores();
+    } finally {
+      // Fecha o cliente temporário — a sessão do admin permanece intacta.
+      await tempClient.dispose();
+    }
+  }
+
   void _abrirDialogAdicionar() {
+    final nomeController = TextEditingController();
+    final emailController = TextEditingController();
+    final passwordController = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+    bool aGravar = false;
+    bool ocultarPassword = true;
+
     showDialog(
       context: context,
+      barrierDismissible: false,
       builder: (context) {
-        return AlertDialog(
-          title: const Text('Adicionar Utilizador'),
-          content: const Text(
-            'Por questões de segurança e integridade das credenciais (encriptação Supabase Auth), os novos colaboradores devem registar a sua própria conta no ecrã de início da aplicação (através do botão "Solicitar Acesso").\n\nComo administrador, poderá aprovar e ativar o registo deles instantaneamente nesta lista assim que o fizerem.',
-          ),
-          actions: [
-            ElevatedButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Percebido'),
-            ),
-          ],
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Adicionar Novo Funcionário'),
+              content: SizedBox(
+                width: 400,
+                child: Form(
+                  key: formKey,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'A conta é criada de imediato como Operador (Ativo). '
+                        'Entregue estas credenciais ao funcionário para ele iniciar sessão.',
+                        style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                      ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: nomeController,
+                        enabled: !aGravar,
+                        decoration: const InputDecoration(
+                          labelText: 'Nome do Funcionário',
+                          prefixIcon: Icon(Icons.person_outline),
+                        ),
+                        validator: (v) => (v == null || v.trim().isEmpty) ? 'Indique o nome' : null,
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: emailController,
+                        enabled: !aGravar,
+                        keyboardType: TextInputType.emailAddress,
+                        decoration: const InputDecoration(
+                          labelText: 'Email',
+                          prefixIcon: Icon(Icons.email_outlined),
+                        ),
+                        validator: (v) {
+                          if (v == null || v.trim().isEmpty) return 'Indique o email';
+                          if (!v.contains('@') || !v.contains('.')) return 'Email inválido';
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: passwordController,
+                        enabled: !aGravar,
+                        obscureText: ocultarPassword,
+                        decoration: InputDecoration(
+                          labelText: 'Palavra-passe inicial',
+                          prefixIcon: const Icon(Icons.lock_outline),
+                          suffixIcon: IconButton(
+                            icon: Icon(ocultarPassword ? Icons.visibility_off : Icons.visibility),
+                            onPressed: () => setDialogState(() => ocultarPassword = !ocultarPassword),
+                          ),
+                        ),
+                        validator: (v) {
+                          if (v == null || v.trim().length < 6) return 'Mínimo 6 caracteres';
+                          return null;
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: aGravar ? null : () => Navigator.pop(context),
+                  child: const Text('Cancelar'),
+                ),
+                ElevatedButton(
+                  onPressed: aGravar
+                      ? null
+                      : () async {
+                          if (!formKey.currentState!.validate()) return;
+                          setDialogState(() => aGravar = true);
+                          try {
+                            await _criarFuncionario(
+                              nomeController.text.trim(),
+                              emailController.text.trim(),
+                              passwordController.text.trim(),
+                            );
+                            if (context.mounted) Navigator.pop(context);
+                          } catch (e) {
+                            setDialogState(() => aGravar = false);
+                            final msg = e.toString().replaceAll('Exception: ', '');
+                            _mostrarMensagem('Erro ao criar funcionário: $msg', eErro: true);
+                          }
+                        },
+                  child: aGravar
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        )
+                      : const Text('Criar Funcionário'),
+                ),
+              ],
+            );
+          },
         );
       },
     );

@@ -1,8 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../core/formatos.dart';
+
+/// Estados persistidos na coluna `postos_trabalho.estado`.
+/// Têm de coincidir exatamente com o CHECK definido na base de dados,
+/// caso contrário os updates falham com violação de constraint.
+abstract class EstadoPosto {
+  static const String livre = 'Livre';
+  static const String emProducao = 'Em Produção';
+  static const String parado = 'Parado';
+}
 
 class PostosTrabalhoScreen extends StatefulWidget {
-  const PostosTrabalhoScreen({Key? key}) : super(key: key);
+  const PostosTrabalhoScreen({super.key});
 
   @override
   State<PostosTrabalhoScreen> createState() => _PostosTrabalhoScreenState();
@@ -44,13 +54,15 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
           .from('encomendas')
           .select('''
             id,
+            created_at,
             codigo_rastreio,
             em_suspenso,
             fase_atual_id,
             clientes!cliente_id(nome_cliente),
             tipos_produto!tipos_produtos_id(nome_tipo_produto),
-            fases_padrao!fase_atual_id(id, nome_fase_padrao, posto_trabalho)
-          ''');
+            fases_padrao!fase_atual_id(id, nome_fase_padrao, posto_trabalho_id)
+          ''')
+          .eq('cancelada', false);
 
       // 4. Carregar Incidências Ativas
       final incidenciasResponse = await _supabase
@@ -93,10 +105,10 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
     }
   }
 
-  // CORRIGIDO: Agora compara pelo nome do posto (Texto), pois fases_padrao.posto_trabalho guarda 'Corte', 'Montagem', etc.
-  Map<String, dynamic>? _obterOrdemAtivaDoPosto(String? nomePosto) {
-    if (nomePosto == null || nomePosto.trim().isEmpty) return null;
-
+  /// Liga a ordem ao posto pela chave estrangeira `fases_padrao.posto_trabalho_id`.
+  /// Antes comparava-se o nome do posto em texto livre, o que nunca casava para
+  /// as fases criadas a partir do catálogo hardcoded ("Posto de Lixagem", etc.).
+  Map<String, dynamic>? _obterOrdemAtivaDoPosto(int postoId) {
     for (var enc in _encomendasAtivas) {
       final faseData = enc['fases_padrao'];
       Map<String, dynamic>? fase;
@@ -107,12 +119,8 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
         fase = faseData.first as Map<String, dynamic>?;
       }
 
-      if (fase != null) {
-        final String? postoNaFase = fase['posto_trabalho']?.toString();
-        if (postoNaFase != null &&
-            postoNaFase.trim().toLowerCase() == nomePosto.trim().toLowerCase()) {
-          return enc;
-        }
+      if (fase != null && fase['posto_trabalho_id'] == postoId) {
+        return enc;
       }
     }
     return null;
@@ -172,13 +180,16 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
 
   Future<void> _atualizarOperadorPosto(int postoId, String? novoOperadorId) async {
     try {
-      final String? estadoAtual = _postos.firstWhere((p) => p['id'] == postoId)['estado'];
-      String novoEstado = estadoAtual ?? 'LIVRE';
+      final String estadoAtual =
+          (_postos.firstWhere((p) => p['id'] == postoId)['estado'] ?? EstadoPosto.livre).toString();
 
-      if (novoOperadorId != null && novoEstado == 'LIVRE') {
-        novoEstado = 'OCUPADO';
-      } else if (novoOperadorId == null && novoEstado == 'OCUPADO') {
-        novoEstado = 'LIVRE';
+      // Um posto em manutenção mantém-se parado independentemente do operador.
+      String novoEstado = estadoAtual;
+      if (estadoAtual != EstadoPosto.parado) {
+        final bool temOrdem = _obterOrdemAtivaDoPosto(postoId) != null;
+        novoEstado = (novoOperadorId != null && temOrdem)
+            ? EstadoPosto.emProducao
+            : EstadoPosto.livre;
       }
 
       await _supabase.from('postos_trabalho').update({
@@ -220,16 +231,16 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
     int postosLivres = 0;
 
     for (var posto in _postos) {
-      final String estadoBD = (posto['estado'] ?? 'LIVRE').toString().toUpperCase();
+      final String estadoBD = (posto['estado'] ?? EstadoPosto.livre).toString();
       final String? operadorId = posto['operador_id']?.toString();
-      final String? nomePosto = posto['nome_posto']?.toString();
+      final int postoId = posto['id'] as int;
 
-      final ordem = _obterOrdemAtivaDoPosto(nomePosto);
+      final ordem = _obterOrdemAtivaDoPosto(postoId);
       final int? encId = ordem != null ? (ordem['id'] as int?) : null;
       final bool emSuspenso = ordem?['em_suspenso'] == true;
-      final inc = _obterIncidenciaAtivaDoPosto(posto['id'], encId);
+      final inc = _obterIncidenciaAtivaDoPosto(postoId, encId);
 
-      final bool estaEmManutencao = estadoBD == 'MANUTENCAO' || estadoBD == 'MANUTENÇÃO';
+      final bool estaEmManutencao = estadoBD == EstadoPosto.parado;
       final bool temIncidencia = emSuspenso || inc != null || estaEmManutencao;
 
       if (temIncidencia) {
@@ -332,18 +343,18 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
                             itemCount: _postos.length,
                             itemBuilder: (context, index) {
                               final posto = _postos[index];
-                              final String estadoBD = (posto['estado'] ?? 'LIVRE').toString().toUpperCase();
+                              final String estadoBD = (posto['estado'] ?? EstadoPosto.livre).toString();
                               final String? operadorIdAtual = posto['operador_id']?.toString();
-                              final String? nomePosto = posto['nome_posto']?.toString();
+                              final int postoId = posto['id'] as int;
 
-                              // Obter a ordem associada usando o nome do posto
-                              final ordemAtiva = _obterOrdemAtivaDoPosto(nomePosto);
+                              // Obter a ordem associada pela ligação real (FK)
+                              final ordemAtiva = _obterOrdemAtivaDoPosto(postoId);
                               final int? encomendaId = ordemAtiva != null ? (ordemAtiva['id'] as int?) : null;
                               final bool emSuspenso = ordemAtiva?['em_suspenso'] == true;
 
                               // Obter incidência ativa
-                              final incidenciaAtiva = _obterIncidenciaAtivaDoPosto(posto['id'], encomendaId);
-                              final bool estaEmManutencao = estadoBD == 'MANUTENCAO' || estadoBD == 'MANUTENÇÃO';
+                              final incidenciaAtiva = _obterIncidenciaAtivaDoPosto(postoId, encomendaId);
+                              final bool estaEmManutencao = estadoBD == EstadoPosto.parado;
                               final bool temIncidencia = emSuspenso || incidenciaAtiva != null || estaEmManutencao;
 
                               // DADOS DO BADGE DINÂMICO
@@ -489,7 +500,10 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
                                                     children: [
                                                       Text(
                                                         ordemAtiva['codigo_rastreio'] ??
-                                                            'ORD-2026-${ordemAtiva['id'].toString().padLeft(3, '0')}',
+                                                            Formatos.referenciaOrdem(
+                                                              ordemAtiva['id'],
+                                                              criadaEm: ordemAtiva['created_at'],
+                                                            ),
                                                         style: TextStyle(
                                                           fontWeight: FontWeight.bold,
                                                           color: temIncidencia ? Colors.red.shade900 : Colors.blue.shade900,
@@ -572,8 +586,13 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
                                           Expanded(
                                             child: OutlinedButton(
                                               onPressed: estaEmManutencao
-                                                  ? () => _alterarEstadoPosto(posto['id'], operadorIdAtual != null ? 'OCUPADO' : 'LIVRE')
-                                                  : () => _alterarEstadoPosto(posto['id'], 'MANUTENCAO'),
+                                                  ? () => _alterarEstadoPosto(
+                                                        postoId,
+                                                        (operadorIdAtual != null && ordemAtiva != null)
+                                                            ? EstadoPosto.emProducao
+                                                            : EstadoPosto.livre,
+                                                      )
+                                                  : () => _alterarEstadoPosto(postoId, EstadoPosto.parado),
                                               style: OutlinedButton.styleFrom(
                                                 foregroundColor: estaEmManutencao ? Colors.green : Colors.red,
                                               ),

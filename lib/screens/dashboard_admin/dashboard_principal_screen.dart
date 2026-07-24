@@ -36,8 +36,10 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
     _carregarDadosDashboard();
     _inicializarSubscricaoTempoReal();
     
-    _everySecondTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (mounted) setState(() {});
+    // Serve apenas para refrescar os contadores "há X min" dos alertas.
+    // Estava a 1 segundo, o que reconstruía o dashboard inteiro 60x por minuto.
+    _everySecondTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
+      if (mounted && _alertasIncidencias.isNotEmpty) setState(() {});
     });
   }
 
@@ -105,9 +107,11 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
       }
 
       // 2. Carrega as encomendas trazendo o nome da fase onde se encontram atualmente
+      // Ordens canceladas não contam para nenhum indicador operacional.
       final List<dynamic> encomendas = await _supabase
           .from('encomendas')
-          .select('*, fase_atual:fase_atual_id(nome_fase_padrao)');
+          .select('*, fase_atual:fase_atual_id(nome_fase_padrao)')
+          .eq('cancelada', false);
 
       // 3. Carrega as incidências usando as junções corretas (JOINs) do teu esquema relacional
       final List<dynamic> incidenciasRaw = await _supabase
@@ -125,6 +129,10 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
               utilizadores (nome_utilizador)
             )
           ''')
+          // Só as incidências por resolver são paragens ativas. Sem este filtro,
+          // uma incidência já encerrada continuava a aparecer como alerta e a
+          // descontar na disponibilidade dos postos para sempre.
+          .eq('line_clearance_validado', false)
           .order('created_at', ascending: false);
 
       if (!mounted) return;
@@ -439,7 +447,7 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Distribuição por Fase de Production',
+              'Distribuição por Fase de Produção',
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
             ),
             const SizedBox(height: 4),

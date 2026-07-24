@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/temas_cores.dart';
+import '../../core/formatos.dart';
 
 // Classe que força o Flutter a aceitar arrastamento direto com o rato no meio da lista
 class MouseDragScrollBehavior extends MaterialScrollBehavior {
@@ -169,7 +170,8 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
 
       final encomendasData = await _supabase
           .from('encomendas')
-          .select('id, codigo_rastreio, data_entrega, quantidade, prioridade, clientes(nome_cliente), tipos_produto:tipos_produtos_id(nome_tipo_produto)')
+          .select('id, created_at, codigo_rastreio, data_entrega, quantidade, prioridade, clientes(nome_cliente), tipos_produto:tipos_produtos_id(nome_tipo_produto)')
+          .eq('cancelada', false)
           .order('id', ascending: false)
           .limit(15);
 
@@ -1021,7 +1023,7 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
           padding: const EdgeInsets.only(right: 12),
           itemBuilder: (context, index) {
             final enc = _ultimasEncomendas[index];
-            final idFormated = 'ORD-2026-${enc['id'].toString().padLeft(3, '0')}';
+            final idFormated = Formatos.referenciaOrdem(enc['id'], criadaEm: enc['created_at']);
 
             final nomeCliente = enc['clientes'] != null ? enc['clientes']['nome_cliente'] : 'Desconhecido';
             final nomeProduto = enc['tipos_produto'] != null ? enc['tipos_produto']['nome_tipo_produto'] : 'N/A';

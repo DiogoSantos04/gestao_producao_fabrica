@@ -187,20 +187,12 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
 
                           try {
                             final novaSenha = novaSenhaController.text.trim();
-                            final user = _supabase.auth.currentUser;
 
-                            // 1. Atualiza no Supabase Auth (sistema de login)
+                            // A palavra-passe vive apenas no Supabase Auth, encriptada.
+                            // Nunca a guardamos na tabela pública `utilizadores`.
                             await _supabase.auth.updateUser(
                               UserAttributes(password: novaSenha),
                             );
-
-                            // 2. Sincroniza a coluna 'password' na tabela pública 'utilizadores'
-                            if (user != null) {
-                              await _supabase
-                                  .from('utilizadores')
-                                  .update({'password': novaSenha})
-                                  .eq('utilizador_id', user.id);
-                            }
 
                             if (context.mounted) {
                               Navigator.pop(context);
@@ -244,9 +236,18 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
   }
 
   /// Constrói o ecrã completo de Perfil do Administrador
+  /// Identificador estável do administrador, derivado do UUID real da conta.
+  /// Antes vinha do `hashCode` do nome, pelo que mudava sempre que o nome mudava
+  /// e o ano estava fixo em 2026.
+  String get _idAdministrador {
+    final uid = _supabase.auth.currentUser?.id;
+    if (uid == null) return 'ADM-------';
+    return 'ADM-${uid.substring(0, 8).toUpperCase()}';
+  }
+
   Widget _construirEcraPerfil() {
     final String iniciais = _obterIniciais(_nomeUtilizador);
-    final String idDisplay = 'ADM-2026-${_nomeUtilizador.hashCode.abs().toString().padLeft(4, '0').substring(0, 4)}';
+    final String idDisplay = _idAdministrador;
 
     return Padding(
       padding: const EdgeInsets.all(40.0),
@@ -487,7 +488,7 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
   Widget _buildRodapeSidebar(bool dentroDrawer) {
     final bool estaNoPerfil = _indiceAtual == 9;
     final String iniciais = _obterIniciais(_nomeUtilizador);
-    final String idDisplay = 'ADM-2026-${_nomeUtilizador.hashCode.abs().toString().padLeft(4, '0').substring(0, 4)}';
+    final String idDisplay = _idAdministrador;
 
     return Padding(
       padding: const EdgeInsets.all(16),

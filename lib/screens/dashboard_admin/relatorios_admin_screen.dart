@@ -65,6 +65,52 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
     super.dispose();
   }
 
+  // --- DEFINIÇÃO ÚNICA DE "ORDEM CONCLUÍDA" ---
+
+  /// Devolve a data real de conclusão da encomenda, ou `null` se ainda estiver em curso.
+  ///
+  /// Uma ordem só está concluída quando percorreu todo o roteiro, ou seja quando
+  /// `fase_atual_id` é nulo. Estar *na* última fase significa que ela ainda está
+  /// a ser executada — contá-la como concluída (e usar `DateTime.now()` como data)
+  /// inflacionava o total e falseava a taxa de entrega no prazo.
+  DateTime? _obterDataConclusao(
+    dynamic enc,
+    List<dynamic> historico,
+    Map<int, int> ultimaFasePorProduto,
+  ) {
+    if (enc['fase_atual_id'] != null) return null;
+
+    final int idEnc = enc['id'] as int;
+    final int? idUltimaFase = ultimaFasePorProduto[enc['tipos_produtos_id'] as int?];
+
+    final registos = historico
+        .where((h) => h['encomenda_id'] == idEnc && h['data_conclusao'] != null)
+        .toList();
+    if (registos.isEmpty) return null;
+
+    // Preferimos o registo da última fase do roteiro; senão, o evento mais recente.
+    final fim = registos.where((h) => h['fase_concluida_id'] == idUltimaFase).toList();
+    final candidatos = fim.isNotEmpty ? fim : registos;
+
+    DateTime? maisRecente;
+    for (final h in candidatos) {
+      final d = DateTime.tryParse(h['data_conclusao'].toString());
+      if (d != null && (maisRecente == null || d.isAfter(maisRecente))) maisRecente = d;
+    }
+    return maisRecente;
+  }
+
+  /// Compara ao dia: entregar no próprio dia do prazo conta como estando no prazo.
+  bool _cumpriuPrazo(dynamic dataEntrega, DateTime dataConclusao) {
+    if (dataEntrega == null) return false;
+    final prometida = DateTime.tryParse(dataEntrega.toString());
+    if (prometida == null) return false;
+
+    final pDia = DateTime(prometida.year, prometida.month, prometida.day);
+    final cDia = DateTime(dataConclusao.year, dataConclusao.month, dataConclusao.day);
+    return !cDia.isAfter(pDia);
+  }
+
   // --- PROCESSAMENTO DE DADOS REAIS DA BD ---
 
   Future<void> _carregarDadosReais() async {
@@ -91,9 +137,11 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
           .order('data_registo', ascending: false);
 
       // 4. Procurar as encomendas trazendo relacionamentos para o PDF e filtros
+      //    (as ordens canceladas não contam para indicadores de desempenho)
       final dadosEncomendas = await _supabase
           .from('encomendas')
-          .select('id, codigo_rastreio, data_entrega, fase_atual_id, cliente_id, tipos_produtos_id, clientes(nome_cliente), tipos_produto:tipos_produtos_id(nome_tipo_produto)');
+          .select('id, codigo_rastreio, data_entrega, fase_atual_id, cliente_id, tipos_produtos_id, clientes(nome_cliente), tipos_produto:tipos_produtos_id(nome_tipo_produto)')
+          .eq('cancelada', false);
 
       // 5. Procurar o histórico de produção completo
       final dadosHistorico = await _supabase
@@ -111,20 +159,18 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
           .select('*')
           .order('data_geracao', ascending: false);
 
-      // --- MAPEAMENTO DAS ÚLTIMAS FASES ---
-      Map<int, int> ultimaFasePorProduto = {};
+      // --- MAPEAMENTO DAS ÚLTIMAS FASES (fim de linha de cada tipo de produto) ---
+      final Map<int, int> ultimaFasePorProduto = {};
+      final Map<int, int> ordemDaUltimaFase = {};
       for (var fase in dadosFases) {
-        int prodId = fase['types_produto_id'] ?? fase['tipos_produto_id'];
-        int faseId = fase['id'];
-        int ordem = fase['ordem'];
+        final int? prodId = fase['tipos_produto_id'] as int?;
+        if (prodId == null) continue;
+        final int faseId = fase['id'] as int;
+        final int ordem = (fase['ordem'] as num?)?.toInt() ?? 0;
 
-        if (!ultimaFasePorProduto.containsKey(prodId)) {
+        if (!ultimaFasePorProduto.containsKey(prodId) || ordem > (ordemDaUltimaFase[prodId] ?? -1)) {
           ultimaFasePorProduto[prodId] = faseId;
-        } else {
-          var faseExistente = dadosFases.firstWhere((f) => f['id'] == ultimaFasePorProduto[prodId]);
-          if (ordem > faseExistente['ordem']) {
-            ultimaFasePorProduto[prodId] = faseId;
-          }
+          ordemDaUltimaFase[prodId] = ordem;
         }
       }
 
@@ -145,46 +191,12 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
 
       // Analisar prazos e conclusões reais
       for (var enc in dadosEncomendas) {
-        final int idEnc = enc['id'];
-        final int? prodId = enc['tipos_produtos_id'];
-        final int? faseAtualId = enc['fase_atual_id'];
-        final DateTime? dataPrometida = enc['data_entrega'] != null ? DateTime.parse(enc['data_entrega']) : null;
+        final DateTime? dataConclusaoReal =
+            _obterDataConclusao(enc, dadosHistorico, ultimaFasePorProduto);
+        if (dataConclusaoReal == null) continue; // ainda em curso
 
-        final int? idUltimaFase = ultimaFasePorProduto[prodId];
-        final historicoDaEncomenda = dadosHistorico.where((h) => h['encomenda_id'] == idEnc).toList();
-
-        bool estaConcluida = false;
-        DateTime? dataConclusaoReal;
-
-        if (idUltimaFase != null) {
-          final registoFim = historicoDaEncomenda.where((h) => h['fase_concluida_id'] == idUltimaFase).toList();
-          if (registoFim.isNotEmpty) {
-            estaConcluida = true;
-            dataConclusaoReal = DateTime.parse(registoFim.first['data_conclusao']);
-          }
-        }
-
-        if (!estaConcluida && faseAtualId == idUltimaFase && idUltimaFase != null) {
-          estaConcluida = true;
-          if (historicoDaEncomenda.isNotEmpty) {
-            dataConclusaoReal = DateTime.parse(historicoDaEncomenda.last['data_conclusao']);
-          } else {
-            dataConclusaoReal = DateTime.now();
-          }
-        }
-
-        if (estaConcluida) {
-          concluidas++;
-
-          if (dataPrometida != null && dataConclusaoReal != null) {
-            final DateTime dataPrometidaDia = DateTime(dataPrometida.year, dataPrometida.month, dataPrometida.day);
-            final DateTime dataConclusaoDia = DateTime(dataConclusaoReal.year, dataConclusaoReal.month, dataConclusaoReal.day);
-
-            if (dataConclusaoDia.isBefore(dataPrometidaDia) || dataConclusaoDia.isAtSameMomentAs(dataPrometidaDia)) {
-              noPrazo++;
-            }
-          }
-        }
+        concluidas++;
+        if (_cumpriuPrazo(enc['data_entrega'], dataConclusaoReal)) noPrazo++;
       }
 
       if (mounted) {
@@ -249,8 +261,6 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
         final int idEnc = enc['id'];
         final int? encClienteId = enc['cliente_id'];
         final int? prodId = enc['tipos_produtos_id'];
-        final DateTime? dataPrometida = enc['data_entrega'] != null ? DateTime.parse(enc['data_entrega']) : null;
-        final int? idUltimaFase = _ultimaFasePorProduto[prodId];
 
         // 1. Filtro de Cliente
         if (_clienteSelecionadoId != null && encClienteId != _clienteSelecionadoId) {
@@ -262,42 +272,26 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
           continue;
         }
 
-        final historicoDaEncomenda = _dadosHistorico.where((h) => h['encomenda_id'] == idEnc).toList();
-        DateTime? dataConclusaoReal;
-        bool estaConcluida = false;
-
-        if (idUltimaFase != null) {
-          final registoFim = historicoDaEncomenda.where((h) => h['fase_concluida_id'] == idUltimaFase).toList();
-          if (registoFim.isNotEmpty) {
-            estaConcluida = true;
-            dataConclusaoReal = DateTime.parse(registoFim.first['data_conclusao']);
-          }
-        }
+        final DateTime? dataConclusaoReal =
+            _obterDataConclusao(enc, _dadosHistorico, _ultimaFasePorProduto);
+        if (dataConclusaoReal == null) continue; // ainda em curso
 
         // 3. Filtro por Intervalo de Datas
-        if (estaConcluida && dataConclusaoReal != null) {
-          if (dataConclusaoReal.isAfter(dataInicioFiltro) && dataConclusaoReal.isBefore(dataFimFiltro)) {
-            concluidasNoPeriodo++;
+        if (dataConclusaoReal.isAfter(dataInicioFiltro) && dataConclusaoReal.isBefore(dataFimFiltro)) {
+          concluidasNoPeriodo++;
 
-            bool dentroDoPrazo = false;
-            if (dataPrometida != null) {
-              final DateTime dataPrometidaDia = DateTime(dataPrometida.year, dataPrometida.month, dataPrometida.day);
-              final DateTime dataConclusaoDia = DateTime(dataConclusaoReal.year, dataConclusaoReal.month, dataConclusaoReal.day);
-              dentroDoPrazo = dataConclusaoDia.isBefore(dataPrometidaDia) || dataConclusaoDia.isAtSameMomentAs(dataPrometidaDia);
-            }
-
-            if (dentroDoPrazo) {
-              noPrazoNoPeriodo++;
-            }
-
-            linhasTabelaPDF.add([
-              enc['codigo_rastreio'] ?? 'TRC-$idEnc',
-              enc['clientes']?['nome_cliente'] ?? 'N/A',
-              enc['tipos_produto']?['nome_tipo_produto'] ?? 'N/A',
-              "${dataConclusaoReal.day}/${dataConclusaoReal.month}/${dataConclusaoReal.year}",
-              dentroDoPrazo ? 'No Prazo' : 'Com Atraso'
-            ]);
+          final bool dentroDoPrazo = _cumpriuPrazo(enc['data_entrega'], dataConclusaoReal);
+          if (dentroDoPrazo) {
+            noPrazoNoPeriodo++;
           }
+
+          linhasTabelaPDF.add([
+            enc['codigo_rastreio'] ?? 'TRC-$idEnc',
+            enc['clientes']?['nome_cliente'] ?? 'N/A',
+            enc['tipos_produto']?['nome_tipo_produto'] ?? 'N/A',
+            "${dataConclusaoReal.day.toString().padLeft(2, '0')}/${dataConclusaoReal.month.toString().padLeft(2, '0')}/${dataConclusaoReal.year}",
+            dentroDoPrazo ? 'No Prazo' : 'Com Atraso'
+          ]);
         }
       }
 
