@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../repositories/utilizadores_repository.dart';
 import '../../services/auth_service.dart';
 import '../login_screen.dart';
 
@@ -24,7 +24,7 @@ class DashboardAdminShell extends StatefulWidget {
 
 class _DashboardAdminShellState extends State<DashboardAdminShell> {
   final AuthService _authService = AuthService();
-  final _supabase = Supabase.instance.client;
+  final _utilizadoresRepo = UtilizadoresRepository();
 
   int _indiceAtual = 0; // 0 a 8: Menus Principais, 9: O Meu Perfil
 
@@ -65,14 +65,11 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
   /// Subscreve a tabela 'utilizadores' via WebSocket para atualizações em tempo real
   void _iniciarEscutaEmTempoReal() {
     try {
-      final user = _supabase.auth.currentUser;
-      if (user == null) return;
+      final stream = _utilizadoresRepo.escutarPerfilAtual();
+      if (stream == null) return;
+      final emailSessao = _utilizadoresRepo.utilizadorAtualEmail;
 
-      _utilizadorStreamSubscription = _supabase
-          .from('utilizadores')
-          .stream(primaryKey: ['utilizador_id'])
-          .eq('utilizador_id', user.id)
-          .listen(
+      _utilizadorStreamSubscription = stream.listen(
             (dados) {
               if (mounted && dados.isNotEmpty) {
                 final registo = dados.first;
@@ -85,7 +82,7 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
                       : 'Administrador';
                   _emailUtilizador = (emailDb != null && emailDb.trim().isNotEmpty)
                       ? emailDb
-                      : (user.email ?? 'admin@factory.com');
+                      : (emailSessao ?? 'admin@factory.com');
                   _carregandoPerfil = false;
                 });
               }
@@ -190,9 +187,7 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
 
                             // A palavra-passe vive apenas no Supabase Auth, encriptada.
                             // Nunca a guardamos na tabela pública `utilizadores`.
-                            await _supabase.auth.updateUser(
-                              UserAttributes(password: novaSenha),
-                            );
+                            await _utilizadoresRepo.alterarPalavraPasse(novaSenha);
 
                             if (context.mounted) {
                               Navigator.pop(context);
@@ -240,7 +235,7 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
   /// Antes vinha do `hashCode` do nome, pelo que mudava sempre que o nome mudava
   /// e o ano estava fixo em 2026.
   String get _idAdministrador {
-    final uid = _supabase.auth.currentUser?.id;
+    final uid = _utilizadoresRepo.utilizadorAtualId;
     if (uid == null) return 'ADM-------';
     return 'ADM-${uid.substring(0, 8).toUpperCase()}';
   }

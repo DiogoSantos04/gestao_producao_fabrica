@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
-import '../../core/temas_cores.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show RealtimeChannel;
+import '../../repositories/encomendas_repository.dart';
+import '../../repositories/fluxos_repository.dart';
 
 class DashboardPrincipalScreen extends StatefulWidget {
   const DashboardPrincipalScreen({super.key});
@@ -11,8 +12,9 @@ class DashboardPrincipalScreen extends StatefulWidget {
 }
 
 class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
-  final SupabaseClient _supabase = Supabase.instance.client;
-  
+  final _encomendasRepo = EncomendasRepository();
+  final _fluxosRepo = FluxosRepository();
+
   RealtimeChannel? _factorySubscription;
   Timer? _everySecondTimer;
 
@@ -47,34 +49,17 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
   void dispose() {
     _everySecondTimer?.cancel();
     if (_factorySubscription != null) {
-      _supabase.removeChannel(_factorySubscription!);
+      _encomendasRepo.client.removeChannel(_factorySubscription!);
     }
     super.dispose();
   }
 
   /// ⚡ Liga o canal de escuta em tempo real às tabelas de encomendas e incidências
   void _inicializarSubscricaoTempoReal() {
-    _factorySubscription = _supabase.channel('db-factory-changes')
-      .onPostgresChanges(
-        event: PostgresChangeEvent.all,
-        schema: 'public',
-        table: 'encomendas',
-        callback: (payload) {
-          debugPrint('⚡ [Realtime] Encomendas alteradas! Recarregando...');
-          _carregarDadosDashboard();
-        },
-      )
-      .onPostgresChanges(
-        event: PostgresChangeEvent.all,
-        schema: 'public',
-        table: 'incidencias',
-        callback: (payload) {
-          debugPrint('⚡ [Realtime] Nova Incidência registada! Recarregando...');
-          _carregarDadosDashboard();
-        },
-      );
-
-    _factorySubscription?.subscribe();
+    _factorySubscription = _encomendasRepo.escutarProducao('db-factory-changes', () {
+      debugPrint('⚡ [Realtime] Alteração na produção! Recarregando...');
+      _carregarDadosDashboard();
+    });
   }
 
   /// Carrega e calcula todas as métricas com base no teu esquema relacional real
@@ -83,10 +68,7 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
       if (!mounted) return;
 
       // 1. Carrega todas as fases padrão definidas no sistema (para estruturar o gráfico)
-      final List<dynamic> fasesPadrao = await _supabase
-          .from('fases_padrao')
-          .select('nome_fase_padrao')
-          .order('ordem');
+      final List<dynamic> fasesPadrao = await _fluxosRepo.obterNomesDasFases();
 
       Map<String, int> tempFases = {};
       for (var f in fasesPadrao) {
@@ -108,32 +90,10 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
 
       // 2. Carrega as encomendas trazendo o nome da fase onde se encontram atualmente
       // Ordens canceladas não contam para nenhum indicador operacional.
-      final List<dynamic> encomendas = await _supabase
-          .from('encomendas')
-          .select('*, fase_atual:fase_atual_id(nome_fase_padrao)')
-          .eq('cancelada', false);
+      final List<dynamic> encomendas = await _encomendasRepo.obterParaDashboard();
 
-      // 3. Carrega as incidências usando as junções corretas (JOINs) do teu esquema relacional
-      final List<dynamic> incidenciasRaw = await _supabase
-          .from('incidencias')
-          .select('''
-            id,
-            created_at,
-            motivo,
-            data_registo,
-            historico_producao_id,
-            historico_producao (
-              encomenda_id,
-              encomendas (codigo_rastreio),
-              fases_padrao (nome_fase_padrao, posto_trabalho),
-              utilizadores (nome_utilizador)
-            )
-          ''')
-          // Só as incidências por resolver são paragens ativas. Sem este filtro,
-          // uma incidência já encerrada continuava a aparecer como alerta e a
-          // descontar na disponibilidade dos postos para sempre.
-          .eq('line_clearance_validado', false)
-          .order('created_at', ascending: false);
+      // 3. Carrega as incidências ativas (as resolvidas não são paragens)
+      final List<dynamic> incidenciasRaw = await _encomendasRepo.obterIncidenciasAbertas();
 
       if (!mounted) return;
 
@@ -142,14 +102,9 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
       int concluidasHoje = 0;
       
       final DateTime hoje = DateTime.now();
-      final String hojeStr = "${hoje.year}-${hoje.month.toString().padLeft(2, '0')}-${hoje.day.toString().padLeft(2, '0')}";
 
       // 4. Carrega o histórico de produção do dia para validar encomendas finalizadas hoje
-      final List<dynamic> historicoHoje = await _supabase
-          .from('historico_producao')
-          .select('encomenda_id')
-          .gte('data_conclusao', '${hojeStr}T00:00:00')
-          .lte('data_conclusao', '${hojeStr}T23:59:59');
+      final List<dynamic> historicoHoje = await _encomendasRepo.obterHistoricoDoDia(hoje);
 
       final Set<int> encomendasAtivasHojeIds = historicoHoje
           .map((h) => h['encomenda_id'] is int ? h['encomenda_id'] as int : int.tryParse(h['encomenda_id'].toString()) ?? 0)

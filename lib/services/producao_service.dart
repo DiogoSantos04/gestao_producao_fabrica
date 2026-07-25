@@ -172,14 +172,14 @@ class ProducaoService {
       final List<dynamic> incidenciasAtivas = await _supabase
           .from('incidencias')
           .select('id')
-          .eq('historico_producao_id', encomenda.faseAtualId);
+          .eq('historico_producao_id', encomenda.faseAtualId ?? -1);
 
       if (incidenciasAtivas.isNotEmpty) {
         throw Exception('Transição negada: Esta encomenda encontra-se Bloqueada por uma incidência.');
       }
 
       // Rule B: Puxar a sequência linear de fases para calcular o próximo passo lógico
-      final fases = await obterFasesDoProduto(encomenda.tiposProdutosId);
+      final fases = await obterFasesDoProduto(encomenda.tipoProdutoId ?? -1);
       final int indiceAtual = fases.indexWhere((fase) => fase.id == encomenda.faseAtualId);
 
       if (indiceAtual == -1) {

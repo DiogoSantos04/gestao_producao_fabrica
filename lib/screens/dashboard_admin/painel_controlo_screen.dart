@@ -1,7 +1,16 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show RealtimeChannel;
 import '../../core/temas_cores.dart';
 import '../../core/formatos.dart';
+import '../../models/encomenda_model.dart';
+import '../../models/estado_ordem.dart';
+import '../../models/fase_model.dart';
+import '../../models/historico_model.dart';
+import '../../models/incidencia_model.dart';
+import '../../repositories/base_repository.dart';
+import '../../repositories/encomendas_repository.dart';
+import '../../repositories/fluxos_repository.dart';
+import '../../repositories/utilizadores_repository.dart';
 
 class PainelControloScreen extends StatefulWidget {
   const PainelControloScreen({super.key});
@@ -11,20 +20,23 @@ class PainelControloScreen extends StatefulWidget {
 }
 
 class _PainelControloScreenState extends State<PainelControloScreen> {
-  final _supabase = Supabase.instance.client;
+  final _encomendasRepo = EncomendasRepository();
+  final _fluxosRepo = FluxosRepository();
+  final _utilizadoresRepo = UtilizadoresRepository();
   final _searchController = TextEditingController();
 
-  List<dynamic> _encomendas = [];
-  List<dynamic> _encomendasFiltradas = [];
-  List<dynamic> _reasonCodes = [];
-  List<dynamic> _tecnicosUtilizadores = []; // Lista de técnicos/utilizadores da empresa
-  Map<int, List<dynamic>> _fasesPorProduto = {};
+  List<EncomendaModel> _encomendas = [];
+  List<EncomendaModel> _encomendasFiltradas = [];
+  List<Map<String, dynamic>> _reasonCodes = [];
+  List<Map<String, dynamic>> _tecnicosUtilizadores = []; // Lista de técnicos/utilizadores da empresa
+  Map<int, List<FaseModel>> _fasesPorProduto = {};
 
   String _filtroEstado = 'TODOS'; // TODOS, EM_PRODUCAO, ON_HOLD, CONCLUIDA
   bool _isLoading = true;
 
+  /// Um único canal cobre `encomendas` e `incidencias` — antes eram dois canais
+  /// separados que disparavam o mesmo recarregamento.
   RealtimeChannel? _encomendasSubscription;
-  RealtimeChannel? _incidenciasSubscription;
 
   @override
   void initState() {
@@ -36,10 +48,7 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
   @override
   void dispose() {
     if (_encomendasSubscription != null) {
-      _supabase.removeChannel(_encomendasSubscription!);
-    }
-    if (_incidenciasSubscription != null) {
-      _supabase.removeChannel(_incidenciasSubscription!);
+      _encomendasRepo.client.removeChannel(_encomendasSubscription!);
     }
     _searchController.dispose();
     super.dispose();
@@ -51,57 +60,21 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
     try {
       if (mostrarLoader) setState(() => _isLoading = true);
 
-      // 1. Carrega todas as fases padrão ordenadas
-      final fasesData = await _supabase
-          .from('fases_padrao')
-          .select('id, ordem, tipos_produto_id, nome_fase_padrao, posto_trabalho')
-          .order('ordem');
-
-      final Map<int, List<dynamic>> tempFasesPorProduto = {};
-      for (var f in fasesData) {
-        final prodId = f['tipos_produto_id'] as int;
-        tempFasesPorProduto.putIfAbsent(prodId, () => []).add(f);
-      }
+      // 1. Roteiros agrupados por tipo de produto (para calcular o progresso)
+      final fasesPorProduto = await _fluxosRepo.obterFasesPorProduto();
 
       // 2. Carrega os Reason Codes oficiais
-      final reasonCodesData = await _supabase
-          .from('reason_codes')
-          .select()
-          .order('categoria');
+      final reasonCodesData = await _encomendasRepo.obterReasonCodes();
 
       // 3. Carrega a lista de utilizadores para atribuição de Manutenção Interna
-      final utilizadoresData = await _supabase
-          .from('utilizadores')
-          .select('utilizador_id, nome_utilizador, perfil')
-          .order('nome_utilizador');
+      final utilizadoresData = await _utilizadoresRepo.obterParaAtribuicao();
 
       // 4. Carrega as encomendas com JOINs completos (incluindo Registo Técnico de incidências)
-      final encomendasData = await _supabase.from('encomendas').select('''
-        *,
-        clientes (nome_cliente),
-        tipos_produto:tipos_produtos_id (nome_tipo_produto),
-        fase_atual:fase_atual_id (id, nome_fase_padrao, ordem, posto_trabalho),
-        incidencias (
-          id,
-          motivo,
-          descricao_operador,
-          tipo_manutencao,
-          tecnico_id,
-          entidade_externa,
-          nota_tecnica,
-          manutencao_concluida,
-          data_fim_manutencao,
-          line_clearance_validado,
-          estado,
-          data_registo,
-          utilizadores:tecnico_id (nome_utilizador),
-          reason_codes (categoria, descricao)
-        )
-      ''').order('id', ascending: false);
+      final encomendasData = await _encomendasRepo.obterParaPainel();
 
       if (mounted) {
         setState(() {
-          _fasesPorProduto = tempFasesPorProduto;
+          _fasesPorProduto = fasesPorProduto;
           _reasonCodes = reasonCodesData;
           _tecnicosUtilizadores = utilizadoresData;
           _encomendas = encomendasData;
@@ -116,44 +89,30 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
   }
 
   void _ativarSubscricaoRealtime() {
-    _encomendasSubscription = _supabase
-        .channel('public:encomendas_painel')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.all,
-          schema: 'public',
-          table: 'encomendas',
-          callback: (payload) => _carregarDados(mostrarLoader: false),
-        )
-        .subscribe();
-
-    _incidenciasSubscription = _supabase
-        .channel('public:incidencias_painel')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.all,
-          schema: 'public',
-          table: 'incidencias',
-          callback: (payload) => _carregarDados(mostrarLoader: false),
-        )
-        .subscribe();
+    _encomendasSubscription = _encomendasRepo.escutarProducao(
+      'public:encomendas_painel',
+      () => _carregarDados(mostrarLoader: false),
+    );
   }
 
   void _filtrarEncomendas() {
     final query = _searchController.text.trim().toLowerCase();
     setState(() {
       _encomendasFiltradas = _encomendas.where((e) {
-        final codigo = (e['codigo_rastreio'] ?? e['codigo_encomenda'] ?? '').toString().toLowerCase();
-        final cliente = (e['clientes'] != null ? e['clientes']['nome_cliente'] : '').toString().toLowerCase();
+        final codigo = (e.codigoRastreio ?? '').toLowerCase();
+        final cliente = (e.nomeCliente ?? '').toLowerCase();
         final matchTexto = codigo.contains(query) || cliente.contains(query);
 
-        final bool cancelada = e['cancelada'] == true;
-        final bool emHold = e['em_suspenso'] == true;
-        final bool concluida = e['fase_atual_id'] == null;
+        // O estado vem da regra única de EstadoOrdem, em vez de ser recalculado
+        // aqui a partir de três colunas soltas.
+        final estado = e.estado;
 
-        if (_filtroEstado == 'CANCELADA') return matchTexto && cancelada;
-        if (cancelada) return false; // canceladas só aparecem no seu próprio filtro
-        if (_filtroEstado == 'EM_PRODUCAO') return matchTexto && !emHold && !concluida;
-        if (_filtroEstado == 'ON_HOLD') return matchTexto && emHold;
-        if (_filtroEstado == 'CONCLUIDA') return matchTexto && concluida;
+        if (_filtroEstado == 'CANCELADA') return matchTexto && estado == EstadoOrdem.cancelada;
+        // Canceladas só aparecem no seu próprio filtro.
+        if (estado == EstadoOrdem.cancelada) return false;
+        if (_filtroEstado == 'EM_PRODUCAO') return matchTexto && estado == EstadoOrdem.emProducao;
+        if (_filtroEstado == 'ON_HOLD') return matchTexto && estado == EstadoOrdem.emHold;
+        if (_filtroEstado == 'CONCLUIDA') return matchTexto && estado == EstadoOrdem.concluida;
 
         return matchTexto;
       }).toList();
@@ -162,48 +121,24 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
 
   // --- HELPER METHODS ---
 
-  double _calcularProgresso(Map<String, dynamic> enc) {
-    if (enc['fase_atual_id'] == null) return 1.0;
+  double _calcularProgresso(EncomendaModel enc) {
+    if (enc.faseAtualId == null) return 1.0;
 
-    final int? prodId = enc['tipos_produtos_id'] as int?;
-    final faseAtual = enc['fase_atual'];
-
-    if (prodId == null || faseAtual == null) return 0.0;
+    final prodId = enc.tipoProdutoId;
+    final ordemAtual = enc.ordemFaseAtual;
+    if (prodId == null || ordemAtual == null) return 0.0;
 
     final fases = _fasesPorProduto[prodId];
     if (fases == null || fases.isEmpty) return 0.0;
 
-    final int ordemAtual = faseAtual['ordem'] as int? ?? 1;
-    final int totalFases = fases.length;
-
-    return ((ordemAtual - 1) / totalFases).clamp(0.0, 1.0);
+    return ((ordemAtual - 1) / fases.length).clamp(0.0, 1.0);
   }
 
-  bool _verificarSeAtrasada(String? dataEntregaStr) {
-    if (dataEntregaStr == null || dataEntregaStr.isEmpty) return false;
-    try {
-      final dataEntrega = DateTime.parse(dataEntregaStr);
-      final hoje = DateTime.now();
-      final hojeSemHoras = DateTime(hoje.year, hoje.month, hoje.day);
-      return hojeSemHoras.isAfter(dataEntrega);
-    } catch (_) {
-      return false;
-    }
-  }
-
-  String _formatarDataHora(String? isoStr) {
-    if (isoStr == null || isoStr.isEmpty) return 'N/A';
-    try {
-      final dt = DateTime.parse(isoStr).toLocal();
-      final dia = dt.day.toString().padLeft(2, '0');
-      final mes = dt.month.toString().padLeft(2, '0');
-      final ano = dt.year;
-      final hora = dt.hour.toString().padLeft(2, '0');
-      final min = dt.minute.toString().padLeft(2, '0');
-      return '$dia/$mes/$ano às $hora:$min';
-    } catch (_) {
-      return isoStr;
-    }
+  bool _verificarSeAtrasada(DateTime? dataEntrega) {
+    if (dataEntrega == null) return false;
+    final hoje = DateTime.now();
+    final hojeSemHoras = DateTime(hoje.year, hoje.month, hoje.day);
+    return hojeSemHoras.isAfter(dataEntrega);
   }
 
   // --- AVANÇAR FASE ---
@@ -214,17 +149,14 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
   /// única transação no servidor (`avancar_fase_encomenda`). Antes eram duas
   /// escritas independentes: se a segunda falhasse, ficava histórico órfão e a
   /// ordem presa na fase anterior.
-  Future<void> _avancarFase(Map<String, dynamic> enc) async {
+  Future<void> _avancarFase(EncomendaModel enc) async {
     try {
-      final resultado = await _supabase.rpc(
-        'avancar_fase_encomenda',
-        params: {'p_encomenda_id': enc['id']},
-      );
+      final resultado = await _encomendasRepo.avancarFase(enc.id);
 
-      final bool concluida = resultado?['concluida'] == true;
+      final bool concluida = resultado['concluida'] == true;
       _mostrarMensagem(concluida
           ? '🏁 Ordem de produção concluída com sucesso!'
-          : 'Ordem avançada para a fase: ${resultado?['proxima_fase_nome'] ?? ''}!');
+          : 'Ordem avançada para a fase: ${resultado['proxima_fase_nome'] ?? ''}!');
 
       _carregarDados(mostrarLoader: false);
     } catch (e) {
@@ -232,15 +164,16 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
     }
   }
 
-  /// As RPCs devolvem mensagens de negócio legíveis; retiramos o ruído do driver.
+  /// Os repositórios já devolvem mensagens de negócio legíveis; aqui só removemos
+  /// o prefixo das exceções genéricas.
   String _limparErro(Object e) {
-    if (e is PostgrestException) return e.message;
+    if (e is RepositoryException) return e.mensagem;
     return e.toString().replaceAll('Exception: ', '');
   }
 
   // --- AÇÕES DE WIP HOLD, REGISTO TÉCNICO HÍBRIDO E LINE CLEARANCE ---
 
-  void _abrirDialogWipHold(Map<String, dynamic> enc) {
+  void _abrirDialogWipHold(EncomendaModel enc) {
     int? selectedReasonId;
     final notasController = TextEditingController();
     bool isSubmitting = false;
@@ -344,16 +277,16 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
                           setDialogState(() => isSubmitting = true);
 
                           try {
-                            final int encId = int.parse(enc['id'].toString());
+                            final int encId = enc.id;
 
                             // Criar a incidência e suspender a ordem é uma só
                             // transação — e o posto de trabalho é resolvido no
                             // servidor a partir da fase atual.
-                            await _supabase.rpc('aplicar_wip_hold', params: {
-                              'p_encomenda_id': encId,
-                              'p_reason_code_id': selectedReasonId,
-                              'p_descricao_operador': notasController.text.trim(),
-                            });
+                            await _encomendasRepo.aplicarWipHold(
+                              encomendaId: encId,
+                              reasonCodeId: selectedReasonId!,
+                              descricaoOperador: notasController.text.trim(),
+                            );
 
                             notasController.dispose();
                             if (dialogContext.mounted) {
@@ -377,7 +310,7 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
   }
 
   // --- NOVO: MODAL REGISTO TÉCNICO HÍBRIDO ---
-  void _abrirDialogRegistoTecnico(Map<String, dynamic> enc, Map<String, dynamic>? incidenciaAtiva) {
+  void _abrirDialogRegistoTecnico(EncomendaModel enc, Map<String, dynamic>? incidenciaAtiva) {
     if (incidenciaAtiva == null) return;
 
     String tipoManutencao = 'INTERNA'; // 'INTERNA' ou 'EXTERNA'
@@ -535,14 +468,15 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
                           try {
                             final int incId = int.parse(incidenciaAtiva['id'].toString());
 
-                            await _supabase.from('incidencias').update({
-                              'tipo_manutencao': tipoManutencao,
-                              'tecnico_id': tipoManutencao == 'INTERNA' ? tecnicoSelecionadoId : null,
-                              'entidade_externa': tipoManutencao == 'EXTERNA' ? entidadeExternaController.text.trim() : null,
-                              'nota_tecnica': notaTecnicaController.text.trim(),
-                              'manutencao_concluida': true,
-                              'data_fim_manutencao': DateTime.now().toIso8601String(),
-                            }).eq('id', incId);
+                            await _encomendasRepo.registarIntervencaoTecnica(
+                              incidenciaId: incId,
+                              tipoManutencao: tipoManutencao,
+                              tecnicoId: tipoManutencao == 'INTERNA' ? tecnicoSelecionadoId : null,
+                              entidadeExterna: tipoManutencao == 'EXTERNA'
+                                  ? entidadeExternaController.text.trim()
+                                  : null,
+                              notaTecnica: notaTecnicaController.text.trim(),
+                            );
 
                             entidadeExternaController.dispose();
                             notaTecnicaController.dispose();
@@ -567,7 +501,7 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
     );
   }
 
-  void _abrirDialogLineClearance(Map<String, dynamic> enc, Map<String, dynamic>? incidenciaAtiva) {
+  void _abrirDialogLineClearance(EncomendaModel enc, Map<String, dynamic>? incidenciaAtiva) {
     bool isSubmitting = false;
 
     showDialog(
@@ -676,9 +610,9 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
                             }
 
                             // Fechar a incidência e libertar a ordem numa só transação.
-                            await _supabase.rpc('aprovar_line_clearance', params: {
-                              'p_incidencia_id': int.parse(incidenciaAtiva['id'].toString()),
-                            });
+                            await _encomendasRepo.aprovarLineClearance(
+                              int.parse(incidenciaAtiva['id'].toString()),
+                            );
 
                             if (dialogContext.mounted) {
                               Navigator.pop(dialogContext);
@@ -702,9 +636,12 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
 
   // --- HISTÓRICO & TIMELINE DE RASTREABILIDADE ---
 
-  Future<void> _abrirDialogHistorico(Map<String, dynamic> enc) async {
-    final int encId = int.parse(enc['id'].toString());
-    final idFormatado = Formatos.referenciaOrdem(encId, criadaEm: enc['created_at']);
+  Future<void> _abrirDialogHistorico(EncomendaModel enc) async {
+    final int encId = enc.id;
+    final idFormatado = Formatos.referenciaOrdem(
+      encId,
+      criadaEm: enc.createdAt?.toIso8601String(),
+    );
 
     showDialog(
       context: context,
@@ -727,19 +664,8 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
             width: 550,
             height: 450,
             child: FutureBuilder(
-              future: Future.wait([
-                _supabase.from('historico_producao').select('''
-                  *,
-                  fases_padrao:fase_concluida_id (nome_fase_padrao, ordem),
-                  utilizadores:utilizador_id (nome_utilizador)
-                ''').eq('encomenda_id', encId),
-                _supabase.from('incidencias').select('''
-                  *,
-                  reason_codes:reason_code_id (categoria, descricao),
-                  utilizadores:tecnico_id (nome_utilizador)
-                ''').eq('encomenda_id', encId),
-              ]),
-              builder: (context, AsyncSnapshot<List<dynamic>> snapshot) {
+              future: _encomendasRepo.obterTimeline(encId),
+              builder: (context, AsyncSnapshot<TimelineOrdem> snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());
                 }
@@ -750,51 +676,47 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
                   );
                 }
 
-                final List<dynamic> producaoList = snapshot.data?[0] ?? [];
-                final List<dynamic> incidenciasList = snapshot.data?[1] ?? [];
-
+                final timeline = snapshot.data;
                 final List<Map<String, dynamic>> eventosTimeline = [];
 
-                for (var p in producaoList) {
-                  final fase = p['fases_padrao'];
-                  final user = p['utilizadores'];
-                  final data = p['data_conclusao'] ?? p['created_at'];
+                for (final p in timeline?.producao ?? const <HistoricoModel>[]) {
+                  final data = p.momento;
 
                   eventosTimeline.add({
-                    'timestamp': DateTime.tryParse(data.toString()) ?? DateTime.now(),
-                    'data_str': data.toString(),
-                    'titulo': 'Concluída Fase ${fase?['ordem'] ?? ''}: ${fase?['nome_fase_padrao'] ?? 'Fase de Produção'}',
-                    'subtitulo': 'Executado por: ${user?['nome_utilizador'] ?? 'Operador'}',
+                    'timestamp': data ?? DateTime.now(),
+                    'data_str': data?.toIso8601String() ?? '',
+                    'titulo': 'Concluída Fase ${p.ordemFase ?? ''}: ${p.nomeFase ?? 'Fase de Produção'}',
+                    'subtitulo': 'Executado por: ${p.nomeUtilizador ?? 'Operador'}',
                     'tipo': 'PRODUCAO',
                     'cor': Colors.green.shade700,
                     'icone': Icons.check_circle_rounded,
                   });
                 }
 
-                for (var inc in incidenciasList) {
-                  final dataRegisto = inc['data_registo'] ?? inc['created_at'];
-                  final motivo = inc['motivo'] ?? 'Incidente em Linha';
-                  final notaOp = inc['descricao_operador'];
+                for (final inc in timeline?.incidencias ?? const <IncidenciaModel>[]) {
+                  final dataRegisto = inc.inicio;
+                  final motivo = inc.motivo ?? 'Incidente em Linha';
+                  final notaOp = inc.descricaoOperador;
 
                   eventosTimeline.add({
-                    'timestamp': DateTime.tryParse(dataRegisto.toString()) ?? DateTime.now(),
-                    'data_str': dataRegisto.toString(),
+                    'timestamp': dataRegisto ?? DateTime.now(),
+                    'data_str': dataRegisto?.toIso8601String() ?? '',
                     'titulo': 'WIP Hold (Linha Suspensa)',
-                    'subtitulo': 'Motivo: $motivo${notaOp != null && notaOp.toString().isNotEmpty ? "\nNota: $notaOp" : ""}',
+                    'subtitulo': 'Motivo: $motivo${notaOp != null && notaOp.isNotEmpty ? "\nNota: $notaOp" : ""}',
                     'tipo': 'HOLD',
                     'cor': Colors.red.shade700,
                     'icone': Icons.pause_circle_filled_rounded,
                   });
 
-                  if (inc['manutencao_concluida'] == true) {
-                    final dataManut = inc['data_fim_manutencao'] ?? dataRegisto;
-                    final tipoM = inc['tipo_manutencao'] ?? 'N/A';
-                    final tecNome = inc['utilizadores']?['nome_utilizador'] ?? inc['entidade_externa'] ?? 'Técnico';
-                    final notaTec = inc['nota_tecnica'] ?? '';
+                  if (inc.manutencaoConcluida) {
+                    final dataManut = inc.dataFimManutencao ?? dataRegisto;
+                    final tipoM = inc.tipoManutencao ?? 'N/A';
+                    final tecNome = inc.responsavelIntervencao ?? 'Técnico';
+                    final notaTec = inc.notaTecnica ?? '';
 
                     eventosTimeline.add({
-                      'timestamp': DateTime.tryParse(dataManut.toString()) ?? DateTime.now(),
-                      'data_str': dataManut.toString(),
+                      'timestamp': dataManut ?? DateTime.now(),
+                      'data_str': dataManut?.toIso8601String() ?? '',
                       'titulo': 'Reparação Técnica Concluída ($tipoM)',
                       'subtitulo': 'Responsável: $tecNome${notaTec.isNotEmpty ? "\nRelatório: $notaTec" : ""}',
                       'tipo': 'MANUTENCAO',
@@ -803,11 +725,11 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
                     });
                   }
 
-                  if (inc['line_clearance_validado'] == true && inc['data_line_clearance'] != null) {
-                    final dataClearance = inc['data_line_clearance'];
+                  if (inc.lineClearanceValidado && inc.dataLineClearance != null) {
+                    final dataClearance = inc.dataLineClearance!;
                     eventosTimeline.add({
-                      'timestamp': DateTime.tryParse(dataClearance.toString()) ?? DateTime.now(),
-                      'data_str': dataClearance.toString(),
+                      'timestamp': dataClearance,
+                      'data_str': dataClearance.toIso8601String(),
                       'titulo': 'Line Clearance Aprovado (Produção Retomada)',
                       'subtitulo': 'Aprovado por Responsável de Qualidade/Supervisão',
                       'tipo': 'CLEARANCE',
@@ -875,7 +797,7 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
                                         ),
                                       ),
                                       Text(
-                                        _formatarDataHora(item['data_str'].toString()),
+                                        Formatos.dataHora(item['data_str']),
                                         style: TextStyle(fontSize: 10, color: Colors.grey.shade500),
                                       ),
                                     ],
@@ -916,10 +838,7 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
   Future<void> _cancelarOrdem(int id, String motivo) async {
     try {
       setState(() => _isLoading = true);
-      await _supabase.rpc('cancelar_ordem', params: {
-        'p_encomenda_id': id,
-        'p_motivo': motivo,
-      });
+      await _encomendasRepo.cancelar(encomendaId: id, motivo: motivo);
       _mostrarMensagem('Ordem cancelada. O histórico foi preservado para auditoria.');
       _carregarDados(mostrarLoader: true);
     } catch (e) {
@@ -932,12 +851,11 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
     try {
       setState(() => _isLoading = true);
 
-      final dadosAtualizacao = {
-        'data_entrega': novaData,
-        'fase_atual_id': novaFaseId,
-      };
-
-      await _supabase.from('encomendas').update(dadosAtualizacao).eq('id', id);
+      await _encomendasRepo.atualizar(
+        id: id,
+        dataEntrega: novaData,
+        faseAtualId: novaFaseId,
+      );
       _mostrarMensagem('Ordem atualizada com sucesso!');
       _carregarDados(mostrarLoader: true);
     } catch (e) {
@@ -1069,37 +987,35 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
     );
   }
 
-  Widget _buildOrdemCard(Map<String, dynamic> enc) {
-    final idFormatado = Formatos.referenciaOrdem(enc['id'], criadaEm: enc['created_at']);
-    final String codigoRastreio = enc['codigo_rastreio'] ?? 'N/A';
-    final String nomeCliente = enc['clientes'] != null ? enc['clientes']['nome_cliente'] : 'N/A';
-    final String nomeProduto = enc['tipos_produto'] != null ? enc['tipos_produto']['nome_tipo_produto'] : 'N/A';
-    final String prioridade = enc['prioridade'] ?? 'Normal';
+  Widget _buildOrdemCard(EncomendaModel enc) {
+    final idFormatado = Formatos.referenciaOrdem(
+      enc.id,
+      criadaEm: enc.createdAt?.toIso8601String(),
+    );
+    final String codigoRastreio = enc.codigoRastreio ?? 'N/A';
+    final String nomeCliente = enc.nomeCliente ?? 'N/A';
+    final String nomeProduto = enc.nomeProduto ?? 'N/A';
+    final String prioridade = enc.prioridade;
 
-    final bool cancelada = enc['cancelada'] == true;
-    final bool emHold = !cancelada && enc['em_suspenso'] == true;
-    final bool concluida = !cancelada && enc['fase_atual_id'] == null;
+    final estado = enc.estado;
+    final bool cancelada = estado == EstadoOrdem.cancelada;
+    final bool emHold = estado == EstadoOrdem.emHold;
+    final bool concluida = estado == EstadoOrdem.concluida;
 
-    final faseAtual = enc['fase_atual'];
     final String faseNome = concluida
         ? 'Produção Concluída'
-        : (faseAtual != null
-            ? 'Fase ${faseAtual['ordem']}: ${faseAtual['nome_fase_padrao']}'
+        : (enc.nomeFaseAtual != null
+            ? 'Fase ${enc.ordemFaseAtual}: ${enc.nomeFaseAtual}'
             : 'Aguardando Início');
-    final String postoTrabalho = faseAtual?['posto_trabalho'] ?? 'Linha Geral';
-    final String dataEntrega = enc['data_entrega'] ?? '';
+    final String postoTrabalho = enc.postoFaseAtual ?? 'Linha Geral';
+    final String dataEntrega = enc.dataEntregaIso ?? '';
 
     final double progresso = _calcularProgresso(enc);
     final int progressoPercentagem = (progresso * 100).toInt();
-    final bool atrasada = _verificarSeAtrasada(dataEntrega);
+    final bool atrasada = _verificarSeAtrasada(enc.dataEntrega);
 
-    // Identificar incidência ativa pendente
-    final List<dynamic> incidenciasList = enc['incidencias'] ?? [];
-    final Map<String, dynamic>? incidenciaAtiva = incidenciasList.cast<Map<String, dynamic>?>().firstWhere(
-          (i) => i?['line_clearance_validado'] == false,
-          orElse: () => null,
-        );
-
+    // Incidência ativa: o modelo aplica a regra (sem line clearance validado)
+    final Map<String, dynamic>? incidenciaAtiva = enc.incidenciaAtiva;
     final bool manutencaoConcluida = incidenciaAtiva?['manutencao_concluida'] == true;
 
     return Container(
@@ -1302,7 +1218,7 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
                           ),
                           const SizedBox(width: 8),
                           OutlinedButton.icon(
-                            onPressed: () => _confirmarCancelamento(enc['id'], idFormatado),
+                            onPressed: () => _confirmarCancelamento(enc.id, idFormatado),
                             style: OutlinedButton.styleFrom(
                               side: BorderSide(color: Colors.grey.shade300),
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
@@ -1342,8 +1258,8 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      'ORDEM CANCELADA em ${_formatarDataHora(enc['data_cancelamento'])} — '
-                      '${enc['motivo_cancelamento'] ?? 'sem motivo registado'}',
+                      'ORDEM CANCELADA em ${Formatos.dataHora(enc.dataCancelamento?.toIso8601String())} — '
+                      '${enc.motivoCancelamento ?? 'sem motivo registado'}',
                       style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey.shade800),
                     ),
                   ),
@@ -1484,12 +1400,13 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
     );
   }
 
-  void _abrirDialogEditar(Map<String, dynamic> enc) {
-    final dataController = TextEditingController(text: enc['data_entrega']);
-    final int prodId = enc['tipos_produtos_id'] as int;
-    final fasesDisponiveis = List<dynamic>.from(_fasesPorProduto[prodId] ?? []);
+  void _abrirDialogEditar(EncomendaModel enc) {
+    final dataController = TextEditingController(text: enc.dataEntregaIso ?? '');
+    final fasesDisponiveis = List<FaseModel>.from(
+      _fasesPorProduto[enc.tipoProdutoId] ?? const <FaseModel>[],
+    );
 
-    int? faseIdSelecionada = enc['fase_atual_id'] as int?;
+    int? faseIdSelecionada = enc.faseAtualId;
 
     showDialog(
       context: context,
@@ -1529,12 +1446,9 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
                     decoration: const InputDecoration(labelText: 'Fase Atual de Produção'),
                     items: [
                       ...fasesDisponiveis.map((f) {
-                        final int id = f['id'] as int;
-                        final int ordem = f['ordem'] as int;
-                        final String nome = f['nome_fase_padrao'] ?? '';
                         return DropdownMenuItem<int?>(
-                          value: id,
-                          child: Text('Fase $ordem: $nome'),
+                          value: f.id,
+                          child: Text('Fase ${f.ordem}: ${f.nomeFasePadrao}'),
                         );
                       }),
                       const DropdownMenuItem<int?>(
@@ -1562,7 +1476,7 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
                     dataController.dispose();
                     Navigator.pop(dialogContext);
                     _salvarEdicaoOrdem(
-                      enc['id'],
+                      enc.id,
                       novaData,
                       faseIdSelecionada,
                     );

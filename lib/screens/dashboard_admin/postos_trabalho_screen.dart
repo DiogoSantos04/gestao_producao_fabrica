@@ -1,15 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/formatos.dart';
-
-/// Estados persistidos na coluna `postos_trabalho.estado`.
-/// Têm de coincidir exatamente com o CHECK definido na base de dados,
-/// caso contrário os updates falham com violação de constraint.
-abstract class EstadoPosto {
-  static const String livre = 'Livre';
-  static const String emProducao = 'Em Produção';
-  static const String parado = 'Parado';
-}
+import '../../models/encomenda_model.dart';
+import '../../models/incidencia_model.dart';
+import '../../repositories/encomendas_repository.dart';
+import '../../repositories/postos_repository.dart';
+import '../../repositories/utilizadores_repository.dart';
 
 class PostosTrabalhoScreen extends StatefulWidget {
   const PostosTrabalhoScreen({super.key});
@@ -19,13 +14,15 @@ class PostosTrabalhoScreen extends StatefulWidget {
 }
 
 class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
-  final _supabase = Supabase.instance.client;
+  final _postosRepo = PostosRepository();
+  final _encomendasRepo = EncomendasRepository();
+  final _utilizadoresRepo = UtilizadoresRepository();
   bool _isLoading = true;
 
   List<Map<String, dynamic>> _postos = [];
   List<Map<String, dynamic>> _operadores = [];
-  List<Map<String, dynamic>> _encomendasAtivas = [];
-  List<Map<String, dynamic>> _incidenciasAtivas = [];
+  List<EncomendaModel> _encomendasAtivas = [];
+  List<IncidenciaModel> _incidenciasAtivas = [];
 
   @override
   void initState() {
@@ -36,59 +33,19 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
   Future<void> _carregarDados() async {
     setState(() => _isLoading = true);
     try {
-      // 1. Carregar Postos de Trabalho
-      final postosResponse = await _supabase
-          .from('postos_trabalho')
-          .select('*, utilizadores:operador_id(utilizador_id, nome_utilizador)')
-          .order('id', ascending: true);
+      // Tipos diferentes por chamada, pelo que aguardamos cada uma
+      // explicitamente em vez de um Future.wait heterogéneo.
+      final postos = await _postosRepo.obterTodos();
+      final operadores = await _utilizadoresRepo.obterOperadores();
+      final ordens = await _encomendasRepo.obterEmCursoPorPosto();
+      final incidencias = await _encomendasRepo.obterIncidenciasPorPosto();
 
-      // 2. Carregar APENAS Operadores
-      final operadoresResponse = await _supabase
-          .from('utilizadores')
-          .select('utilizador_id, nome_utilizador')
-          .ilike('perfil', 'operador')
-          .order('nome_utilizador', ascending: true);
-
-      // 3. Carregar Encomendas em Curso com Fases Padrão
-      final encomendasResponse = await _supabase
-          .from('encomendas')
-          .select('''
-            id,
-            created_at,
-            codigo_rastreio,
-            em_suspenso,
-            fase_atual_id,
-            clientes!cliente_id(nome_cliente),
-            tipos_produto!tipos_produtos_id(nome_tipo_produto),
-            fases_padrao!fase_atual_id(id, nome_fase_padrao, posto_trabalho_id)
-          ''')
-          .eq('cancelada', false);
-
-      // 4. Carregar Incidências Ativas
-      final incidenciasResponse = await _supabase
-          .from('incidencias')
-          .select('''
-            id,
-            posto_trabalho_id,
-            encomenda_id,
-            descricao_operador,
-            line_clearance_validado,
-            reason_codes!reason_code_id(categoria, descricao)
-          ''');
-
-      final ordensFiltradas = List<Map<String, dynamic>>.from(encomendasResponse as List? ?? [])
-          .where((e) => e['fase_atual_id'] != null)
-          .toList();
-
-      final incidenciasFiltradas = List<Map<String, dynamic>>.from(incidenciasResponse as List? ?? [])
-          .where((inc) => inc['line_clearance_validado'] != true)
-          .toList();
-
+      if (!mounted) return;
       setState(() {
-        _postos = List<Map<String, dynamic>>.from(postosResponse as List? ?? []);
-        _operadores = List<Map<String, dynamic>>.from(operadoresResponse as List? ?? []);
-        _encomendasAtivas = ordensFiltradas;
-        _incidenciasAtivas = incidenciasFiltradas;
+        _postos = postos;
+        _operadores = operadores;
+        _encomendasAtivas = ordens;
+        _incidenciasAtivas = incidencias;
         _isLoading = false;
       });
     } catch (e) {
@@ -108,28 +65,17 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
   /// Liga a ordem ao posto pela chave estrangeira `fases_padrao.posto_trabalho_id`.
   /// Antes comparava-se o nome do posto em texto livre, o que nunca casava para
   /// as fases criadas a partir do catálogo hardcoded ("Posto de Lixagem", etc.).
-  Map<String, dynamic>? _obterOrdemAtivaDoPosto(int postoId) {
-    for (var enc in _encomendasAtivas) {
-      final faseData = enc['fases_padrao'];
-      Map<String, dynamic>? fase;
-
-      if (faseData is Map<String, dynamic>) {
-        fase = faseData;
-      } else if (faseData is List && faseData.isNotEmpty) {
-        fase = faseData.first as Map<String, dynamic>?;
-      }
-
-      if (fase != null && fase['posto_trabalho_id'] == postoId) {
-        return enc;
-      }
+  EncomendaModel? _obterOrdemAtivaDoPosto(int postoId) {
+    for (final enc in _encomendasAtivas) {
+      if (enc.postoFaseAtualId == postoId) return enc;
     }
     return null;
   }
 
-  Map<String, dynamic>? _obterIncidenciaAtivaDoPosto(int postoId, int? encomendaId) {
-    for (var inc in _incidenciasAtivas) {
-      final pId = inc['posto_trabalho_id'];
-      final eId = inc['encomenda_id'];
+  IncidenciaModel? _obterIncidenciaAtivaDoPosto(int postoId, int? encomendaId) {
+    for (final inc in _incidenciasAtivas) {
+      final pId = inc.postoTrabalhoId;
+      final eId = inc.encomendaId;
 
       if ((pId != null && pId == postoId) ||
           (encomendaId != null && eId != null && eId == encomendaId)) {
@@ -139,43 +85,18 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
     return null;
   }
 
-  String _extrairMotivoIncidencia(Map<String, dynamic>? inc) {
+  String _extrairMotivoIncidencia(IncidenciaModel? inc) {
     if (inc == null) return 'Motivo não especificado';
 
-    final rcData = inc['reason_codes'];
-    Map<String, dynamic>? rc;
+    final cat = inc.categoriaReasonCode ?? '';
+    final desc = inc.descricaoReasonCode ?? '';
+    if (cat.isNotEmpty && desc.isNotEmpty) return '[$cat] $desc';
+    if (desc.isNotEmpty) return desc;
 
-    if (rcData is Map<String, dynamic>) {
-      rc = rcData;
-    } else if (rcData is List && rcData.isNotEmpty) {
-      rc = rcData.first as Map<String, dynamic>?;
-    }
-
-    if (rc != null) {
-      final cat = rc['categoria']?.toString() ?? '';
-      final desc = rc['descricao']?.toString() ?? '';
-      if (cat.isNotEmpty && desc.isNotEmpty) {
-        return '[$cat] $desc';
-      } else if (desc.isNotEmpty) {
-        return desc;
-      }
-    }
-
-    final descOp = inc['descricao_operador']?.toString();
-    if (descOp != null && descOp.trim().isNotEmpty) {
-      return descOp;
-    }
+    final descOp = inc.descricaoOperador;
+    if (descOp != null && descOp.trim().isNotEmpty) return descOp;
 
     return 'Incidência em resolução';
-  }
-
-  String _extrairNomeRelacao(dynamic relacaoData, String campoNome, String valorPadrao) {
-    if (relacaoData is Map) {
-      return relacaoData[campoNome]?.toString() ?? valorPadrao;
-    } else if (relacaoData is List && relacaoData.isNotEmpty) {
-      return relacaoData.first[campoNome]?.toString() ?? valorPadrao;
-    }
-    return valorPadrao;
   }
 
   Future<void> _atualizarOperadorPosto(int postoId, String? novoOperadorId) async {
@@ -192,10 +113,11 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
             : EstadoPosto.livre;
       }
 
-      await _supabase.from('postos_trabalho').update({
-        'operador_id': novoOperadorId,
-        'estado': novoEstado,
-      }).eq('id', postoId);
+      await _postosRepo.atribuirOperador(
+        postoId: postoId,
+        operadorId: novoOperadorId,
+        estado: novoEstado,
+      );
 
       _carregarDados();
     } catch (e) {
@@ -209,10 +131,7 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
 
   Future<void> _alterarEstadoPosto(int postoId, String novoEstado) async {
     try {
-      await _supabase.from('postos_trabalho').update({
-        'estado': novoEstado,
-      }).eq('id', postoId);
-
+      await _postosRepo.alterarEstado(postoId: postoId, estado: novoEstado);
       _carregarDados();
     } catch (e) {
       if (mounted) {
@@ -236,9 +155,8 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
       final int postoId = posto['id'] as int;
 
       final ordem = _obterOrdemAtivaDoPosto(postoId);
-      final int? encId = ordem != null ? (ordem['id'] as int?) : null;
-      final bool emSuspenso = ordem?['em_suspenso'] == true;
-      final inc = _obterIncidenciaAtivaDoPosto(postoId, encId);
+      final bool emSuspenso = ordem?.emSuspenso == true;
+      final inc = _obterIncidenciaAtivaDoPosto(postoId, ordem?.id);
 
       final bool estaEmManutencao = estadoBD == EstadoPosto.parado;
       final bool temIncidencia = emSuspenso || inc != null || estaEmManutencao;
@@ -349,11 +267,11 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
 
                               // Obter a ordem associada pela ligação real (FK)
                               final ordemAtiva = _obterOrdemAtivaDoPosto(postoId);
-                              final int? encomendaId = ordemAtiva != null ? (ordemAtiva['id'] as int?) : null;
-                              final bool emSuspenso = ordemAtiva?['em_suspenso'] == true;
+                              final bool emSuspenso = ordemAtiva?.emSuspenso == true;
 
                               // Obter incidência ativa
-                              final incidenciaAtiva = _obterIncidenciaAtivaDoPosto(postoId, encomendaId);
+                              final incidenciaAtiva =
+                                  _obterIncidenciaAtivaDoPosto(postoId, ordemAtiva?.id);
                               final bool estaEmManutencao = estadoBD == EstadoPosto.parado;
                               final bool temIncidencia = emSuspenso || incidenciaAtiva != null || estaEmManutencao;
 
@@ -378,17 +296,9 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
                                 corBadge = Colors.grey;
                               }
 
-                              // Extração de cliente e produto
-                              final String nomeCliente = _extrairNomeRelacao(
-                                ordemAtiva?['clientes'],
-                                'nome_cliente',
-                                'Desconhecido',
-                              );
-                              final String nomeProduto = _extrairNomeRelacao(
-                                ordemAtiva?['tipos_produto'],
-                                'nome_tipo_produto',
-                                'N/A',
-                              );
+                              // Cliente e produto: o modelo já desembrulha as junções
+                              final String nomeCliente = ordemAtiva?.nomeCliente ?? 'Desconhecido';
+                              final String nomeProduto = ordemAtiva?.nomeProduto ?? 'N/A';
 
                               // Validar operador na lista
                               final bool existeNaLista = _operadores.any(
@@ -499,10 +409,11 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
                                                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                                     children: [
                                                       Text(
-                                                        ordemAtiva['codigo_rastreio'] ??
+                                                        ordemAtiva.codigoRastreio ??
                                                             Formatos.referenciaOrdem(
-                                                              ordemAtiva['id'],
-                                                              criadaEm: ordemAtiva['created_at'],
+                                                              ordemAtiva.id,
+                                                              criadaEm: ordemAtiva.createdAt
+                                                                  ?.toIso8601String(),
                                                             ),
                                                         style: TextStyle(
                                                           fontWeight: FontWeight.bold,

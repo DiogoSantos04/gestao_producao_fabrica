@@ -27,8 +27,7 @@ class AuthService {
       final perfil = await obterUtilizadorPorId(response.user!.id);
 
       // 🛡️ TRAVÃO DE SEGURANÇA: Bloqueia o acesso se o estado não for 'Ativo'
-      // Nota: Confirma se no teu UtilizadorModel o campo se chama exatamente 'estadoConta'
-      if (perfil.estadoConta.toLowerCase() != 'ativo') {
+      if (perfil.estadoConta != EstadoConta.ativo) {
         await logout(); // Força o logout imediato no Supabase Auth para não deixar a sessão aberta
         throw Exception('A sua conta está pendente de aprovação ou foi inativada pelo Administrador.');
       }
@@ -71,7 +70,7 @@ class AuthService {
         final perfil = await obterUtilizadorPorId(session.user!.id);
         
         // 🛡️ Valida se a conta ainda continua ativa na retoma da sessão
-        if (perfil.estadoConta.toLowerCase() != 'ativo') {
+        if (perfil.estadoConta != EstadoConta.ativo) {
           await logout();
           return null;
         }

@@ -1,9 +1,12 @@
 import 'dart:math';
 import 'dart:ui';
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show RealtimeChannel;
 import '../../core/temas_cores.dart';
 import '../../core/formatos.dart';
+import '../../repositories/clientes_repository.dart';
+import '../../repositories/encomendas_repository.dart';
+import '../../repositories/fluxos_repository.dart';
 
 // Classe que força o Flutter a aceitar arrastamento direto com o rato no meio da lista
 class MouseDragScrollBehavior extends MaterialScrollBehavior {
@@ -23,7 +26,9 @@ class CriarEncomendaScreen extends StatefulWidget {
 }
 
 class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
-  final _supabase = Supabase.instance.client;
+  final _clientesRepo = ClientesRepository();
+  final _encomendasRepo = EncomendasRepository();
+  final _fluxosRepo = FluxosRepository();
   final _formKey = GlobalKey<FormState>();
 
   RealtimeChannel? _planeamentoSubscription;
@@ -76,7 +81,7 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
     _ultimasScrollController.dispose();
     _pedidosScrollController.dispose();
     if (_planeamentoSubscription != null) {
-      _supabase.removeChannel(_planeamentoSubscription!);
+      _clientesRepo.client.removeChannel(_planeamentoSubscription!);
     }
     super.dispose();
   }
@@ -123,57 +128,24 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
   // --- BUSCA DE DADOS & REALTIME (SUPABASE) ---
 
   void _inicializarSubscricaoRealtime() {
-    _planeamentoSubscription = _supabase
-        .channel('db-planeamento-realtime')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.all,
-          schema: 'public',
-          table: 'pedidos_encomenda', // ⚡ Ouve novos pedidos aprovados pela app
-          callback: (payload) {
-            debugPrint('⚡ [Realtime] Alteração detetada nos Pedidos!');
-            _carregarDados();
-          },
-        )
-        .onPostgresChanges(
-          event: PostgresChangeEvent.all,
-          schema: 'public',
-          table: 'tipos_produto',
-          callback: (payload) => _carregarDados(),
-        )
-        .onPostgresChanges(
-          event: PostgresChangeEvent.all,
-          schema: 'public',
-          table: 'clientes',
-          callback: (payload) => _carregarDados(),
-        )
-        .onPostgresChanges(
-          event: PostgresChangeEvent.all,
-          schema: 'public',
-          table: 'encomendas',
-          callback: (payload) => _carregarDados(),
-        );
-
-    _planeamentoSubscription?.subscribe();
+    _planeamentoSubscription = _clientesRepo.escutarPlaneamento(
+      'db-planeamento-realtime',
+      () {
+        debugPrint('⚡ [Realtime] Alteração detetada no planeamento!');
+        _carregarDados();
+      },
+    );
   }
 
   Future<void> _carregarDados() async {
     try {
-      final clientesData = await _supabase.from('clientes').select('id, nome_cliente').order('nome_cliente', ascending: true);
-      final produtosData = await _supabase.from('tipos_produto').select('id, nome_tipo_produto').order('nome_tipo_produto');
+      final clientesData = await _clientesRepo.obterParaSelecao();
+      final produtosData = await _fluxosRepo.obterTipologiasParaSelecao();
 
       // Buscar Pedidos da App que foram Aprovados e aguardam Agendamento de Produção
-      final pedidosData = await _supabase
-          .from('pedidos_encomenda')
-          .select('id, quantidade, observacoes, estado, cliente_id, tipo_produto_id, clientes(nome_cliente), tipos_produto:tipo_produto_id(nome_tipo_produto)')
-          .or('estado.ilike.Aprovado%,estado.eq.Aprovado')
-          .order('id', ascending: false);
+      final pedidosData = await _clientesRepo.obterPedidosAprovados();
 
-      final encomendasData = await _supabase
-          .from('encomendas')
-          .select('id, created_at, codigo_rastreio, data_entrega, quantidade, prioridade, clientes(nome_cliente), tipos_produto:tipos_produtos_id(nome_tipo_produto)')
-          .eq('cancelada', false)
-          .order('id', ascending: false)
-          .limit(15);
+      final encomendasData = await _encomendasRepo.obterUltimasLancadas();
 
       if (mounted) {
         setState(() {
@@ -197,11 +169,7 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
     });
 
     try {
-      final fasesData = await _supabase
-          .from('fases_padrao')
-          .select('nome_fase_padrao, ordem, tempo_estimado, posto_trabalho')
-          .eq('tipos_produto_id', int.parse(tipoProdutoId))
-          .order('ordem');
+      final fasesData = await _fluxosRepo.obterFasesParaPreview(int.parse(tipoProdutoId));
 
       if (mounted) {
         setState(() {
@@ -267,38 +235,29 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
     try {
       final int prodId = int.parse(_tipoProdutoSelecionado!);
 
-      final faseInicialData = await _supabase
-          .from('fases_padrao')
-          .select('id')
-          .eq('tipos_produto_id', prodId)
-          .eq('ordem', 1)
-          .maybeSingle();
+      final faseInicialData = await _fluxosRepo.obterFaseInicial(prodId);
 
       if (faseInicialData == null) {
         throw Exception('Não foi encontrada nenhuma fase inicial (Ordem 1) definida para este tipo de produto.');
       }
 
-      final faseInicialId = faseInicialData['id'];
       final codigoRastreio = _gerarCodigoRastreio();
 
       // 1. Criar a Ordem Oficial de Produção com Prioridade e Instruções de Qualidade
-      await _supabase.from('encomendas').insert({
-        'codigo_rastreio': codigoRastreio,
-        'data_entrega': _dataEntregaController.text,
-        'cliente_id': int.parse(_clienteSelecionado!),
-        'tipos_produtos_id': prodId,
-        'fase_atual_id': faseInicialId,
-        'quantidade': int.parse(_quantidadeController.text),
-        'prioridade': _prioridadeSelecionada,
-        'observacoes': _requisitosQualidadeController.text.trim(),
-      });
+      await _encomendasRepo.lancar(
+        codigoRastreio: codigoRastreio,
+        dataEntrega: _dataEntregaController.text,
+        clienteId: int.parse(_clienteSelecionado!),
+        tipoProdutoId: prodId,
+        faseInicialId: faseInicialData['id'] as int,
+        quantidade: int.parse(_quantidadeController.text),
+        prioridade: _prioridadeSelecionada,
+        observacoes: _requisitosQualidadeController.text.trim(),
+      );
 
       // 2. Se a ordem veio de um Pedido da App, atualizar o estado do pedido para 'Em Produção'
       if (_pedidoSelecionadoId != null) {
-        await _supabase
-            .from('pedidos_encomenda')
-            .update({'estado': 'Em Produção'})
-            .eq('id', _pedidoSelecionadoId!);
+        await _clientesRepo.marcarPedidoEmProducao(_pedidoSelecionadoId!);
       }
 
       _mostrarMensagem('Ordem $codigoRastreio lançada para produção com prioridade $_prioridadeSelecionada!');

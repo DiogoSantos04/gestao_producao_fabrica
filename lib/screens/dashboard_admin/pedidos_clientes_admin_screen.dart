@@ -1,6 +1,6 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../repositories/clientes_repository.dart';
 
 class PedidosClientesAdminScreen extends StatefulWidget {
   const PedidosClientesAdminScreen({super.key});
@@ -10,7 +10,7 @@ class PedidosClientesAdminScreen extends StatefulWidget {
 }
 
 class _PedidosClientesAdminScreenState extends State<PedidosClientesAdminScreen> {
-  final _supabase = Supabase.instance.client;
+  final _clientesRepo = ClientesRepository();
   List<dynamic> _pedidos = [];
   bool _isLoading = true;
 
@@ -22,20 +22,7 @@ class _PedidosClientesAdminScreenState extends State<PedidosClientesAdminScreen>
 
   Future<void> _carregarPedidos() async {
     try {
-      final data = await _supabase
-          .from('pedidos_encomenda')
-          .select('''
-            id,
-            quantidade,
-            observacoes,
-            estado,
-            created_at,
-            cliente_id,
-            tipo_produto_id,
-            clientes ( id, nome_cliente, email ),
-            tipos_produto ( id, nome_tipo_produto )
-          ''')
-          .order('created_at', ascending: false);
+      final data = await _clientesRepo.obterPedidos();
 
       if (mounted) {
         setState(() {
@@ -80,11 +67,11 @@ class _PedidosClientesAdminScreenState extends State<PedidosClientesAdminScreen>
       // `clientes.utilizador_id` — antes procurava-se o utilizador comparando
       // `nome_utilizador` com `nome_cliente`, o que falhava ou acertava na pessoa
       // errada perante nomes repetidos ou ligeiramente diferentes.
-      await _supabase.rpc('aprovar_pedido_encomenda', params: {
-        'p_pedido_id': pedido['id'],
-        'p_data_entrega': dataFormatted,
-        'p_codigo_rastreio': codigoRastreio,
-      });
+      await _clientesRepo.aprovarPedido(
+        pedidoId: pedido['id'] as int,
+        dataEntrega: dataFormatted,
+        codigoRastreio: codigoRastreio,
+      );
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -98,9 +85,8 @@ class _PedidosClientesAdminScreenState extends State<PedidosClientesAdminScreen>
     } catch (e) {
       debugPrint('Erro ao lançar encomenda: $e');
       if (mounted) {
-        final msg = e is PostgrestException ? e.message : e.toString();
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro ao processar: $msg'), backgroundColor: Colors.red),
+          SnackBar(content: Text('Erro ao processar: $e'), backgroundColor: Colors.red),
         );
       }
     }
@@ -108,11 +94,7 @@ class _PedidosClientesAdminScreenState extends State<PedidosClientesAdminScreen>
 
   Future<void> _rejeitarPedido(int pedidoId) async {
     try {
-      await _supabase
-          .from('pedidos_encomenda')
-          .update({'estado': 'Rejeitado'})
-          .eq('id', pedidoId);
-
+      await _clientesRepo.rejeitarPedido(pedidoId);
       _carregarPedidos();
     } catch (e) {
       debugPrint('Erro ao rejeitar pedido: $e');

@@ -1,0 +1,50 @@
+/// Estado de uma ordem de produção.
+///
+/// Esta é a **definição única** do estado de uma ordem. Antes do refactor, cada
+/// ecrã derivava o estado à sua maneira a partir de três colunas soltas
+/// (`cancelada`, `em_suspenso`, `fase_atual_id`), e as regras divergiam:
+/// os relatórios chegaram a considerar "concluída" uma ordem que estava apenas
+/// *na* última fase, o que inflacionava os KPIs (ver bug (b) em BUGS_RESOLVIDOS.md).
+///
+/// A ordem de avaliação importa: uma ordem cancelada é cancelada mesmo que
+/// tenha ficado suspensa, e uma ordem suspensa continua a ter fase atual.
+enum EstadoOrdem {
+  emProducao,
+  emHold,
+  concluida,
+  cancelada;
+
+  /// Deriva o estado a partir das colunas da tabela `encomendas`.
+  ///
+  /// - `cancelada = true` → [cancelada] (prevalece sobre tudo)
+  /// - `em_suspenso = true` → [emHold]
+  /// - `fase_atual_id = null` → [concluida] (percorreu todo o roteiro)
+  /// - caso contrário → [emProducao]
+  static EstadoOrdem derivar({
+    required bool cancelada,
+    required bool emSuspenso,
+    required bool temFaseAtual,
+  }) {
+    if (cancelada) return EstadoOrdem.cancelada;
+    if (emSuspenso) return EstadoOrdem.emHold;
+    if (!temFaseAtual) return EstadoOrdem.concluida;
+    return EstadoOrdem.emProducao;
+  }
+
+  /// Texto apresentado nos badges da interface.
+  String get etiqueta => switch (this) {
+        EstadoOrdem.emProducao => 'EM PRODUÇÃO',
+        EstadoOrdem.emHold => 'ON HOLD',
+        EstadoOrdem.concluida => 'CONCLUÍDA',
+        EstadoOrdem.cancelada => 'CANCELADA',
+      };
+
+  /// A ordem já saiu da linha, por conclusão ou cancelamento.
+  bool get eFinal => this == EstadoOrdem.concluida || this == EstadoOrdem.cancelada;
+
+  /// A ordem conta para indicadores operacionais (ativas, atrasadas, ocupação).
+  bool get contaParaIndicadores => this != EstadoOrdem.cancelada;
+
+  /// A ordem está a ocupar um posto de trabalho.
+  bool get estaNaLinha => this == EstadoOrdem.emProducao || this == EstadoOrdem.emHold;
+}

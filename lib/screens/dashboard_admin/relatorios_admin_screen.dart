@@ -1,11 +1,14 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:url_launcher/url_launcher.dart';
-import '../../core/temas_cores.dart';
+import '../../models/encomenda_model.dart';
+import '../../repositories/clientes_repository.dart';
+import '../../repositories/encomendas_repository.dart';
+import '../../repositories/fluxos_repository.dart';
+import '../../repositories/relatorios_repository.dart';
 
 class MouseDragScrollBehavior extends MaterialScrollBehavior {
   @override
@@ -24,7 +27,10 @@ class RelatoriosAdminScreen extends StatefulWidget {
 }
 
 class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
-  final _supabase = Supabase.instance.client;
+  final _relatoriosRepo = RelatoriosRepository();
+  final _encomendasRepo = EncomendasRepository();
+  final _clientesRepo = ClientesRepository();
+  final _fluxosRepo = FluxosRepository();
   final _formKey = GlobalKey<FormState>();
 
   final _dataInicioController = TextEditingController();
@@ -43,12 +49,12 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
   int? _clienteSelecionadoId;
   int? _tipoProdutoSelecionadoId;
 
-  List<dynamic> _clientesLista = [];
-  List<dynamic> _tiposProdutoLista = [];
-  List<dynamic> _feedbacks = [];
-  List<dynamic> _encomendasGeral = [];
-  List<dynamic> _dadosHistorico = [];
-  List<dynamic> _historicoRelatorios = []; // Guarda os relatórios gerados da BD
+  List<Map<String, dynamic>> _clientesLista = [];
+  List<Map<String, dynamic>> _tiposProdutoLista = [];
+  List<Map<String, dynamic>> _feedbacks = [];
+  List<EncomendaModel> _encomendasGeral = [];
+  List<Map<String, dynamic>> _dadosHistorico = [];
+  List<Map<String, dynamic>> _historicoRelatorios = []; // Guarda os relatórios gerados da BD
   Map<int, int> _ultimaFasePorProduto = {};
 
   @override
@@ -74,14 +80,14 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
   /// a ser executada — contá-la como concluída (e usar `DateTime.now()` como data)
   /// inflacionava o total e falseava a taxa de entrega no prazo.
   DateTime? _obterDataConclusao(
-    dynamic enc,
-    List<dynamic> historico,
+    EncomendaModel enc,
+    List<Map<String, dynamic>> historico,
     Map<int, int> ultimaFasePorProduto,
   ) {
-    if (enc['fase_atual_id'] != null) return null;
+    if (enc.faseAtualId != null) return null;
 
-    final int idEnc = enc['id'] as int;
-    final int? idUltimaFase = ultimaFasePorProduto[enc['tipos_produtos_id'] as int?];
+    final int idEnc = enc.id;
+    final int? idUltimaFase = ultimaFasePorProduto[enc.tipoProdutoId];
 
     final registos = historico
         .where((h) => h['encomenda_id'] == idEnc && h['data_conclusao'] != null)
@@ -101,9 +107,7 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
   }
 
   /// Compara ao dia: entregar no próprio dia do prazo conta como estando no prazo.
-  bool _cumpriuPrazo(dynamic dataEntrega, DateTime dataConclusao) {
-    if (dataEntrega == null) return false;
-    final prometida = DateTime.tryParse(dataEntrega.toString());
+  bool _cumpriuPrazo(DateTime? prometida, DateTime dataConclusao) {
     if (prometida == null) return false;
 
     final pDia = DateTime(prometida.year, prometida.month, prometida.day);
@@ -119,45 +123,26 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
       setState(() => _isLoading = true);
 
       // 1. Carregar lista de Clientes para o Dropdown
-      final dadosClientes = await _supabase
-          .from('clientes')
-          .select('id, nome_cliente')
-          .order('nome_cliente');
+      final dadosClientes = await _clientesRepo.obterParaSelecao();
 
       // 2. Carregar lista de Tipos de Produto para o Dropdown
-      final dadosTiposProduto = await _supabase
-          .from('tipos_produto')
-          .select('id, nome_tipo_produto')
-          .order('nome_tipo_produto');
+      final dadosTiposProduto = await _fluxosRepo.obterTipologiasParaSelecao();
 
       // 3. Procurar os Feedbacks Reais
-      final dadosAvaliacoes = await _supabase
-          .from('avaliacoes')
-          .select('nota, comentario, data_registo, encomendas(codigo_rastreio), clientes(nome_cliente)')
-          .order('data_registo', ascending: false);
+      final dadosAvaliacoes = await _relatoriosRepo.obterAvaliacoes();
 
       // 4. Procurar as encomendas trazendo relacionamentos para o PDF e filtros
       //    (as ordens canceladas não contam para indicadores de desempenho)
-      final dadosEncomendas = await _supabase
-          .from('encomendas')
-          .select('id, codigo_rastreio, data_entrega, fase_atual_id, cliente_id, tipos_produtos_id, clientes(nome_cliente), tipos_produto:tipos_produtos_id(nome_tipo_produto)')
-          .eq('cancelada', false);
+      final dadosEncomendas = await _encomendasRepo.obterParaRelatorios();
 
       // 5. Procurar o histórico de produção completo
-      final dadosHistorico = await _supabase
-          .from('historico_producao')
-          .select('encomenda_id, data_conclusao, fase_concluida_id');
+      final dadosHistorico = await _encomendasRepo.obterHistoricoCompleto();
 
       // 6. Procurar a tabela de fases para mapear qual é o fim de linha de cada produto
-      final dadosFases = await _supabase
-          .from('fases_padrao')
-          .select('id, ordem, tipos_produto_id');
+      final dadosFases = await _fluxosRepo.obterFasesParaMapeamento();
 
       // 7. Procurar o histórico de relatórios emitidos anteriormente (Auditoria)
-      final dadosHistoricoRelatorios = await _supabase
-          .from('historico_relatorios')
-          .select('*')
-          .order('data_geracao', ascending: false);
+      final dadosHistoricoRelatorios = await _relatoriosRepo.obterHistoricoEmissoes();
 
       // --- MAPEAMENTO DAS ÚLTIMAS FASES (fim de linha de cada tipo de produto) ---
       final Map<int, int> ultimaFasePorProduto = {};
@@ -196,7 +181,7 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
         if (dataConclusaoReal == null) continue; // ainda em curso
 
         concluidas++;
-        if (_cumpriuPrazo(enc['data_entrega'], dataConclusaoReal)) noPrazo++;
+        if (_cumpriuPrazo(enc.dataEntrega, dataConclusaoReal)) noPrazo++;
       }
 
       if (mounted) {
@@ -231,8 +216,7 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
       final DateTime dataFimFiltro = DateTime.parse(_dataFimController.text).add(const Duration(days: 1));
 
       // Capturar dados do utilizador para auditoria
-      final currentUser = _supabase.auth.currentUser;
-      final String utilizadorAuditoria = currentUser?.email ?? 'Administrador';
+      final String utilizadorAuditoria = _relatoriosRepo.utilizadorAtualEmail ?? 'Administrador';
       final DateTime momentoEmissao = DateTime.now();
       final String dataEmissaoStr = "${momentoEmissao.day.toString().padLeft(2, '0')}/${momentoEmissao.month.toString().padLeft(2, '0')}/${momentoEmissao.year} às ${momentoEmissao.hour.toString().padLeft(2, '0')}:${momentoEmissao.minute.toString().padLeft(2, '0')}";
 
@@ -257,18 +241,14 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
       int noPrazoNoPeriodo = 0;
       List<List<String>> linhasTabelaPDF = [];
 
-      for (var enc in _encomendasGeral) {
-        final int idEnc = enc['id'];
-        final int? encClienteId = enc['cliente_id'];
-        final int? prodId = enc['tipos_produtos_id'];
-
+      for (final enc in _encomendasGeral) {
         // 1. Filtro de Cliente
-        if (_clienteSelecionadoId != null && encClienteId != _clienteSelecionadoId) {
+        if (_clienteSelecionadoId != null && enc.clienteId != _clienteSelecionadoId) {
           continue;
         }
 
         // 2. Filtro de Tipo de Produto
-        if (_tipoProdutoSelecionadoId != null && prodId != _tipoProdutoSelecionadoId) {
+        if (_tipoProdutoSelecionadoId != null && enc.tipoProdutoId != _tipoProdutoSelecionadoId) {
           continue;
         }
 
@@ -280,15 +260,15 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
         if (dataConclusaoReal.isAfter(dataInicioFiltro) && dataConclusaoReal.isBefore(dataFimFiltro)) {
           concluidasNoPeriodo++;
 
-          final bool dentroDoPrazo = _cumpriuPrazo(enc['data_entrega'], dataConclusaoReal);
+          final bool dentroDoPrazo = _cumpriuPrazo(enc.dataEntrega, dataConclusaoReal);
           if (dentroDoPrazo) {
             noPrazoNoPeriodo++;
           }
 
           linhasTabelaPDF.add([
-            enc['codigo_rastreio'] ?? 'TRC-$idEnc',
-            enc['clientes']?['nome_cliente'] ?? 'N/A',
-            enc['tipos_produto']?['nome_tipo_produto'] ?? 'N/A',
+            enc.codigoRastreio ?? 'TRC-${enc.id}',
+            enc.nomeCliente ?? 'N/A',
+            enc.nomeProduto ?? 'N/A',
             "${dataConclusaoReal.day.toString().padLeft(2, '0')}/${dataConclusaoReal.month.toString().padLeft(2, '0')}/${dataConclusaoReal.year}",
             dentroDoPrazo ? 'No Prazo' : 'Com Atraso'
           ]);
@@ -406,27 +386,18 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
 
       // --- PERSISTÊNCIA DE AUDITORIA NO SUPABASE ---
       try {
-        final String nomeFicheiro = 'relatorio_${DateTime.now().millisecondsSinceEpoch}.pdf';
+        // 1. Upload do PDF físico e obtenção da URL pública
+        final String urlPublica = await _relatoriosRepo.carregarPdf(bytesPDF);
 
-        // 1. Upload do PDF físico
-        await _supabase.storage.from('relatorios').uploadBinary(
-              nomeFicheiro,
-              bytesPDF,
-              fileOptions: const FileOptions(contentType: 'application/pdf'),
-            );
-
-        // 2. Obter URL pública
-        final String urlPublica = _supabase.storage.from('relatorios').getPublicUrl(nomeFicheiro);
-
-        // 3. Registar o Log de Auditoria na Tabela Relacional
-        await _supabase.from('historico_relatorios').insert({
-          'periodo_inicio': _dataInicioController.text,
-          'periodo_fim': _dataFimController.text,
-          'total_concluidas': concluidasNoPeriodo,
-          'taxa_prazo': double.parse((taxaNoPeriodo * 100).toStringAsFixed(2)),
-          'url_pdf': urlPublica,
-          'gerado_por': utilizadorAuditoria,
-        });
+        // 2. Registar o Log de Auditoria na Tabela Relacional
+        await _relatoriosRepo.registarEmissao(
+          periodoInicio: _dataInicioController.text,
+          periodoFim: _dataFimController.text,
+          totalConcluidas: concluidasNoPeriodo,
+          taxaPrazo: double.parse((taxaNoPeriodo * 100).toStringAsFixed(2)),
+          urlPdf: urlPublica,
+          geradoPor: utilizadorAuditoria,
+        );
 
         // Recarregar os relatórios para atualizar a interface com o novo log
         await _carregarDadosReais();

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../core/temas_cores.dart';
+import '../models/utilizador_model.dart';
 import '../services/auth_service.dart';
 import 'dashboard_admin/dashboard_admin_shell.dart';
 import 'portal_cliente/cliente_shell_screen.dart'; // 👈 IMPORTADO: Shell centralizada do cliente
@@ -44,8 +45,7 @@ class _LoginScreenState extends State<LoginScreen> {
     try {
       final utilizador = await _authService.verificarSessaoAtiva();
       if (mounted && utilizador != null) {
-        final String perfilNormalizado = utilizador.perfil.trim().toLowerCase();
-        _redirecionarPorPerfil(perfilNormalizado);
+        _redirecionarPorPerfil(utilizador.perfil);
       }
     } catch (e) {
       debugPrint('Erro ao verificar sessão existente: $e');
@@ -85,10 +85,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
       if (!mounted) return;
 
-      final String perfilNormalizado = utilizador.perfil.trim().toLowerCase();
-      debugPrint('Utilizador autenticado. Perfil: $perfilNormalizado');
+      debugPrint('Utilizador autenticado. Perfil: ${utilizador.perfil.name}');
 
-      _redirecionarPorPerfil(perfilNormalizado);
+      _redirecionarPorPerfil(utilizador.perfil);
 
     } catch (erro) {
       debugPrint('Erro detetado no Login: $erro');
@@ -107,34 +106,37 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  /// Centraliza as rotas de navegação de acordo com o nível de acesso do utilizador
-  void _redirecionarPorPerfil(String perfilNormalizado) {
-    if (perfilNormalizado == 'admin' || perfilNormalizado == 'administrador') {
-      debugPrint('Redirecionando para: DashboardAdminShell (Admin)');
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (context) => const DashboardAdminShell()),
-      );
-    } else if (perfilNormalizado == 'operador' || perfilNormalizado == 'funcionario' || perfilNormalizado == 'funcionário') {
-      debugPrint('Redirecionando para: OperadorShellScreen (Operador Shell)');
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (context) => const OperadorShellScreen(),
-        ),
-      );
-    } else if (perfilNormalizado == 'cliente') {
-      debugPrint('Redirecionando para: ClienteShellScreen (Portal Cliente)');
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (context) => const ClienteShellScreen()),
-      );
-    } else {
-      debugPrint('ERRO: Perfil normalizado "$perfilNormalizado" inválido.');
-      _authService.logout();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('O seu perfil de acesso é inválido ou desconhecido.'), 
-          backgroundColor: TemasCores.vermelhoErro,
-        ),
-      );
+  /// Centraliza as rotas de navegação de acordo com o nível de acesso do utilizador.
+  ///
+  /// As variantes históricas do texto do perfil ("Admin"/"Administrador",
+  /// "Operador"/"Funcionario") são normalizadas em [PerfilUtilizador], em vez de
+  /// serem comparadas à mão em cada sítio.
+  void _redirecionarPorPerfil(PerfilUtilizador perfil) {
+    switch (perfil) {
+      case PerfilUtilizador.administrador:
+        debugPrint('Redirecionando para: DashboardAdminShell (Admin)');
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (context) => const DashboardAdminShell()),
+        );
+      case PerfilUtilizador.operador:
+        debugPrint('Redirecionando para: OperadorShellScreen (Operador Shell)');
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (context) => const OperadorShellScreen()),
+        );
+      case PerfilUtilizador.cliente:
+        debugPrint('Redirecionando para: ClienteShellScreen (Portal Cliente)');
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (context) => const ClienteShellScreen()),
+        );
+      case PerfilUtilizador.desconhecido:
+        debugPrint('ERRO: Perfil de acesso inválido.');
+        _authService.logout();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('O seu perfil de acesso é inválido ou desconhecido.'),
+            backgroundColor: TemasCores.vermelhoErro,
+          ),
+        );
     }
   }
 

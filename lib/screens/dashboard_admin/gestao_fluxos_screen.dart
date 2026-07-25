@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/temas_cores.dart';
+import '../../models/fase_model.dart';
+import '../../repositories/fluxos_repository.dart';
 
 class GestaoFluxosScreen extends StatefulWidget {
   const GestaoFluxosScreen({super.key});
@@ -10,11 +11,11 @@ class GestaoFluxosScreen extends StatefulWidget {
 }
 
 class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
-  final _supabase = Supabase.instance.client;
-  
-  List<dynamic> _tipologias = [];
-  List<dynamic> _fases = [];
-  
+  final _fluxosRepo = FluxosRepository();
+
+  List<Map<String, dynamic>> _tipologias = [];
+  List<FaseModel> _fases = [];
+
   Map<String, dynamic>? _tipoProdutoSelecionado;
   bool _isLoadingTipologias = true;
   bool _isLoadingFases = false;
@@ -41,8 +42,9 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
   Future<void> _carregarTipologias() async {
     try {
       setState(() => _isLoadingTipologias = true);
-      final data = await _supabase.from('tipos_produto').select().order('nome_tipo_produto', ascending: true);
-      
+      final data = await _fluxosRepo.obterTipologias();
+
+      if (!mounted) return;
       setState(() {
         _tipologias = data;
         _isLoadingTipologias = false;
@@ -60,11 +62,8 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
     try {
       setState(() => _isLoadingFases = true);
       
-      final data = await _supabase
-          .from('fases_padrao')
-          .select()
-          .eq('tipos_produto_id', tipoProdutoId)
-          .order('ordem', ascending: true);
+      final data = await _fluxosRepo.obterFases(tipoProdutoId);
+      if (!mounted) return;
 
       setState(() {
         _fases = data;
@@ -84,11 +83,7 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
 
   Future<void> _criarTipologia(String nome) async {
     try {
-      final response = await _supabase
-          .from('tipos_produto')
-          .insert({'nome_tipo_produto': nome.trim()})
-          .select()
-          .single();
+      final response = await _fluxosRepo.criarTipologia(nome);
 
       await _carregarTipologias();
       _selecionarTipologia(response);
@@ -103,30 +98,13 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
 
     try {
       // 1. Criar o novo registo na tabela tipos_produto
-      final novoProduto = await _supabase
-          .from('tipos_produto')
-          .insert({'nome_tipo_produto': novoNome.trim()})
-          .select()
-          .single();
-
-      final int novoProdutoId = novoProduto['id'];
+      final novoProduto = await _fluxosRepo.criarTipologia(novoNome);
 
       // 2. Copiar todas as fases do produto de origem para a nova tipologia
-      if (_fases.isNotEmpty) {
-        final novasFasesPayload = _fases.map((fase) {
-          return {
-            'tipos_produto_id': novoProdutoId,
-            'nome_fase_padrao': fase['nome_fase_padrao'],
-            'descricao': fase['descricao'],
-            'posto_trabalho': fase['posto_trabalho'],
-            'tempo_estimado': fase['tempo_estimado'],
-            'checklist': fase['checklist'],
-            'ordem': fase['ordem'],
-          };
-        }).toList();
-
-        await _supabase.from('fases_padrao').insert(novasFasesPayload);
-      }
+      await _fluxosRepo.duplicarFases(
+        novoTipoProdutoId: novoProduto['id'] as int,
+        fasesOrigem: _fases,
+      );
 
       // 3. Atualizar a lista de tipologias e selecionar a nova
       await _carregarTipologias();
@@ -147,7 +125,8 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
 
   Future<void> _eliminarTipologia(int id) async {
     try {
-      await _supabase.from('tipos_produto').delete().eq('id', id);
+      await _fluxosRepo.eliminarTipologia(id);
+      if (!mounted) return;
       setState(() {
         _tipoProdutoSelecionado = null;
         _fases = [];
@@ -172,23 +151,16 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
         return;
       }
 
-      final dadosFase = {
-        'tipos_produto_id': _tipoProdutoSelecionado!['id'],
-        'nome_fase_padrao': nome,
-        'descricao': descricao,
-        'posto_trabalho': posto,
-        'tempo_estimado': tempo,
-        'checklist': checklist,
-        'ordem': id == null ? (_fases.length + 1) : null,
-      };
-
-      dadosFase.removeWhere((key, value) => value == null);
-
-      if (id == null) {
-        await _supabase.from('fases_padrao').insert(dadosFase);
-      } else {
-        await _supabase.from('fases_padrao').update(dadosFase).eq('id', id);
-      }
+      await _fluxosRepo.guardarFase(
+        id: id,
+        tipoProdutoId: _tipoProdutoSelecionado!['id'] as int,
+        nome: nome,
+        descricao: descricao,
+        posto: posto,
+        tempo: tempo,
+        checklist: checklist,
+        ordem: id == null ? (_fases.length + 1) : null,
+      );
 
       await _carregarFases(_tipoProdutoSelecionado!['id']);
     } catch (e) {
@@ -198,7 +170,7 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
 
   Future<void> _eliminarFase(int id) async {
     try {
-      await _supabase.from('fases_padrao').delete().eq('id', id);
+      await _fluxosRepo.eliminarFase(id);
       _carregarFases(_tipoProdutoSelecionado!['id']);
     } catch (e) {
       _mostrarErro('Erro ao eliminar fase. Tente novamente.');
@@ -214,12 +186,7 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
     });
 
     try {
-      for (int i = 0; i < _fases.length; i++) {
-        await _supabase
-            .from('fases_padrao')
-            .update({'ordem': i + 1})
-            .eq('id', _fases[i]['id']);
-      }
+      await _fluxosRepo.reordenarFases(_fases.map((f) => f.id).toList());
     } catch (e) {
       _mostrarErro('Erro ao guardar nova ordenação: $e');
     }
@@ -457,10 +424,10 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
                           onReorder: _reordenarFases,
                           itemBuilder: (context, index) {
                             final fase = _fases[index];
-                            final checklistItems = List<String>.from(fase['checklist'] ?? []);
+                            final checklistItems = fase.checklist;
 
                             return Card(
-                              key: ValueKey(fase['id']),
+                              key: ValueKey(fase.id),
                               margin: const EdgeInsets.only(bottom: 12),
                               elevation: 0,
                               shape: RoundedRectangleBorder(
@@ -496,15 +463,16 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
                                               ),
                                               const SizedBox(width: 8),
                                               Text(
-                                                fase['nome_fase_padrao'] ?? '',
+                                                fase.nomeFasePadrao,
                                                 style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                                               ),
                                               const Spacer(),
-                                              if (fase['posto_trabalho'] != null && fase['posto_trabalho'].toString().isNotEmpty)
+                                              if (fase.postoTrabalho != null &&
+                                                  fase.postoTrabalho!.isNotEmpty)
                                                 Chip(
                                                   avatar: const Icon(Icons.precision_manufacturing, size: 12),
                                                   label: Text(
-                                                    fase['posto_trabalho'],
+                                                    fase.postoTrabalho!,
                                                     style: const TextStyle(fontSize: 10),
                                                   ),
                                                   visualDensity: VisualDensity.compact,
@@ -513,7 +481,7 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
                                               Chip(
                                                 avatar: const Icon(Icons.timer_outlined, size: 12),
                                                 label: Text(
-                                                  '${fase['tempo_estimado']} min',
+                                                  '${fase.tempoEstimado} min',
                                                   style: const TextStyle(fontSize: 10),
                                                 ),
                                                 visualDensity: VisualDensity.compact,
@@ -522,7 +490,7 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
                                           ),
                                           const SizedBox(height: 6),
                                           Text(
-                                            fase['descricao'] ?? 'Sem descrição.',
+                                            fase.descricao ?? 'Sem descrição.',
                                             style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
                                           ),
                                           if (checklistItems.isNotEmpty) ...[
@@ -563,7 +531,7 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
                                     ),
                                     IconButton(
                                       icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
-                                      onPressed: () => _eliminarFase(fase['id']),
+                                      onPressed: () => _eliminarFase(fase.id),
                                     ),
                                   ],
                                 ),
@@ -595,7 +563,7 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: Text(
-                  'Fase ${index + 1}: ${f['nome_fase_padrao']}',
+                  'Fase ${index + 1}: ${f.nomeFasePadrao}',
                   style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
                 ),
               ),
@@ -697,18 +665,20 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
     );
   }
 
-  void _abrirDialogFase({Map<String, dynamic>? faseExistente}) {
-    final nomeController = TextEditingController(text: faseExistente?['nome_fase_padrao'] ?? '');
-    final descController = TextEditingController(text: faseExistente?['descricao'] ?? '');
-    
-    String postoSelecionado = faseExistente?['posto_trabalho'] ?? _postosTrabalhoDisponiveis.first;
+  void _abrirDialogFase({FaseModel? faseExistente}) {
+    final nomeController = TextEditingController(text: faseExistente?.nomeFasePadrao ?? '');
+    final descController = TextEditingController(text: faseExistente?.descricao ?? '');
+
+    String postoSelecionado = faseExistente?.postoTrabalho ?? _postosTrabalhoDisponiveis.first;
     if (!_postosTrabalhoDisponiveis.contains(postoSelecionado)) {
       postoSelecionado = _postosTrabalhoDisponiveis.first;
     }
 
-    final tempoController = TextEditingController(text: faseExistente?['tempo_estimado']?.toString() ?? '15');
-    
-    List<String> checklistLocal = List<String>.from(faseExistente?['checklist'] ?? []);
+    final tempoController = TextEditingController(
+      text: faseExistente != null ? faseExistente.tempoEstimado.toString() : '15',
+    );
+
+    List<String> checklistLocal = List<String>.from(faseExistente?.checklist ?? const []);
     final taskController = TextEditingController();
 
     showDialog(
@@ -837,7 +807,7 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
                     }
                     
                     _salvarFase(
-                      id: faseExistente?['id'],
+                      id: faseExistente?.id,
                       nome: nomeController.text.trim(),
                       descricao: descController.text.trim(),
                       posto: postoSelecionado,

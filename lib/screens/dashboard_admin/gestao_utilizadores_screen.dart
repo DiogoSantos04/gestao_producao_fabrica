@@ -1,8 +1,9 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show RealtimeChannel;
 import '../../core/temas_cores.dart';
-import '../../core/supabase_config.dart';
+import '../../repositories/postos_repository.dart';
+import '../../repositories/utilizadores_repository.dart';
 
 class GestaoUtilizadoresScreen extends StatefulWidget {
   const GestaoUtilizadoresScreen({super.key});
@@ -12,7 +13,8 @@ class GestaoUtilizadoresScreen extends StatefulWidget {
 }
 
 class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
-  final _supabase = Supabase.instance.client;
+  final _utilizadoresRepo = UtilizadoresRepository();
+  final _postosRepo = PostosRepository();
   final _searchController = TextEditingController();
 
   List<dynamic> _todosUtilizadores = [];
@@ -47,37 +49,19 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
   void dispose() {
     _searchController.dispose();
     _timerPostos?.cancel();
-    if (_postosSub != null) _supabase.removeChannel(_postosSub!);
+    if (_postosSub != null) _postosRepo.client.removeChannel(_postosSub!);
     super.dispose();
   }
 
   /// Escuta alterações na tabela postos_trabalho e atualiza os chips sem recarregar tudo
   void _subscreverPostos() {
-    _postosSub = _supabase
-        .channel('utilizadores-postos-changes')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.all,
-          schema: 'public',
-          table: 'postos_trabalho',
-          callback: (_) => _recarregarPostos(),
-        )
-        .subscribe();
+    _postosSub = _postosRepo.escutar('utilizadores-postos-changes', _recarregarPostos);
   }
 
   /// Recarrega apenas o mapa de postos (leve) e reaplica os filtros
   Future<void> _recarregarPostos() async {
     try {
-      final postos = await _supabase
-          .from('postos_trabalho')
-          .select('id, nome_posto, estado, operador_id')
-          .not('operador_id', 'is', null);
-
-      final mapaPostos = <String, Map<String, dynamic>>{};
-      for (final p in (postos as List)) {
-        final opId = p['operador_id']?.toString();
-        if (opId != null) mapaPostos[opId] = Map<String, dynamic>.from(p);
-      }
-
+      final mapaPostos = await _postosRepo.obterPorOperador();
       if (mounted) setState(() => _postoPorOperador = mapaPostos);
     } catch (e) {
       debugPrint('Erro ao recarregar postos: $e');
@@ -91,23 +75,12 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
     try {
       setState(() => _isLoading = true);
 
-      final data = await _supabase
-          .from('utilizadores')
-          .select('utilizador_id, nome_utilizador, email, perfil, estado_conta')
-          .order('nome_utilizador');
+      final data = await _utilizadoresRepo.obterTodos();
 
       // Postos de trabalho (para mostrar a que posto está afeto cada operador)
-      final postos = await _supabase
-          .from('postos_trabalho')
-          .select('id, nome_posto, estado, operador_id')
-          .not('operador_id', 'is', null);
+      final mapaPostos = await _postosRepo.obterPorOperador();
 
-      final mapaPostos = <String, Map<String, dynamic>>{};
-      for (final p in (postos as List)) {
-        final opId = p['operador_id']?.toString();
-        if (opId != null) mapaPostos[opId] = Map<String, dynamic>.from(p);
-      }
-
+      if (!mounted) return;
       setState(() {
         _todosUtilizadores = data;
         _postoPorOperador = mapaPostos;
@@ -177,11 +150,12 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
     try {
       setState(() => _isLoading = true);
 
-      await _supabase.from('utilizadores').update({
-        'nome_utilizador': novoNome,
-        'perfil': novoPerfil,
-        'estado_conta': novoEstado,
-      }).eq('utilizador_id', uid);
+      await _utilizadoresRepo.atualizar(
+        utilizadorId: uid,
+        nome: novoNome,
+        perfil: novoPerfil,
+        estadoConta: novoEstado,
+      );
 
       _mostrarMensagem('Utilizador atualizado com sucesso!');
       _carregarUtilizadores();
@@ -195,9 +169,10 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
   Future<void> _alterarEstadoConta(Map<String, dynamic> ut, String novoEstado) async {
     final uid = ut['utilizador_id'] as String;
     try {
-      await _supabase.from('utilizadores').update({
-        'estado_conta': novoEstado,
-      }).eq('utilizador_id', uid);
+      await _utilizadoresRepo.alterarEstadoConta(
+        utilizadorId: uid,
+        estadoConta: novoEstado,
+      );
 
       // Atualização otimista local (evita recarregar tudo)
       setState(() => ut['estado_conta'] = novoEstado);
@@ -773,28 +748,8 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
   // --- PAINEL DE DETALHE DO UTILIZADOR (visão 360º) ---
 
   /// Recolhe métricas do colaborador a partir das tabelas relacionadas
-  Future<Map<String, dynamic>> _carregarMetricasUtilizador(String uid) async {
-    // Fases concluídas por este utilizador (produção)
-    final historico = await _supabase
-        .from('historico_producao')
-        .select('data_conclusao')
-        .eq('utilizador_id', uid)
-        .order('data_conclusao', ascending: false);
-
-    // Incidências onde entrou como técnico de manutenção
-    final incidencias = await _supabase
-        .from('incidencias')
-        .select('id')
-        .eq('tecnico_id', uid);
-
-    final listaHist = List<Map<String, dynamic>>.from(historico as List? ?? []);
-    final listaInc = List<Map<String, dynamic>>.from(incidencias as List? ?? []);
-
-    return {
-      'fasesConcluidas': listaHist.length,
-      'ultimaAtividade': listaHist.isNotEmpty ? listaHist.first['data_conclusao'] : null,
-      'incidencias': listaInc.length,
-    };
+  Future<Map<String, dynamic>> _carregarMetricasUtilizador(String uid) {
+    return _utilizadoresRepo.obterMetricas(uid);
   }
 
   String _formatarData(dynamic valor) {
@@ -1067,44 +1022,15 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
   }
 
   /// Cria a conta de um novo funcionário SEM afetar a sessão do admin.
-  /// Usa um cliente Supabase temporário e isolado para o signUp, para que
-  /// a sessão ativa do administrador não seja substituída pela do novo utilizador.
+  /// O isolamento do cliente Supabase é responsabilidade do repositório.
   Future<void> _criarFuncionario(String nome, String email, String password) async {
-    final tempClient = SupabaseClient(
-      SupabaseConfig.url,
-      SupabaseConfig.anonKey,
-      // Fluxo 'implicit' evita o PKCE, que exigiria asyncStorage neste
-      // cliente isolado. Aqui só precisamos de criar a conta, não persistir sessão.
-      authOptions: const AuthClientOptions(authFlowType: AuthFlowType.implicit),
+    await _utilizadoresRepo.criarFuncionario(
+      nome: nome,
+      email: email,
+      password: password,
     );
-    try {
-      // 1. Cria a credencial encriptada no Supabase Auth (no cliente isolado)
-      final AuthResponse res = await tempClient.auth.signUp(
-        email: email,
-        password: password,
-      );
-
-      final novoUser = res.user;
-      if (novoUser == null) {
-        throw Exception('Não foi possível criar a credencial do funcionário.');
-      }
-
-      // 2. Cria a ficha na tabela utilizadores (já ativa, perfil de Operador).
-      //    A password NÃO é guardada aqui — fica só no Auth (encriptada).
-      await tempClient.from('utilizadores').insert({
-        'utilizador_id': novoUser.id,
-        'nome_utilizador': nome,
-        'email': email,
-        'perfil': 'Operador',
-        'estado_conta': 'Ativo',
-      });
-
-      _mostrarMensagem('Funcionário "$nome" criado com sucesso!');
-      _carregarUtilizadores();
-    } finally {
-      // Fecha o cliente temporário — a sessão do admin permanece intacta.
-      await tempClient.dispose();
-    }
+    _mostrarMensagem('Funcionário "$nome" criado com sucesso!');
+    _carregarUtilizadores();
   }
 
   void _abrirDialogAdicionar() {

@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart'; 
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter/services.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show RealtimeChannel;
 import '../../core/temas_cores.dart';
+import '../../repositories/clientes_repository.dart';
 
 // 📜 FORMATADOR COSTUMIZADO PARA TELEFONE
 class TelefoneInputFormatter extends TextInputFormatter {
@@ -43,7 +44,7 @@ class ClientesScreen extends StatefulWidget {
 }
 
 class _ClientesScreenState extends State<ClientesScreen> {
-  final _supabase = Supabase.instance.client;
+  final _clientesRepo = ClientesRepository();
   RealtimeChannel? _clientesSubscription;
 
   List<dynamic> _clientes = [];
@@ -76,7 +77,7 @@ class _ClientesScreenState extends State<ClientesScreen> {
   void dispose() {
     _searchController.dispose();
     if (_clientesSubscription != null) {
-      _supabase.removeChannel(_clientesSubscription!);
+      _clientesRepo.client.removeChannel(_clientesSubscription!);
     }
     super.dispose();
   }
@@ -149,35 +150,13 @@ class _ClientesScreenState extends State<ClientesScreen> {
   // --- LIGAÇÃO À BASE DE DADOS & REALTIME (SUPABASE) ---
 
   void _inicializarSubscricaoRealtime() {
-    _clientesSubscription = _supabase.channel('db-clientes-realtime')
-      .onPostgresChanges(
-        event: PostgresChangeEvent.all,
-        schema: 'public',
-        table: 'clientes',
-        callback: (payload) => _carregarClientes(),
-      )
-      .onPostgresChanges(
-        event: PostgresChangeEvent.all,
-        schema: 'public',
-        table: 'encomendas',
-        callback: (payload) => _carregarClientes(),
-      )
-      .onPostgresChanges(
-        event: PostgresChangeEvent.all,
-        schema: 'public',
-        table: 'pedidos_encomenda',
-        callback: (payload) => _carregarClientes(),
-      );
-
-    _clientesSubscription?.subscribe();
+    _clientesSubscription =
+        _clientesRepo.escutarCarteira('db-clientes-realtime', _carregarClientes);
   }
 
   Future<void> _carregarClientes() async {
     try {
-      final data = await _supabase
-          .from('clientes')
-          .select('id, nome_cliente, contacto, email, ativo, nif, pessoa_contacto, morada, encomendas(id, codigo_rastreio, data_entrega, quantidade, prioridade, tipos_produto:tipos_produtos_id(nome_tipo_produto)), pedidos_encomenda(id, quantidade, observacoes, estado, tipos_produto:tipo_produto_id(nome_tipo_produto))')
-          .order('nome_cliente', ascending: true);
+      final data = await _clientesRepo.obterComHistorico();
 
       if (mounted) {
         setState(() {
@@ -210,7 +189,7 @@ class _ClientesScreenState extends State<ClientesScreen> {
   }) async {
     try {
       setState(() => _isLoading = true);
-      await _supabase.from('clientes').insert({
+      await _clientesRepo.criar({
         'nome_cliente': nome,
         'email': email,
         'contacto': contacto,
@@ -239,7 +218,7 @@ class _ClientesScreenState extends State<ClientesScreen> {
   }) async {
     try {
       setState(() => _isLoading = true);
-      await _supabase.from('clientes').update({
+      await _clientesRepo.atualizar(id: id, dados: {
         'nome_cliente': nome,
         'email': email,
         'contacto': contacto,
@@ -247,7 +226,7 @@ class _ClientesScreenState extends State<ClientesScreen> {
         'pessoa_contacto': pessoaContacto,
         'morada': morada,
         'ativo': ativo,
-      }).eq('id', id);
+      });
 
       _mostrarMensagem('Dados do cliente atualizados!');
       _carregarClientes();
