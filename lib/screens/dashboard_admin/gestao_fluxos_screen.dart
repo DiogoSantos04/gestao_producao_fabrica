@@ -353,80 +353,97 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Fluxo Produtivo: ${_tipoProdutoSelecionado!['nome_tipo_produto']}',
-                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                    ),
-                    Text(
-                      'Defina o circuito sequencial de produção das peças',
-                      style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
-                    ),
-                  ],
-                ),
-                Row(
-                  children: [
-                    // BOTÃO DUPLICAR FLUXO
-                    OutlinedButton.icon(
-                      onPressed: _abrirDialogDuplicarFluxo,
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.blue.shade700,
-                        side: BorderSide(color: Colors.blue.shade300),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                      ),
-                      icon: const Icon(Icons.copy, size: 16),
-                      label: const Text('Duplicar Fluxo'),
-                    ),
-                    const SizedBox(width: 8),
-                    // BOTÃO ADICIONAR FASE
-                    ElevatedButton.icon(
-                      onPressed: () => _abrirDialogFase(),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.black,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                      ),
-                      icon: const Icon(Icons.add, size: 18),
-                      label: const Text('Adicionar Fase'),
-                    ),
-                  ],
-                ),
-              ],
-            ),
+            _buildCabecalhoFluxo(),
             const SizedBox(height: 24),
 
             if (_fases.isNotEmpty) _buildBreadcrumbsFases(),
 
             const SizedBox(height: 24),
 
-            _isLoadingFases
-                ? const Center(child: CircularProgressIndicator())
-                : _fases.isEmpty
-                    ? const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 40),
-                        child: Center(
-                          child: Text(
-                            'Nenhuma fase definida para este fluxo.',
-                            style: TextStyle(color: Colors.grey),
-                          ),
-                        ),
-                      )
-                    : SizedBox(
-                        height: 400,
-                        child: ReorderableListView.builder(
-                          buildDefaultDragHandles: true,
-                          itemCount: _fases.length,
-                          onReorder: _reordenarFases,
-                          itemBuilder: (context, index) {
-                            final fase = _fases[index];
-                            final checklistItems = fase.checklist;
+            _buildListaFases(),
+          ],
+        ),
+      ),
+    );
+  }
 
-                            return Card(
+  /// Cabeçalho do painel: nome da tipologia e ações de duplicar/adicionar.
+  Widget _buildCabecalhoFluxo() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Fluxo Produtivo: ${_tipoProdutoSelecionado!['nome_tipo_produto']}',
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            Text(
+              'Defina o circuito sequencial de produção das peças',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+            ),
+          ],
+        ),
+        Row(
+          children: [
+            OutlinedButton.icon(
+              onPressed: _abrirDialogDuplicarFluxo,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.blue.shade700,
+                side: BorderSide(color: Colors.blue.shade300),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              icon: const Icon(Icons.copy, size: 16),
+              label: const Text('Duplicar Fluxo'),
+            ),
+            const SizedBox(width: 8),
+            ElevatedButton.icon(
+              onPressed: () => _abrirDialogFase(),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.black,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              icon: const Icon(Icons.add, size: 18),
+              label: const Text('Adicionar Fase'),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  /// Lista reordenável das fases, ou os estados de carregamento/vazio.
+  Widget _buildListaFases() {
+    if (_isLoadingFases) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_fases.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 40),
+        child: Center(
+          child: Text('Nenhuma fase definida para este fluxo.', style: TextStyle(color: Colors.grey)),
+        ),
+      );
+    }
+
+    return SizedBox(
+      height: 400,
+      child: ReorderableListView.builder(
+        buildDefaultDragHandles: true,
+        itemCount: _fases.length,
+        onReorder: _reordenarFases,
+        itemBuilder: (context, index) => _buildCartaoFase(_fases[index], index),
+      ),
+    );
+  }
+
+  /// Cartão de uma fase do roteiro.
+  Widget _buildCartaoFase(FaseModel fase, int index) {
+    final checklistItems = fase.checklist;
+
+    return Card(
                               key: ValueKey(fase.id),
                               margin: const EdgeInsets.only(bottom: 12),
                               elevation: 0,
@@ -537,13 +554,6 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
                                 ),
                               ),
                             );
-                          },
-                        ),
-                      ),
-          ],
-        ),
-      ),
-    );
   }
 
   Widget _buildBreadcrumbsFases() {

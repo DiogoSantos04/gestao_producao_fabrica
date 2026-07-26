@@ -2,36 +2,22 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show RealtimeChannel;
 import '../../core/temas_cores.dart';
+import '../../models/cliente_model.dart';
+import '../../models/encomenda_model.dart';
+import '../../models/pedido_model.dart';
 import '../../repositories/clientes_repository.dart';
 
-// 📜 FORMATADOR COSTUMIZADO PARA TELEFONE
+/// Formata o número à medida que é escrito, usando a mesma regra que o
+/// `ClienteModel` aplica ao apresentá-lo. Antes existiam duas implementações
+/// independentes da mesma formatação.
 class TelefoneInputFormatter extends TextInputFormatter {
   @override
   TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
-    String clean = newValue.text.replaceAll(RegExp(r'[^\d+]'), '');
-    
-    StringBuffer sb = StringBuffer();
-    int digitIndex = 0;
-    
-    for (int i = 0; i < clean.length; i++) {
-      final char = clean[i];
-      if (char == '+' && i == 0) {
-        sb.write(char);
-        continue;
-      }
-      if (RegExp(r'\d').hasMatch(char)) {
-        if (digitIndex == 3 || digitIndex == 6 || digitIndex == 9) {
-          sb.write(' ');
-        }
-        sb.write(char);
-        digitIndex++;
-      }
-    }
-    
-    final result = sb.toString();
+    final limpo = newValue.text.replaceAll(RegExp(r'[^\d+]'), '');
+    final resultado = ClienteModel.formatarTelefone(limpo);
     return TextEditingValue(
-      text: result,
-      selection: TextSelection.collapsed(offset: result.length),
+      text: resultado,
+      selection: TextSelection.collapsed(offset: resultado.length),
     );
   }
 }
@@ -47,7 +33,7 @@ class _ClientesScreenState extends State<ClientesScreen> {
   final _clientesRepo = ClientesRepository();
   RealtimeChannel? _clientesSubscription;
 
-  List<dynamic> _clientes = [];
+  List<ClienteModel> _clientes = [];
   bool _isLoading = true;
 
   // 🔍 CONTROLADORES E ESTADOS DE FILTRAGEM
@@ -56,7 +42,7 @@ class _ClientesScreenState extends State<ClientesScreen> {
   String _filtroEstado = 'Todos'; // 'Todos', 'Ativos', 'Inativos', 'Com Encomendas'
 
   // 🗂️ PAINEL LATERAL (DRAWER DETALHES DO CLIENTE)
-  dynamic _clienteDetalhesSelecionado;
+  ClienteModel? _clienteDetalhesSelecionado;
 
   @override
   void initState() {
@@ -82,68 +68,27 @@ class _ClientesScreenState extends State<ClientesScreen> {
     super.dispose();
   }
 
-  // --- HELPERS ULTRA-SEGURA CONTRA ERROS DE TIPO NO FLUTTER WEB ---
-
-  int _obterTotalEncomendas(dynamic cliente) {
-    if (cliente == null || cliente['encomendas'] == null) return 0;
-    final enc = cliente['encomendas'];
-    if (enc is List) {
-      return enc.length;
-    }
-    return 0;
-  }
-
-  bool _temEncomendas(dynamic cliente) {
-    return _obterTotalEncomendas(cliente) > 0;
-  }
-
-  List<dynamic> _obterListaEncomendas(dynamic cliente) {
-    if (cliente == null || cliente['encomendas'] == null) return [];
-    final enc = cliente['encomendas'];
-    if (enc is List) return enc;
-    return [];
-  }
-
-  List<dynamic> _obterListaPedidos(dynamic cliente) {
-    if (cliente == null || cliente['pedidos_encomenda'] == null) return [];
-    final ped = cliente['pedidos_encomenda'];
-    if (ped is List) return ped;
-    return [];
-  }
-
   // --- GETTER QUE DEVOLVE OS CLIENTES FILTRADOS EM TEMPO REAL ---
+  //
+  // Os quatro helpers defensivos que existiam aqui (_obterTotalEncomendas,
+  // _temEncomendas, _obterListaEncomendas, _obterListaPedidos) desapareceram:
+  // desembrulhavam à mão as junções vindas do Supabase, trabalho que passou
+  // para as fábricas dos modelos.
 
-  List<dynamic> get _clientesFiltrados {
+  List<ClienteModel> get _clientesFiltrados {
     return _clientes.where((cliente) {
-      if (cliente == null) return false;
+      if (!cliente.corresponde(_pesquisaQuery)) return false;
 
-      final String nome = (cliente['nome_cliente'] ?? '').toString().toLowerCase();
-      final String email = (cliente['email'] ?? '').toString().toLowerCase();
-      final String contacto = (cliente['contacto'] ?? '').toString().toLowerCase();
-      final String nif = (cliente['nif'] ?? '').toString().toLowerCase();
-      final String pessoaContacto = (cliente['pessoa_contacto'] ?? '').toString().toLowerCase();
-      final String morada = (cliente['morada'] ?? '').toString().toLowerCase();
-      final bool ativo = cliente['ativo'] == true;
-
-      final bool correspondePesquisa = _pesquisaQuery.isEmpty ||
-          nome.contains(_pesquisaQuery) ||
-          email.contains(_pesquisaQuery) ||
-          contacto.contains(_pesquisaQuery) ||
-          nif.contains(_pesquisaQuery) ||
-          pessoaContacto.contains(_pesquisaQuery) ||
-          morada.contains(_pesquisaQuery);
-
-      if (!correspondePesquisa) return false;
-
-      if (_filtroEstado == 'Ativos') {
-        return ativo == true;
-      } else if (_filtroEstado == 'Inativos') {
-        return ativo == false;
-      } else if (_filtroEstado == 'Com Encomendas') {
-        return _temEncomendas(cliente);
+      switch (_filtroEstado) {
+        case 'Ativos':
+          return cliente.ativo;
+        case 'Inativos':
+          return !cliente.ativo;
+        case 'Com Encomendas':
+          return cliente.temEncomendas;
+        default:
+          return true;
       }
-
-      return true;
     }).toList();
   }
 
@@ -163,11 +108,14 @@ class _ClientesScreenState extends State<ClientesScreen> {
           _clientes = data;
           _isLoading = false;
 
-          if (_clienteDetalhesSelecionado != null) {
-            final int idAtual = _clienteDetalhesSelecionado['id'];
-            final clienteAtualizado = _clientes.firstWhere((c) => c['id'] == idAtual, orElse: () => null);
-            if (clienteAtualizado != null) {
-              _clienteDetalhesSelecionado = clienteAtualizado;
+          // Mantém o painel de detalhe sincronizado com os dados recarregados.
+          final selecionado = _clienteDetalhesSelecionado;
+          if (selecionado != null) {
+            for (final c in _clientes) {
+              if (c.id == selecionado.id) {
+                _clienteDetalhesSelecionado = c;
+                break;
+              }
             }
           }
         });
@@ -247,29 +195,8 @@ class _ClientesScreenState extends State<ClientesScreen> {
     }
   }
 
-  String _formatarTelefone(String contacto) {
-    String clean = contacto.replaceAll(RegExp(r'[^\d+]'), '');
-    if (clean.isEmpty) return 'Sem contacto';
-    
-    StringBuffer sb = StringBuffer();
-    int digitIndex = 0;
-    
-    for (int i = 0; i < clean.length; i++) {
-      final char = clean[i];
-      if (char == '+' && i == 0) {
-        sb.write(char);
-        continue;
-      }
-      if (RegExp(r'\d').hasMatch(char)) {
-        if (digitIndex == 3 || digitIndex == 6 || digitIndex == 9) {
-          sb.write(' ');
-        }
-        sb.write(char);
-        digitIndex++;
-      }
-    }
-    return sb.toString();
-  }
+  // A formatação do telefone passou para `ClienteModel.contactoFormatado` /
+  // `ClienteModel.formatarTelefone`, partilhada com o TelefoneInputFormatter.
 
   // --- INTERFACE GRÁFICA (UI) ---
 
@@ -484,9 +411,9 @@ class _ClientesScreenState extends State<ClientesScreen> {
 
   Widget _buildKpiCards() {
     final int totalClientes = _clientes.length;
-    final int ativosPortal = _clientes.where((c) => c['ativo'] == true).length;
-    final int comEncomendas = _clientes.where((c) => _temEncomendas(c)).length;
-    final int totalEncomendas = _clientes.fold<int>(0, (sum, c) => sum + _obterTotalEncomendas(c));
+    final int ativosPortal = _clientes.where((c) => c.ativo).length;
+    final int comEncomendas = _clientes.where((c) => c.temEncomendas).length;
+    final int totalEncomendas = _clientes.fold<int>(0, (sum, c) => sum + c.totalEncomendas);
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -639,17 +566,175 @@ class _ClientesScreenState extends State<ClientesScreen> {
     );
   }
 
-  Widget _buildClienteRow(dynamic cliente) {
-    final String nome = cliente['nome_cliente'] ?? 'N/A';
-    final String email = cliente['email'] ?? 'Sem email'; 
-    final String nif = cliente['nif'] ?? '';
-    final String pessoaContacto = cliente['pessoa_contacto'] ?? '';
-    final String morada = cliente['morada'] ?? '';
-    final bool ativo = cliente['ativo'] == true;          
+  // --- COLUNAS DA LINHA DE CLIENTE ---
+  // Extraídas de um único método de 191 linhas, para que cada coluna possa ser
+  // lida e alterada isoladamente.
 
-    final String contacto = _formatarTelefone(cliente['contacto'] ?? '');
-    final int totalEncomendas = _obterTotalEncomendas(cliente);
+  /// Coluna 1: nome da empresa, NIF, email e morada.
+  Widget _buildColunaIdentificacao(ClienteModel cliente) {
+    final nif = cliente.nif ?? '';
+    final morada = cliente.morada ?? '';
 
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          cliente.nomeCliente.isNotEmpty ? cliente.nomeCliente : 'N/A',
+          style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.black87, fontSize: 14),
+          overflow: TextOverflow.ellipsis,
+        ),
+        const SizedBox(height: 4),
+        Row(
+          children: [
+            if (nif.isNotEmpty) ...[
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade200,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  'NIF $nif',
+                  style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey.shade800),
+                ),
+              ),
+              const SizedBox(width: 8),
+            ],
+            Icon(Icons.email_outlined, size: 12, color: Colors.grey.shade400),
+            const SizedBox(width: 4),
+            Expanded(
+              child: Text(
+                cliente.email ?? 'Sem email',
+                style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+        if (morada.isNotEmpty) ...[
+          const SizedBox(height: 3),
+          _buildLinhaIcone(Icons.location_on_outlined, morada, tamanho: 11),
+        ],
+      ],
+    );
+  }
+
+  /// Coluna 2: telefone e interlocutor.
+  Widget _buildColunaContacto(ClienteModel cliente) {
+    final pessoa = cliente.pessoaContacto ?? '';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.phone_outlined, size: 14, color: Colors.grey.shade400),
+            const SizedBox(width: 6),
+            Text(
+              cliente.contactoFormatado,
+              style: TextStyle(color: Colors.grey.shade700, fontSize: 13, fontWeight: FontWeight.w500),
+            ),
+          ],
+        ),
+        if (pessoa.isNotEmpty) ...[
+          const SizedBox(height: 4),
+          _buildLinhaIcone(Icons.person_outline_rounded, pessoa, tamanho: 12, peso: FontWeight.w500),
+        ],
+      ],
+    );
+  }
+
+  /// Coluna 3: total de encomendas, com atalho para o painel de detalhe.
+  Widget _buildColunaHistorico(ClienteModel cliente) {
+    return Row(
+      children: [
+        InkWell(
+          onTap: () => setState(() => _clienteDetalhesSelecionado = cliente),
+          borderRadius: BorderRadius.circular(6),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: Colors.grey.shade300),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.history_toggle_off_rounded, size: 13, color: Colors.grey.shade600),
+                const SizedBox(width: 6),
+                Text(
+                  '${cliente.totalEncomendas} encomendas',
+                  style: TextStyle(color: Colors.grey.shade700, fontSize: 12, fontWeight: FontWeight.w600),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Coluna 4: estado do acesso ao portal de rastreio.
+  Widget _buildColunaAcessoPortal(ClienteModel cliente) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          decoration: BoxDecoration(
+            color: cliente.ativo ? const Color(0xFF707070) : const Color(0xFFEAEAEA),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(
+            cliente.ativo ? 'Ativo' : 'Inativo',
+            style: TextStyle(
+              color: cliente.ativo ? Colors.white : Colors.black54,
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Coluna 5: ação de edição.
+  Widget _buildColunaAcoes(ClienteModel cliente) {
+    return Align(
+      alignment: Alignment.centerRight,
+      child: OutlinedButton.icon(
+        onPressed: () => _abrirDialogCliente(clienteExistente: cliente),
+        style: OutlinedButton.styleFrom(
+          side: BorderSide(color: Colors.grey.shade300),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        ),
+        icon: const Icon(Icons.edit_outlined, size: 14, color: Colors.black87),
+        label: const Text('Editar Dados',
+            style: TextStyle(color: Colors.black87, fontSize: 12, fontWeight: FontWeight.w500)),
+      ),
+    );
+  }
+
+  /// Linha compacta de ícone + texto, repetida nas colunas de identificação e contacto.
+  Widget _buildLinhaIcone(IconData icone, String texto,
+      {double tamanho = 12, FontWeight peso = FontWeight.normal}) {
+    return Row(
+      children: [
+        Icon(icone, size: 12, color: Colors.grey.shade400),
+        const SizedBox(width: 4),
+        Expanded(
+          child: Text(
+            texto,
+            style: TextStyle(color: Colors.grey.shade500, fontSize: tamanho, fontWeight: peso),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildClienteRow(ClienteModel cliente) {
     return InkWell(
       onTap: () => setState(() => _clienteDetalhesSelecionado = cliente),
       borderRadius: BorderRadius.circular(8),
@@ -658,174 +743,11 @@ class _ClientesScreenState extends State<ClientesScreen> {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            // COLUNA 1: NOME DA EMPRESA, NIF & EMAIL (LAYOUT LIMPO E ALINHADO)
-            Expanded(
-              flex: 3,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    nome,
-                    style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.black87, fontSize: 14),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      if (nif.isNotEmpty) ...[
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade200,
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Text(
-                            'NIF $nif',
-                            style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey.shade800),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                      ],
-                      Icon(Icons.email_outlined, size: 12, color: Colors.grey.shade400),
-                      const SizedBox(width: 4),
-                      Expanded(
-                        child: Text(
-                          email,
-                          style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (morada.isNotEmpty) ...[
-                    const SizedBox(height: 3),
-                    Row(
-                      children: [
-                        Icon(Icons.location_on_outlined, size: 12, color: Colors.grey.shade400),
-                        const SizedBox(width: 4),
-                        Expanded(
-                          child: Text(
-                            morada,
-                            style: TextStyle(color: Colors.grey.shade500, fontSize: 11),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ],
-              ),
-            ),
-
-            // COLUNA 2: TELEFONE & PESSOA DE CONTACTO
-            Expanded(
-              flex: 3,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(Icons.phone_outlined, size: 14, color: Colors.grey.shade400),
-                      const SizedBox(width: 6),
-                      Text(
-                        contacto,
-                        style: TextStyle(color: Colors.grey.shade700, fontSize: 13, fontWeight: FontWeight.w500),
-                      ),
-                    ],
-                  ),
-                  if (pessoaContacto.isNotEmpty) ...[
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        Icon(Icons.person_outline_rounded, size: 13, color: Colors.grey.shade400),
-                        const SizedBox(width: 4),
-                        Expanded(
-                          child: Text(
-                            pessoaContacto,
-                            style: TextStyle(color: Colors.grey.shade600, fontSize: 12, fontWeight: FontWeight.w500),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ],
-              ),
-            ),
-
-            // COLUNA 3: HISTÓRICO DE ENCOMENDAS
-            Expanded(
-              flex: 2,
-              child: Row(
-                children: [
-                  InkWell(
-                    onTap: () => setState(() => _clienteDetalhesSelecionado = cliente),
-                    borderRadius: BorderRadius.circular(6),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: Colors.grey.shade300),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.history_toggle_off_rounded, size: 13, color: Colors.grey.shade600),
-                          const SizedBox(width: 6),
-                          Text(
-                            '$totalEncomendas encomendas',
-                            style: TextStyle(color: Colors.grey.shade700, fontSize: 12, fontWeight: FontWeight.w600),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            // COLUNA 4: ACESSO AO PORTAL
-            Expanded(
-              flex: 2,
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: ativo ? const Color(0xFF707070) : const Color(0xFFEAEAEA),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      ativo ? 'Ativo' : 'Inativo',
-                      style: TextStyle(
-                        color: ativo ? Colors.white : Colors.black54,
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            // COLUNA 5: AÇÕES
-            Expanded(
-              flex: 2,
-              child: Align(
-                alignment: Alignment.centerRight,
-                child: OutlinedButton.icon(
-                  onPressed: () => _abrirDialogCliente(clienteExistente: cliente),
-                  style: OutlinedButton.styleFrom(
-                    side: BorderSide(color: Colors.grey.shade300),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                  ),
-                  icon: const Icon(Icons.edit_outlined, size: 14, color: Colors.black87),
-                  label: const Text('Editar Dados', style: TextStyle(color: Colors.black87, fontSize: 12, fontWeight: FontWeight.w500)),
-                ),
-              ),
-            ),
+            Expanded(flex: 3, child: _buildColunaIdentificacao(cliente)),
+            Expanded(flex: 3, child: _buildColunaContacto(cliente)),
+            Expanded(flex: 2, child: _buildColunaHistorico(cliente)),
+            Expanded(flex: 2, child: _buildColunaAcessoPortal(cliente)),
+            Expanded(flex: 2, child: _buildColunaAcoes(cliente)),
           ],
         ),
       ),
@@ -835,19 +757,8 @@ class _ClientesScreenState extends State<ClientesScreen> {
   // --- 🗂️ DRAWER LATERAL: PAINEL DE DETALHES DO CLIENTE ---
 
   Widget _buildDrawerDetalhesCliente() {
-    final c = _clienteDetalhesSelecionado;
-    if (c == null) return const SizedBox.shrink();
-
-    final String nome = c['nome_cliente'] ?? 'Cliente';
-    final String email = c['email'] ?? '';
-    final String nif = c['nif'] ?? '';
-    final String contacto = _formatarTelefone(c['contacto'] ?? '');
-    final String pessoa = c['pessoa_contacto'] ?? '';
-    final String morada = c['morada'] ?? '';
-    final bool ativo = c['ativo'] == true;
-
-    final List<dynamic> encomendas = _obterListaEncomendas(c);
-    final List<dynamic> pedidos = _obterListaPedidos(c);
+    final cliente = _clienteDetalhesSelecionado;
+    if (cliente == null) return const SizedBox.shrink();
 
     return Container(
       decoration: const BoxDecoration(
@@ -859,202 +770,249 @@ class _ClientesScreenState extends State<ClientesScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // CABEÇALHO DO DRAWER (DESIGN ELEGANTE)
-          Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: const Color(0xFF111625),
-              border: Border(bottom: BorderSide(color: Colors.grey.shade800)),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(
-                      child: Text(
-                        nome,
-                        style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.close_rounded, color: Colors.white70),
-                      onPressed: () => setState(() => _clienteDetalhesSelecionado = null),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 4,
-                  children: [
-                    if (nif.isNotEmpty)
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                        decoration: BoxDecoration(color: Colors.white12, borderRadius: BorderRadius.circular(4)),
-                        child: Text('NIF: $nif', style: const TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w500)),
-                      ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: ativo ? Colors.green.shade800 : Colors.red.shade800,
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(
-                        ativo ? 'Portal Ativo' : 'Portal Bloqueado',
-                        style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-
-          // CONTEÚDO DO DRAWER COM SCROLL
+          _buildDrawerCabecalho(cliente),
           Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(24),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // DADOS CADASTRAIS, FISCAIS E LOGÍSTICOS
-                  const Text('Informações Fiscais e Logísticas', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black87)),
-                  const SizedBox(height: 12),
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade50,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.grey.shade200),
-                    ),
-                    child: Column(
-                      children: [
-                        if (nif.isNotEmpty) ...[
-                          _buildLinhaDetalhe(Icons.badge_outlined, 'NIF / NIPC', nif),
-                          const Divider(height: 16),
-                        ],
-                        _buildLinhaDetalhe(Icons.email_outlined, 'Email', email.isNotEmpty ? email : 'Não registado'),
-                        const Divider(height: 16),
-                        _buildLinhaDetalhe(Icons.phone_outlined, 'Telefone', contacto),
-                        if (pessoa.isNotEmpty) ...[
-                          const Divider(height: 16),
-                          _buildLinhaDetalhe(Icons.person_outline_rounded, 'Interlocutor', pessoa),
-                        ],
-                        if (morada.isNotEmpty) ...[
-                          const Divider(height: 16),
-                          _buildLinhaDetalhe(Icons.location_on_outlined, 'Morada Carga', morada),
-                        ],
-                      ],
-                    ),
-                  ),
+                  _buildDrawerSeccaoFiscal(cliente),
                   const SizedBox(height: 28),
-
-                  // SECÇÃO: PEDIDOS DA APP B2B
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('Pedidos da Aplicação B2B', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black87)),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                        decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(10)),
-                        child: Text('${pedidos.length}', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.blue.shade800)),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  if (pedidos.isEmpty)
-                    Text('Nenhum pedido submetido na app.', style: TextStyle(fontSize: 12, color: Colors.grey.shade500, fontStyle: FontStyle.italic))
-                  else
-                    Column(
-                      children: pedidos.map((p) {
-                        final String prod = p['tipos_produto']?['nome_tipo_produto'] ?? 'Produto';
-                        final String estado = p['estado'] ?? 'Pendente';
-                        final int qtd = p['quantidade'] ?? 1;
-
-                        return Container(
-                          margin: const EdgeInsets.only(bottom: 8),
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(6),
-                            border: Border.all(color: Colors.grey.shade200),
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(prod, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                                  Text('Qtd: $qtd unidades', style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
-                                ],
-                              ),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                decoration: BoxDecoration(color: Colors.amber.shade50, borderRadius: BorderRadius.circular(4)),
-                                child: Text(estado, style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.amber.shade900)),
-                              ),
-                            ],
-                          ),
-                        );
-                      }).toList(),
-                    ),
+                  _buildDrawerSeccaoPedidos(cliente.pedidos),
                   const SizedBox(height: 28),
-
-                  // SECÇÃO: HISTÓRICO DE ENCOMENDAS
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('Ordens de Produção Lançadas', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black87)),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                        decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(10)),
-                        child: Text('${encomendas.length}', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey.shade800)),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  if (encomendas.isEmpty)
-                    Text('Nenhuma ordem de produção associada.', style: TextStyle(fontSize: 12, color: Colors.grey.shade500, fontStyle: FontStyle.italic))
-                  else
-                    Column(
-                      children: encomendas.map((e) {
-                        final String cod = e['codigo_rastreio'] ?? 'TRC-N/A';
-                        final String prod = e['tipos_produto']?['nome_tipo_produto'] ?? 'Produto';
-                        final String dataEnt = e['data_entrega'] ?? '';
-                        final int qtd = e['quantidade'] ?? 1;
-
-                        return Container(
-                          margin: const EdgeInsets.only(bottom: 8),
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(6),
-                            border: Border.all(color: Colors.grey.shade200),
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(cod, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.black87)),
-                                  Text('$prod • Qtd: $qtd', style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
-                                ],
-                              ),
-                              Text(dataEnt, style: TextStyle(fontSize: 11, color: Colors.grey.shade500, fontWeight: FontWeight.w500)),
-                            ],
-                          ),
-                        );
-                      }).toList(),
-                    ),
+                  _buildDrawerSeccaoEncomendas(cliente.encomendas),
                 ],
               ),
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  /// Cabeçalho escuro com nome, NIF e estado do portal.
+  Widget _buildDrawerCabecalho(ClienteModel cliente) {
+    final nif = cliente.nif ?? '';
+
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: const Color(0xFF111625),
+        border: Border(bottom: BorderSide(color: Colors.grey.shade800)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Text(
+                  cliente.nomeCliente.isNotEmpty ? cliente.nomeCliente : 'Cliente',
+                  style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.close_rounded, color: Colors.white70),
+                onPressed: () => setState(() => _clienteDetalhesSelecionado = null),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            children: [
+              if (nif.isNotEmpty)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(color: Colors.white12, borderRadius: BorderRadius.circular(4)),
+                  child: Text('NIF: $nif',
+                      style: const TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w500)),
+                ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: cliente.ativo ? Colors.green.shade800 : Colors.red.shade800,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  cliente.ativo ? 'Portal Ativo' : 'Portal Bloqueado',
+                  style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Dados cadastrais, fiscais e logísticos.
+  Widget _buildDrawerSeccaoFiscal(ClienteModel cliente) {
+    final nif = cliente.nif ?? '';
+    final email = cliente.email ?? '';
+    final pessoa = cliente.pessoaContacto ?? '';
+    final morada = cliente.morada ?? '';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Informações Fiscais e Logísticas',
+            style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black87)),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.grey.shade50,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.grey.shade200),
+          ),
+          child: Column(
+            children: [
+              if (nif.isNotEmpty) ...[
+                _buildLinhaDetalhe(Icons.badge_outlined, 'NIF / NIPC', nif),
+                const Divider(height: 16),
+              ],
+              _buildLinhaDetalhe(
+                  Icons.email_outlined, 'Email', email.isNotEmpty ? email : 'Não registado'),
+              const Divider(height: 16),
+              _buildLinhaDetalhe(Icons.phone_outlined, 'Telefone', cliente.contactoFormatado),
+              if (pessoa.isNotEmpty) ...[
+                const Divider(height: 16),
+                _buildLinhaDetalhe(Icons.person_outline_rounded, 'Interlocutor', pessoa),
+              ],
+              if (morada.isNotEmpty) ...[
+                const Divider(height: 16),
+                _buildLinhaDetalhe(Icons.location_on_outlined, 'Morada Carga', morada),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Pedidos submetidos pelo portal B2B.
+  Widget _buildDrawerSeccaoPedidos(List<PedidoModel> pedidos) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildDrawerTituloSeccao(
+          'Pedidos da Aplicação B2B',
+          pedidos.length,
+          fundoContador: Colors.blue.shade50,
+          corContador: Colors.blue.shade800,
+        ),
+        const SizedBox(height: 12),
+        if (pedidos.isEmpty)
+          _buildDrawerVazio('Nenhum pedido submetido na app.')
+        else
+          Column(
+            children: pedidos.map((p) {
+              return _buildDrawerItem(
+                titulo: p.nomeProduto ?? 'Produto',
+                subtitulo: 'Qtd: ${p.quantidade} unidades',
+                trailing: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration:
+                      BoxDecoration(color: Colors.amber.shade50, borderRadius: BorderRadius.circular(4)),
+                  child: Text(p.estado.etiqueta,
+                      style: TextStyle(
+                          fontSize: 10, fontWeight: FontWeight.bold, color: Colors.amber.shade900)),
+                ),
+              );
+            }).toList(),
+          ),
+      ],
+    );
+  }
+
+  /// Ordens de produção já lançadas para o cliente.
+  Widget _buildDrawerSeccaoEncomendas(List<EncomendaModel> encomendas) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildDrawerTituloSeccao(
+          'Ordens de Produção Lançadas',
+          encomendas.length,
+          fundoContador: Colors.grey.shade100,
+          corContador: Colors.grey.shade800,
+        ),
+        const SizedBox(height: 12),
+        if (encomendas.isEmpty)
+          _buildDrawerVazio('Nenhuma ordem de produção associada.')
+        else
+          Column(
+            children: encomendas.map((e) {
+              return _buildDrawerItem(
+                titulo: e.codigoRastreio ?? 'TRC-N/A',
+                subtitulo: '${e.nomeProduto ?? 'Produto'} • Qtd: ${e.quantidade}',
+                trailing: Text(
+                  e.dataEntregaIso ?? '',
+                  style: TextStyle(fontSize: 11, color: Colors.grey.shade500, fontWeight: FontWeight.w500),
+                ),
+              );
+            }).toList(),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildDrawerTituloSeccao(
+    String titulo,
+    int contador, {
+    required Color fundoContador,
+    required Color corContador,
+  }) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(titulo, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black87)),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+          decoration: BoxDecoration(color: fundoContador, borderRadius: BorderRadius.circular(10)),
+          child: Text('$contador',
+              style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: corContador)),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDrawerVazio(String mensagem) {
+    return Text(mensagem,
+        style: TextStyle(fontSize: 12, color: Colors.grey.shade500, fontStyle: FontStyle.italic));
+  }
+
+  /// Cartão de item usado tanto pelos pedidos como pelas encomendas.
+  /// Antes existiam duas construções praticamente idênticas.
+  Widget _buildDrawerItem({
+    required String titulo,
+    required String subtitulo,
+    required Widget trailing,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(titulo,
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.black87)),
+              Text(subtitulo, style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+            ],
+          ),
+          trailing,
         ],
       ),
     );
@@ -1082,17 +1040,20 @@ class _ClientesScreenState extends State<ClientesScreen> {
 
   // --- DIÁLOGO DE CRIAÇÃO / EDIÇÃO DE CLIENTE ---
 
-  void _abrirDialogCliente({Map<String, dynamic>? clienteExistente}) {
-    final nomeController = TextEditingController(text: clienteExistente?['nome_cliente'] ?? '');
-    final emailController = TextEditingController(text: clienteExistente?['email'] ?? '');
-    final nifController = TextEditingController(text: clienteExistente?['nif'] ?? '');
-    final pessoaContactoController = TextEditingController(text: clienteExistente?['pessoa_contacto'] ?? '');
-    final moradaController = TextEditingController(text: clienteExistente?['morada'] ?? '');
+  void _abrirDialogCliente({ClienteModel? clienteExistente}) {
+    final nomeController = TextEditingController(text: clienteExistente?.nomeCliente ?? '');
+    final emailController = TextEditingController(text: clienteExistente?.email ?? '');
+    final nifController = TextEditingController(text: clienteExistente?.nif ?? '');
+    final pessoaContactoController =
+        TextEditingController(text: clienteExistente?.pessoaContacto ?? '');
+    final moradaController = TextEditingController(text: clienteExistente?.morada ?? '');
 
     final contactoController = TextEditingController(
-      text: clienteExistente != null ? _formatarTelefone(clienteExistente['contacto'] ?? '') : '',
+      text: clienteExistente != null
+          ? ClienteModel.formatarTelefone(clienteExistente.contacto ?? '')
+          : '',
     );
-    bool acessoAtivo = clienteExistente?['ativo'] ?? true;
+    bool acessoAtivo = clienteExistente?.ativo ?? true;
 
     showDialog(
       context: context,
@@ -1196,7 +1157,7 @@ class _ClientesScreenState extends State<ClientesScreen> {
                         );
                       } else {
                         _atualizarCliente(
-                          id: clienteExistente['id'] as int,
+                          id: clienteExistente.id,
                           nome: nomeController.text.trim(),
                           email: emailController.text.trim(),
                           contacto: contactoController.text.trim(),

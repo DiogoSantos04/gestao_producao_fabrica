@@ -102,6 +102,20 @@ class UtilizadorModel {
     );
   }
 
+  UtilizadorModel copyWith({
+    String? nomeUtilizador,
+    PerfilUtilizador? perfil,
+    EstadoConta? estadoConta,
+  }) {
+    return UtilizadorModel(
+      utilizadorId: utilizadorId,
+      nomeUtilizador: nomeUtilizador ?? this.nomeUtilizador,
+      email: email,
+      perfil: perfil ?? this.perfil,
+      estadoConta: estadoConta ?? this.estadoConta,
+    );
+  }
+
   /// Iniciais para o avatar (ex: "Diogo Santos" → "DS").
   ///
   /// Este cálculo estava duplicado em dois ecrãs, com resultados diferentes

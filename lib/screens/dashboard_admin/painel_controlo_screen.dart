@@ -636,6 +636,74 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
 
   // --- HISTÓRICO & TIMELINE DE RASTREABILIDADE ---
 
+  /// Converte a rastreabilidade da ordem numa lista de eventos ordenada do mais
+  /// recente para o mais antigo.
+  ///
+  /// Cada incidência pode gerar até três eventos: o WIP Hold, a reparação técnica
+  /// e o line clearance.
+  List<Map<String, dynamic>> _construirEventosTimeline(TimelineOrdem? timeline) {
+    final eventos = <Map<String, dynamic>>[];
+
+    for (final p in timeline?.producao ?? const <HistoricoModel>[]) {
+      final data = p.momento;
+      eventos.add({
+        'timestamp': data ?? DateTime.now(),
+        'data_str': data?.toIso8601String() ?? '',
+        'titulo': 'Concluída Fase ${p.ordemFase ?? ''}: ${p.nomeFase ?? 'Fase de Produção'}',
+        'subtitulo': 'Executado por: ${p.nomeUtilizador ?? 'Operador'}',
+        'tipo': 'PRODUCAO',
+        'cor': Colors.green.shade700,
+        'icone': Icons.check_circle_rounded,
+      });
+    }
+
+    for (final inc in timeline?.incidencias ?? const <IncidenciaModel>[]) {
+      final dataRegisto = inc.inicio;
+      final motivo = inc.motivo ?? 'Incidente em Linha';
+      final notaOp = inc.descricaoOperador;
+
+      eventos.add({
+        'timestamp': dataRegisto ?? DateTime.now(),
+        'data_str': dataRegisto?.toIso8601String() ?? '',
+        'titulo': 'WIP Hold (Linha Suspensa)',
+        'subtitulo': 'Motivo: $motivo${notaOp != null && notaOp.isNotEmpty ? "\nNota: $notaOp" : ""}',
+        'tipo': 'HOLD',
+        'cor': Colors.red.shade700,
+        'icone': Icons.pause_circle_filled_rounded,
+      });
+
+      if (inc.manutencaoConcluida) {
+        final dataManut = inc.dataFimManutencao ?? dataRegisto;
+        final notaTec = inc.notaTecnica ?? '';
+        eventos.add({
+          'timestamp': dataManut ?? DateTime.now(),
+          'data_str': dataManut?.toIso8601String() ?? '',
+          'titulo': 'Reparação Técnica Concluída (${inc.tipoManutencao ?? 'N/A'})',
+          'subtitulo':
+              'Responsável: ${inc.responsavelIntervencao ?? 'Técnico'}${notaTec.isNotEmpty ? "\nRelatório: $notaTec" : ""}',
+          'tipo': 'MANUTENCAO',
+          'cor': Colors.amber.shade900,
+          'icone': Icons.build_circle_rounded,
+        });
+      }
+
+      if (inc.lineClearanceValidado && inc.dataLineClearance != null) {
+        final dataClearance = inc.dataLineClearance!;
+        eventos.add({
+          'timestamp': dataClearance,
+          'data_str': dataClearance.toIso8601String(),
+          'titulo': 'Line Clearance Aprovado (Produção Retomada)',
+          'subtitulo': 'Aprovado por Responsável de Qualidade/Supervisão',
+          'tipo': 'CLEARANCE',
+          'cor': Colors.blue.shade800,
+          'icone': Icons.verified_user_rounded,
+        });
+      }
+    }
+
+    return eventos;
+  }
+
   Future<void> _abrirDialogHistorico(EncomendaModel enc) async {
     final int encId = enc.id;
     final idFormatado = Formatos.referenciaOrdem(
@@ -676,68 +744,7 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
                   );
                 }
 
-                final timeline = snapshot.data;
-                final List<Map<String, dynamic>> eventosTimeline = [];
-
-                for (final p in timeline?.producao ?? const <HistoricoModel>[]) {
-                  final data = p.momento;
-
-                  eventosTimeline.add({
-                    'timestamp': data ?? DateTime.now(),
-                    'data_str': data?.toIso8601String() ?? '',
-                    'titulo': 'Concluída Fase ${p.ordemFase ?? ''}: ${p.nomeFase ?? 'Fase de Produção'}',
-                    'subtitulo': 'Executado por: ${p.nomeUtilizador ?? 'Operador'}',
-                    'tipo': 'PRODUCAO',
-                    'cor': Colors.green.shade700,
-                    'icone': Icons.check_circle_rounded,
-                  });
-                }
-
-                for (final inc in timeline?.incidencias ?? const <IncidenciaModel>[]) {
-                  final dataRegisto = inc.inicio;
-                  final motivo = inc.motivo ?? 'Incidente em Linha';
-                  final notaOp = inc.descricaoOperador;
-
-                  eventosTimeline.add({
-                    'timestamp': dataRegisto ?? DateTime.now(),
-                    'data_str': dataRegisto?.toIso8601String() ?? '',
-                    'titulo': 'WIP Hold (Linha Suspensa)',
-                    'subtitulo': 'Motivo: $motivo${notaOp != null && notaOp.isNotEmpty ? "\nNota: $notaOp" : ""}',
-                    'tipo': 'HOLD',
-                    'cor': Colors.red.shade700,
-                    'icone': Icons.pause_circle_filled_rounded,
-                  });
-
-                  if (inc.manutencaoConcluida) {
-                    final dataManut = inc.dataFimManutencao ?? dataRegisto;
-                    final tipoM = inc.tipoManutencao ?? 'N/A';
-                    final tecNome = inc.responsavelIntervencao ?? 'Técnico';
-                    final notaTec = inc.notaTecnica ?? '';
-
-                    eventosTimeline.add({
-                      'timestamp': dataManut ?? DateTime.now(),
-                      'data_str': dataManut?.toIso8601String() ?? '',
-                      'titulo': 'Reparação Técnica Concluída ($tipoM)',
-                      'subtitulo': 'Responsável: $tecNome${notaTec.isNotEmpty ? "\nRelatório: $notaTec" : ""}',
-                      'tipo': 'MANUTENCAO',
-                      'cor': Colors.amber.shade900,
-                      'icone': Icons.build_circle_rounded,
-                    });
-                  }
-
-                  if (inc.lineClearanceValidado && inc.dataLineClearance != null) {
-                    final dataClearance = inc.dataLineClearance!;
-                    eventosTimeline.add({
-                      'timestamp': dataClearance,
-                      'data_str': dataClearance.toIso8601String(),
-                      'titulo': 'Line Clearance Aprovado (Produção Retomada)',
-                      'subtitulo': 'Aprovado por Responsável de Qualidade/Supervisão',
-                      'tipo': 'CLEARANCE',
-                      'cor': Colors.blue.shade800,
-                      'icone': Icons.verified_user_rounded,
-                    });
-                  }
-                }
+                final eventosTimeline = _construirEventosTimeline(snapshot.data);
 
                 if (eventosTimeline.isEmpty) {
                   return const Center(
@@ -987,6 +994,197 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
     );
   }
 
+  /// Cores do badge de estado, derivadas de [EstadoOrdem].
+  ({Color fundo, Color borda, Color texto}) _coresEstado(EstadoOrdem estado) {
+    return switch (estado) {
+      EstadoOrdem.cancelada => (
+          fundo: Colors.grey.shade200,
+          borda: Colors.grey.shade400,
+          texto: Colors.grey.shade700
+        ),
+      EstadoOrdem.emHold => (
+          fundo: Colors.red.shade50,
+          borda: Colors.red.shade300,
+          texto: Colors.red.shade800
+        ),
+      EstadoOrdem.concluida => (
+          fundo: Colors.green.shade50,
+          borda: Colors.green.shade300,
+          texto: Colors.green.shade800
+        ),
+      EstadoOrdem.emProducao => (
+          fundo: Colors.blue.shade50,
+          borda: Colors.blue.shade300,
+          texto: Colors.blue.shade800
+        ),
+    };
+  }
+
+  /// Linha de etiquetas do cartão: referência, código de rastreio, estado,
+  /// atraso e prioridade.
+  Widget _buildLinhaEtiquetas({
+    required String idFormatado,
+    required String codigoRastreio,
+    required EstadoOrdem estado,
+    required bool atrasada,
+    required String prioridade,
+  }) {
+    final cores = _coresEstado(estado);
+
+    return Wrap(
+      crossAxisAlignment: WrapCrossAlignment.center,
+      spacing: 8,
+      runSpacing: 4,
+      children: [
+        Text(
+          idFormatado,
+          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.black87),
+        ),
+        _etiqueta(codigoRastreio,
+            fundo: Colors.grey.shade100, texto: Colors.grey.shade700, paddingHorizontal: 6),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+          decoration: BoxDecoration(
+            color: cores.fundo,
+            borderRadius: BorderRadius.circular(4),
+            border: Border.all(color: cores.borda),
+          ),
+          child: Text(
+            estado.etiqueta,
+            style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: cores.texto),
+          ),
+        ),
+        if (atrasada)
+          _etiqueta('Atrasada', fundo: Colors.red.shade50, texto: Colors.red.shade700),
+        if (prioridade != 'Normal')
+          _etiqueta(prioridade.toUpperCase(),
+              fundo: Colors.orange.shade50, texto: Colors.orange.shade900),
+      ],
+    );
+  }
+
+  /// Etiqueta simples com fundo colorido.
+  ///
+  /// [paddingHorizontal] existe porque o badge do código de rastreio usava 6 e
+  /// os restantes 8; a diferença é preservada para o aspeto não mudar.
+  Widget _etiqueta(
+    String rotulo, {
+    required Color fundo,
+    required Color texto,
+    double paddingHorizontal = 8,
+  }) {
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: paddingHorizontal, vertical: 2),
+      decoration: BoxDecoration(color: fundo, borderRadius: BorderRadius.circular(4)),
+      child: Text(
+        rotulo,
+        style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: texto),
+      ),
+    );
+  }
+
+  /// Botões de ação do cartão, condicionados ao estado da ordem.
+  ///
+  /// Regras preservadas do original: uma ordem **cancelada** só permite consultar
+  /// o histórico; em **hold** mostra Registo Técnico ou Line Clearance conforme a
+  /// manutenção já esteja registada; **em produção** mostra WIP Hold e Avançar Fase;
+  /// **concluída** mostra apenas Histórico, Editar e Cancelar.
+  Widget _buildBotoesAcao({
+    required EncomendaModel enc,
+    required EstadoOrdem estado,
+    required String idFormatado,
+    required Map<String, dynamic>? incidenciaAtiva,
+    required bool manutencaoConcluida,
+  }) {
+    final cancelada = estado == EstadoOrdem.cancelada;
+    final emHold = estado == EstadoOrdem.emHold;
+    final concluida = estado == EstadoOrdem.concluida;
+
+    const paddingBotao = EdgeInsets.symmetric(horizontal: 12, vertical: 12);
+    final contornoNeutro = OutlinedButton.styleFrom(
+      side: BorderSide(color: Colors.grey.shade300),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+      padding: paddingBotao,
+    );
+
+    return Row(
+      children: [
+        if (!cancelada && emHold) ...[
+          if (!manutencaoConcluida)
+            ElevatedButton.icon(
+              onPressed: () => _abrirDialogRegistoTecnico(enc, incidenciaAtiva),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.amber.shade800,
+                foregroundColor: Colors.white,
+                padding: paddingBotao,
+              ),
+              icon: const Icon(Icons.build_rounded, size: 14),
+              label: const Text('Registo Técnico', style: TextStyle(fontSize: 12)),
+            )
+          else
+            ElevatedButton.icon(
+              onPressed: () => _abrirDialogLineClearance(enc, incidenciaAtiva),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green.shade700,
+                foregroundColor: Colors.white,
+                padding: paddingBotao,
+              ),
+              icon: const Icon(Icons.verified_user_rounded, size: 14),
+              label: const Text('Line Clearance', style: TextStyle(fontSize: 12)),
+            ),
+          const SizedBox(width: 8),
+        ] else if (!cancelada && !concluida) ...[
+          OutlinedButton.icon(
+            onPressed: () => _abrirDialogWipHold(enc),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.red.shade700,
+              side: BorderSide(color: Colors.red.shade300),
+              padding: paddingBotao,
+            ),
+            icon: const Icon(Icons.pause, size: 14),
+            label: const Text('WIP Hold', style: TextStyle(fontSize: 12)),
+          ),
+          const SizedBox(width: 8),
+          ElevatedButton.icon(
+            onPressed: () => _avancarFase(enc),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF111625),
+              foregroundColor: Colors.white,
+              padding: paddingBotao,
+            ),
+            icon: const Icon(Icons.skip_next_rounded, size: 14),
+            label: const Text('Avançar Fase', style: TextStyle(fontSize: 12)),
+          ),
+          const SizedBox(width: 8),
+        ],
+
+        OutlinedButton.icon(
+          onPressed: () => _abrirDialogHistorico(enc),
+          style: contornoNeutro,
+          icon: const Icon(Icons.history_rounded, size: 14, color: Colors.blueGrey),
+          label: const Text('Histórico', style: TextStyle(color: Colors.black87, fontSize: 12)),
+        ),
+        const SizedBox(width: 8),
+
+        if (!cancelada) ...[
+          OutlinedButton.icon(
+            onPressed: () => _abrirDialogEditar(enc),
+            style: contornoNeutro,
+            icon: const Icon(Icons.edit_outlined, size: 14, color: Colors.black87),
+            label: const Text('Editar', style: TextStyle(color: Colors.black87, fontSize: 12)),
+          ),
+          const SizedBox(width: 8),
+          OutlinedButton.icon(
+            onPressed: () => _confirmarCancelamento(enc.id, idFormatado),
+            style: contornoNeutro,
+            icon: const Icon(Icons.cancel_outlined, size: 14, color: Colors.black87),
+            label: const Text('Cancelar', style: TextStyle(color: Colors.black87, fontSize: 12)),
+          ),
+        ],
+      ],
+    );
+  }
+
   Widget _buildOrdemCard(EncomendaModel enc) {
     final idFormatado = Formatos.referenciaOrdem(
       enc.id,
@@ -1036,82 +1234,23 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Wrap(
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        spacing: 8,
-                        runSpacing: 4,
-                        children: [
-                          Text(
-                            idFormatado,
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.black87),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(4)),
-                            child: Text(
-                              codigoRastreio,
-                              style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey.shade700),
-                            ),
-                          ),
-
-                          // BADGE DE ESTADO
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: cancelada
-                                  ? Colors.grey.shade200
-                                  : (emHold ? Colors.red.shade50 : (concluida ? Colors.green.shade50 : Colors.blue.shade50)),
-                              borderRadius: BorderRadius.circular(4),
-                              border: Border.all(
-                                color: cancelada
-                                    ? Colors.grey.shade400
-                                    : (emHold ? Colors.red.shade300 : (concluida ? Colors.green.shade300 : Colors.blue.shade300)),
-                              ),
-                            ),
-                            child: Text(
-                              cancelada
-                                  ? 'CANCELADA'
-                                  : (emHold ? 'ON HOLD' : (concluida ? 'CONCLUÍDA' : 'EM PRODUÇÃO')),
-                              style: TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                                color: cancelada
-                                    ? Colors.grey.shade700
-                                    : (emHold ? Colors.red.shade800 : (concluida ? Colors.green.shade800 : Colors.blue.shade800)),
-                              ),
-                            ),
-                          ),
-
-                          if (atrasada)
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                              decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(4)),
-                              child: Text(
-                                'Atrasada',
-                                style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.red.shade700),
-                              ),
-                            ),
-
-                          if (prioridade != 'Normal')
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                              decoration: BoxDecoration(color: Colors.orange.shade50, borderRadius: BorderRadius.circular(4)),
-                              child: Text(
-                                prioridade.toUpperCase(),
-                                style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.orange.shade900),
-                              ),
-                            ),
-                        ],
+                      _buildLinhaEtiquetas(
+                        idFormatado: idFormatado,
+                        codigoRastreio: codigoRastreio,
+                        estado: estado,
+                        atrasada: atrasada,
+                        prioridade: prioridade,
                       ),
                       const SizedBox(height: 8),
                       Text(nomeCliente, style: TextStyle(color: Colors.grey.shade700, fontSize: 13)),
                       Text(nomeProduto, style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
                       const SizedBox(height: 12),
-
                       Row(
                         children: [
                           Text('Fase Atual: ', style: TextStyle(fontSize: 13, color: Colors.grey.shade600)),
-                          Text(faseNome, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87)),
+                          Text(faseNome,
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87)),
                           if (!concluida) ...[
                             const SizedBox(width: 8),
                             Chip(
@@ -1133,107 +1272,24 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
                         const SizedBox(width: 6),
                         Text(
                           dataEntrega,
-                          style: TextStyle(fontSize: 12, color: Colors.grey.shade600, fontWeight: FontWeight.w500),
+                          style: TextStyle(
+                              fontSize: 12, color: Colors.grey.shade600, fontWeight: FontWeight.w500),
                         ),
                       ],
                     ),
                     const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        // BOTÕES CONDICIONAIS DE WIP HOLD / REGISTO TÉCNICO / LINE CLEARANCE
-                        // (uma ordem cancelada só permite consultar o histórico)
-                        if (cancelada) ...[
-                          // sem ações operacionais
-                        ] else if (emHold) ...[
-                          if (!manutencaoConcluida)
-                            ElevatedButton.icon(
-                              onPressed: () => _abrirDialogRegistoTecnico(enc, incidenciaAtiva),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.amber.shade800,
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                              ),
-                              icon: const Icon(Icons.build_rounded, size: 14),
-                              label: const Text('Registo Técnico', style: TextStyle(fontSize: 12)),
-                            )
-                          else
-                            ElevatedButton.icon(
-                              onPressed: () => _abrirDialogLineClearance(enc, incidenciaAtiva),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.green.shade700,
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                              ),
-                              icon: const Icon(Icons.verified_user_rounded, size: 14),
-                              label: const Text('Line Clearance', style: TextStyle(fontSize: 12)),
-                            ),
-                          const SizedBox(width: 8),
-                        ] else if (!concluida) ...[
-                          OutlinedButton.icon(
-                            onPressed: () => _abrirDialogWipHold(enc),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: Colors.red.shade700,
-                              side: BorderSide(color: Colors.red.shade300),
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                            ),
-                            icon: const Icon(Icons.pause, size: 14),
-                            label: const Text('WIP Hold', style: TextStyle(fontSize: 12)),
-                          ),
-                          const SizedBox(width: 8),
-                          ElevatedButton.icon(
-                            onPressed: () => _avancarFase(enc),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF111625),
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                            ),
-                            icon: const Icon(Icons.skip_next_rounded, size: 14),
-                            label: const Text('Avançar Fase', style: TextStyle(fontSize: 12)),
-                          ),
-                          const SizedBox(width: 8),
-                        ],
-
-                        OutlinedButton.icon(
-                          onPressed: () => _abrirDialogHistorico(enc),
-                          style: OutlinedButton.styleFrom(
-                            side: BorderSide(color: Colors.grey.shade300),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                          ),
-                          icon: const Icon(Icons.history_rounded, size: 14, color: Colors.blueGrey),
-                          label: const Text('Histórico', style: TextStyle(color: Colors.black87, fontSize: 12)),
-                        ),
-                        const SizedBox(width: 8),
-
-                        if (!cancelada) ...[
-                          OutlinedButton.icon(
-                            onPressed: () => _abrirDialogEditar(enc),
-                            style: OutlinedButton.styleFrom(
-                              side: BorderSide(color: Colors.grey.shade300),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                            ),
-                            icon: const Icon(Icons.edit_outlined, size: 14, color: Colors.black87),
-                            label: const Text('Editar', style: TextStyle(color: Colors.black87, fontSize: 12)),
-                          ),
-                          const SizedBox(width: 8),
-                          OutlinedButton.icon(
-                            onPressed: () => _confirmarCancelamento(enc.id, idFormatado),
-                            style: OutlinedButton.styleFrom(
-                              side: BorderSide(color: Colors.grey.shade300),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                            ),
-                            icon: const Icon(Icons.cancel_outlined, size: 14, color: Colors.black87),
-                            label: const Text('Cancelar', style: TextStyle(color: Colors.black87, fontSize: 12)),
-                          ),
-                        ],
-                      ],
+                    _buildBotoesAcao(
+                      enc: enc,
+                      estado: estado,
+                      idFormatado: idFormatado,
+                      incidenciaAtiva: incidenciaAtiva,
+                      manutencaoConcluida: manutencaoConcluida,
                     ),
                     const SizedBox(height: 16),
                     Text(
                       '$progressoPercentagem% concluído',
-                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey.shade600),
+                      style: TextStyle(
+                          fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey.shade600),
                     )
                   ],
                 ),

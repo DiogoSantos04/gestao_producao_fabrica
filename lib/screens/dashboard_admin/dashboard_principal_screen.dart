@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show RealtimeChannel;
+import '../../models/encomenda_model.dart';
 import '../../repositories/encomendas_repository.dart';
 import '../../repositories/fluxos_repository.dart';
 
@@ -68,7 +69,7 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
       if (!mounted) return;
 
       // 1. Carrega todas as fases padrão definidas no sistema (para estruturar o gráfico)
-      final List<dynamic> fasesPadrao = await _fluxosRepo.obterNomesDasFases();
+      final List<Map<String, dynamic>> fasesPadrao = await _fluxosRepo.obterNomesDasFases();
 
       Map<String, int> tempFases = {};
       for (var f in fasesPadrao) {
@@ -90,10 +91,10 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
 
       // 2. Carrega as encomendas trazendo o nome da fase onde se encontram atualmente
       // Ordens canceladas não contam para nenhum indicador operacional.
-      final List<dynamic> encomendas = await _encomendasRepo.obterParaDashboard();
+      final List<EncomendaModel> encomendas = await _encomendasRepo.obterParaDashboard();
 
       // 3. Carrega as incidências ativas (as resolvidas não são paragens)
-      final List<dynamic> incidenciasRaw = await _encomendasRepo.obterIncidenciasAbertas();
+      final List<Map<String, dynamic>> incidenciasRaw = await _encomendasRepo.obterIncidenciasAbertas();
 
       if (!mounted) return;
 
@@ -104,45 +105,36 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
       final DateTime hoje = DateTime.now();
 
       // 4. Carrega o histórico de produção do dia para validar encomendas finalizadas hoje
-      final List<dynamic> historicoHoje = await _encomendasRepo.obterHistoricoDoDia(hoje);
+      final List<Map<String, dynamic>> historicoHoje = await _encomendasRepo.obterHistoricoDoDia(hoje);
 
       final Set<int> encomendasAtivasHojeIds = historicoHoje
           .map((h) => h['encomenda_id'] is int ? h['encomenda_id'] as int : int.tryParse(h['encomenda_id'].toString()) ?? 0)
           .toSet();
 
       // 5. Processamento posicional das encomendas
-      for (var enc in encomendas) {
-        final int? faseAtualId = enc['fase_atual_id'] as int?;
-        final String? prazoStr = enc['data_entrega'];
-        final int id = enc['id'] as int;
-
-        if (faseAtualId == null) {
+      for (final enc in encomendas) {
+        if (enc.faseAtualId == null) {
           // Encomenda Concluída (Não aparece em nenhuma barra ativa)
-          if (encomendasAtivasHojeIds.contains(id)) {
+          if (encomendasAtivasHojeIds.contains(enc.id)) {
             concluidasHoje++;
           }
         } else {
           // Encomenda ATIVA!
           ativas++;
-          
+
           // 📊 LÓGICA DE POSIÇÃO ESTRITA: Soma +1 APENAS na barra da fase atual onde o produto está parado
-          final faseAtualData = enc['fase_atual'];
-          if (faseAtualData != null) {
-            final String nomeFase = faseAtualData['nome_fase_padrao'] ?? '';
-            if (nomeFase.isNotEmpty && tempFases.containsKey(nomeFase)) {
-              tempFases[nomeFase] = (tempFases[nomeFase] ?? 0) + 1;
-            }
+          final String nomeFase = enc.nomeFaseAtual ?? '';
+          if (nomeFase.isNotEmpty && tempFases.containsKey(nomeFase)) {
+            tempFases[nomeFase] = (tempFases[nomeFase] ?? 0) + 1;
           }
 
           // Verifica se a encomenda ativa está atrasada
-          if (prazoStr != null) {
-            try {
-              final DateTime prazo = DateTime.parse(prazoStr);
-              final hojeSemHoras = DateTime(hoje.year, hoje.month, hoje.day);
-              if (hojeSemHoras.isAfter(prazo)) {
-                atrasadas++;
-              }
-            } catch (_) {}
+          final DateTime? prazo = enc.dataEntrega;
+          if (prazo != null) {
+            final hojeSemHoras = DateTime(hoje.year, hoje.month, hoje.day);
+            if (hojeSemHoras.isAfter(prazo)) {
+              atrasadas++;
+            }
           }
         }
       }
@@ -519,139 +511,140 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
             ),
             const SizedBox(height: 20),
 
-            _alertasIncidencias.isEmpty
-                ? const SizedBox(
-                    height: 200,
-                    child: Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.gpp_good_outlined, size: 48, color: Colors.green),
-                          SizedBox(height: 12),
-                          Text(
-                            'Chão de Fábrica a 100%!',
-                            style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green),
-                          ),
-                          Text(
-                            'Sem paragens ou bloqueios reportados.',
-                            style: TextStyle(color: Colors.grey, fontSize: 12),
-                          ),
-                        ],
-                      ),
-                    ),
-                  )
-                : ListView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: _alertasIncidencias.length,
-                    itemBuilder: (context, index) {
-                      final inc = _alertasIncidencias[index];
-                      final hist = inc['historico_producao'];
-                      
-                      String encRef = 'N/A';
-                      String posto = 'Não especificado';
-                      String nomeOperador = 'Desconhecido';
-
-                      if (hist != null) {
-                        final encId = hist['encomenda_id'];
-                        final encData = hist['encomendas'];
-                        final faseData = hist['fases_padrao'];
-                        final userData = hist['utilizadores'];
-
-                        if (encData != null) {
-                          encRef = encData['codigo_rastreio'] ?? 'N/A';
-                        } else if (encId != null) {
-                          encRef = '#$encId';
-                        }
-
-                        if (faseData != null) {
-                          posto = faseData['posto_trabalho'] ?? 'Não especificado';
-                        }
-
-                        if (userData != null) {
-                          nomeOperador = userData['nome_utilizador'] ?? 'Desconhecido';
-                        }
-                      }
-
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.grey.shade50,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.grey.shade200),
-                        ),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Icon(
-                              Icons.error_outline_rounded, 
-                              color: Colors.red.shade600,
-                              size: 20,
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Text(
-                                        'Enc. $encRef',
-                                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                                      ),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                        decoration: BoxDecoration(
-                                          color: Colors.red.shade100,
-                                          borderRadius: BorderRadius.circular(4),
-                                        ),
-                                        child: const Text(
-                                          'ATENÇÃO',
-                                          style: TextStyle(
-                                            fontSize: 9, 
-                                            fontWeight: FontWeight.bold,
-                                            color: Colors.red,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    'Posto: $posto',
-                                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: Colors.black54),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    inc['motivo'] ?? 'Sem motivo indicado.',
-                                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Text(
-                                        '⏱️ Ativo: ${_calcularTempoDowntime(inc['created_at'] ?? DateTime.now().toIso8601String())}',
-                                        style: TextStyle(fontSize: 11, color: Colors.red.shade400, fontWeight: FontWeight.bold),
-                                      ),
-                                      Text(
-                                        'Op: $nomeOperador',
-                                        style: TextStyle(fontSize: 11, color: Colors.grey.shade400),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
+            if (_alertasIncidencias.isEmpty)
+              _buildSemIncidencias()
+            else
+              ListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: _alertasIncidencias.length,
+                itemBuilder: (context, index) => _buildCartaoAlerta(_alertasIncidencias[index]),
+              ),
           ],
         ),
+      ),
+    );
+  }
+
+  /// Estado vazio: nenhuma paragem em aberto.
+  Widget _buildSemIncidencias() {
+    return const SizedBox(
+      height: 200,
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.gpp_good_outlined, size: 48, color: Colors.green),
+            SizedBox(height: 12),
+            Text(
+              'Chão de Fábrica a 100%!',
+              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green),
+            ),
+            Text(
+              'Sem paragens ou bloqueios reportados.',
+              style: TextStyle(color: Colors.grey, fontSize: 12),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Extrai a referência da encomenda, o posto e o operador de uma incidência.
+  ///
+  /// A incidência liga-se a estes dados através de `historico_producao`, pelo que
+  /// as junções vêm encadeadas e podem faltar em qualquer nível.
+  ({String encRef, String posto, String operador}) _dadosAlerta(Map<String, dynamic> inc) {
+    final hist = inc['historico_producao'];
+    if (hist == null) {
+      return (encRef: 'N/A', posto: 'Não especificado', operador: 'Desconhecido');
+    }
+
+    final encData = hist['encomendas'];
+    final encId = hist['encomenda_id'];
+    final faseData = hist['fases_padrao'];
+    final userData = hist['utilizadores'];
+
+    return (
+      encRef: encData != null
+          ? (encData['codigo_rastreio'] ?? 'N/A')
+          : (encId != null ? '#$encId' : 'N/A'),
+      posto: faseData != null ? (faseData['posto_trabalho'] ?? 'Não especificado') : 'Não especificado',
+      operador: userData != null ? (userData['nome_utilizador'] ?? 'Desconhecido') : 'Desconhecido',
+    );
+  }
+
+  /// Cartão de uma paragem ativa no chão de fábrica.
+  Widget _buildCartaoAlerta(Map<String, dynamic> inc) {
+    final dados = _dadosAlerta(inc);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.error_outline_rounded, color: Colors.red.shade600, size: 20),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Enc. ${dados.encRef}',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.red.shade100,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: const Text(
+                        'ATENÇÃO',
+                        style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.red),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Posto: ${dados.posto}',
+                  style: const TextStyle(
+                      fontSize: 12, fontWeight: FontWeight.w500, color: Colors.black54),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  inc['motivo'] ?? 'Sem motivo indicado.',
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      '⏱️ Ativo: ${_calcularTempoDowntime(inc['created_at'] ?? DateTime.now().toIso8601String())}',
+                      style: TextStyle(
+                          fontSize: 11, color: Colors.red.shade400, fontWeight: FontWeight.bold),
+                    ),
+                    Text(
+                      'Op: ${dados.operador}',
+                      style: TextStyle(fontSize: 11, color: Colors.grey.shade400),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

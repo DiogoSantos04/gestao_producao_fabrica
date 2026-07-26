@@ -4,6 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show RealtimeChannel;
 import '../../core/temas_cores.dart';
 import '../../core/formatos.dart';
+import '../../models/cliente_model.dart';
+import '../../models/encomenda_model.dart';
+import '../../models/pedido_model.dart';
 import '../../repositories/clientes_repository.dart';
 import '../../repositories/encomendas_repository.dart';
 import '../../repositories/fluxos_repository.dart';
@@ -38,11 +41,11 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
   final ScrollController _ultimasScrollController = ScrollController();
   final ScrollController _pedidosScrollController = ScrollController();
 
-  List<dynamic> _clientes = [];
-  List<dynamic> _tiposProduto = [];
-  List<dynamic> _previewFases = [];
-  List<dynamic> _ultimasEncomendas = [];
-  List<dynamic> _pedidosAprovados = []; // 📥 Pedidos vindos da App (Estado: Aprovado)
+  List<ClienteModel> _clientes = [];
+  List<Map<String, dynamic>> _tiposProduto = [];
+  List<Map<String, dynamic>> _previewFases = [];
+  List<EncomendaModel> _ultimasEncomendas = [];
+  List<PedidoModel> _pedidosAprovados = []; // 📥 Pedidos vindos da App (Estado: Aprovado)
 
   // Seleção e formulário
   int? _pedidoSelecionadoId; // Guarda o ID do pedido da App (se aplicável)
@@ -188,14 +191,14 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
 
   // --- LÓGICA DE SELEÇÃO AUTOMÁTICA DO PEDIDO ---
 
-  void _selecionarPedidoParaAgendar(Map<String, dynamic> pedido) {
+  void _selecionarPedidoParaAgendar(PedidoModel pedido) {
     setState(() {
-      _pedidoSelecionadoId = pedido['id'];
-      _clienteSelecionado = pedido['cliente_id']?.toString();
-      _tipoProdutoSelecionado = pedido['tipo_produto_id']?.toString();
-      _quantidadeController.text = (pedido['quantidade'] ?? 1).toString();
-      _observacoesPedido = pedido['observacoes'];
-      _requisitosQualidadeController.text = pedido['observacoes'] ?? ''; // Preenche o campo de qualidade
+      _pedidoSelecionadoId = pedido.id;
+      _clienteSelecionado = pedido.clienteId?.toString();
+      _tipoProdutoSelecionado = pedido.tipoProdutoId?.toString();
+      _quantidadeController.text = pedido.quantidade.toString();
+      _observacoesPedido = pedido.observacoes;
+      _requisitosQualidadeController.text = pedido.observacoes ?? ''; // Preenche o campo de qualidade
       _prioridadeSelecionada = 'Normal';
     });
 
@@ -372,6 +375,75 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
     );
   }
 
+  /// Cartão horizontal de um pedido aprovado que aguarda agendamento.
+  Widget _buildCartaoPedidoAprovado(PedidoModel ped) {
+    final bool selecionado = _pedidoSelecionadoId == ped.id;
+
+    return GestureDetector(
+      onTap: () => _selecionarPedidoParaAgendar(ped),
+      child: Container(
+        width: 240,
+        margin: const EdgeInsets.only(right: 12, bottom: 8),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: selecionado ? const Color(0xFF111625) : Colors.white,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: selecionado ? const Color(0xFF111625) : Colors.blue.shade200,
+            width: selecionado ? 2 : 1,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Text(
+                    ped.nomeCliente ?? 'Cliente',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                      color: selecionado ? Colors.white : Colors.black87,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                Text(
+                  'Qtd: ${ped.quantidade}',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 11,
+                    color: selecionado ? Colors.blue.shade200 : Colors.blue.shade700,
+                  ),
+                ),
+              ],
+            ),
+            Text(
+              ped.nomeProduto ?? 'Produto',
+              style: TextStyle(
+                fontSize: 11,
+                color: selecionado ? Colors.grey.shade300 : Colors.grey.shade700,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+            Text(
+              ped.temObservacoes ? 'Obs: ${ped.observacoes}' : 'Sem observações',
+              style: TextStyle(
+                fontSize: 10,
+                fontStyle: FontStyle.italic,
+                color: selecionado ? Colors.grey.shade400 : Colors.grey.shade500,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   // --- COLUNA DA ESQUERDA: PEDIDOS APROVADOS & FORMULÁRIO DE LANÇAMENTO ---
   Widget _buildPainelEsquerdoForm() {
     return Column(
@@ -430,78 +502,7 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
                         controller: _pedidosScrollController,
                         scrollDirection: Axis.horizontal,
                         itemCount: _pedidosAprovados.length,
-                        itemBuilder: (context, idx) {
-                          final ped = _pedidosAprovados[idx];
-                          final bool eOSelecionado = _pedidoSelecionadoId == ped['id'];
-                          final clienteNome = ped['clientes']?['nome_cliente'] ?? 'Cliente';
-                          final prodNome = ped['tipos_produto']?['nome_tipo_produto'] ?? 'Produto';
-
-                          return GestureDetector(
-                            onTap: () => _selecionarPedidoParaAgendar(ped),
-                            child: Container(
-                              width: 240,
-                              margin: const EdgeInsets.only(right: 12, bottom: 8),
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: eOSelecionado ? const Color(0xFF111625) : Colors.white,
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(
-                                  color: eOSelecionado ? const Color(0xFF111625) : Colors.blue.shade200,
-                                  width: eOSelecionado ? 2 : 1,
-                                ),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Expanded(
-                                        child: Text(
-                                          clienteNome,
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 12,
-                                            color: eOSelecionado ? Colors.white : Colors.black87,
-                                          ),
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                      Text(
-                                        'Qtd: ${ped['quantidade'] ?? 1}',
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 11,
-                                          color: eOSelecionado ? Colors.blue.shade200 : Colors.blue.shade700,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  Text(
-                                    prodNome,
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: eOSelecionado ? Colors.grey.shade300 : Colors.grey.shade700,
-                                    ),
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  Text(
-                                    ped['observacoes'] != null && ped['observacoes'].toString().isNotEmpty
-                                        ? 'Obs: ${ped['observacoes']}'
-                                        : 'Sem observações',
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      fontStyle: FontStyle.italic,
-                                      color: eOSelecionado ? Colors.grey.shade400 : Colors.grey.shade500,
-                                    ),
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          );
-                        },
+                        itemBuilder: (context, idx) => _buildCartaoPedidoAprovado(_pedidosAprovados[idx]),
                       ),
                     ),
                   ),
@@ -580,199 +581,310 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
                     const SizedBox(height: 20),
                   ],
 
-                  const Text('Seleção de Cliente', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87)),
-                  const SizedBox(height: 8),
-                  DropdownButtonFormField<String>(
-                    value: _clienteSelecionado,
-                    decoration: InputDecoration(
-                      hintText: 'Selecione um cliente',
-                      fillColor: Colors.grey.shade100,
-                      filled: true,
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-                    ),
-                    items: _clientes.map((c) {
-                      return DropdownMenuItem<String>(
-                        value: c['id'].toString(),
-                        child: Text(c['nome_cliente'] ?? ''),
-                      );
-                    }).toList(),
-                    onChanged: (val) => setState(() => _clienteSelecionado = val),
-                    validator: (val) => val == null ? 'Selecione um cliente' : null,
-                  ),
+                  _buildCampoCliente(),
                   const SizedBox(height: 20),
-
-                  const Text('Tipo de Produto', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87)),
-                  const SizedBox(height: 8),
-                  DropdownButtonFormField<String>(
-                    value: _tipoProdutoSelecionado,
-                    decoration: InputDecoration(
-                      hintText: 'Selecione o tipo de produto',
-                      fillColor: Colors.grey.shade100,
-                      filled: true,
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-                    ),
-                    items: _tiposProduto.map((p) {
-                      return DropdownMenuItem<String>(
-                        value: p['id'].toString(),
-                        child: Text(p['nome_tipo_produto'] ?? ''),
-                      );
-                    }).toList(),
-                    onChanged: (val) {
-                      setState(() => _tipoProdutoSelecionado = val);
-                      if (val != null) _carregarPreviewFluxo(val);
-                    },
-                    validator: (val) => val == null ? 'Selecione um tipo de produto' : null,
-                  ),
+                  _buildCampoTipoProduto(),
                   const SizedBox(height: 20),
-
-                  Row(
-                    children: [
-                      Expanded(
-                        flex: 3,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text('Data Prevista de Entrega', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87)),
-                            const SizedBox(height: 8),
-                            TextFormField(
-                              controller: _dataEntregaController,
-                              readOnly: true,
-                              onTap: () => _selecionarData(context),
-                              decoration: InputDecoration(
-                                hintText: 'aaaa-mm-dd',
-                                fillColor: Colors.grey.shade100,
-                                filled: true,
-                                suffixIcon: const Icon(Icons.calendar_month_outlined, color: Colors.black54),
-                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
-                                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                              ),
-                              validator: (val) => (val == null || val.isEmpty) ? 'Indique o prazo' : null,
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        flex: 2,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text('Quantidade', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87)),
-                            const SizedBox(height: 8),
-                            TextFormField(
-                              controller: _quantidadeController,
-                              keyboardType: TextInputType.number,
-                              decoration: InputDecoration(
-                                hintText: 'Ex: 100',
-                                fillColor: Colors.grey.shade100,
-                                filled: true,
-                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
-                                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                              ),
-                              validator: (val) {
-                                if (val == null || val.isEmpty) return 'Obrigatório';
-                                if (int.tryParse(val) == null || int.parse(val) <= 0) return 'Inválido';
-                                return null;
-                              },
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
+                  _buildCamposPrazoEQuantidade(),
                   const SizedBox(height: 20),
-
-                  // SELETOR DE PRIORIDADE DA ORDEM DE PRODUÇÃO
-                  const Text('Prioridade da Ordem', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87)),
-                  const SizedBox(height: 8),
-                  DropdownButtonFormField<String>(
-                    value: _prioridadeSelecionada,
-                    decoration: InputDecoration(
-                      fillColor: Colors.grey.shade100,
-                      filled: true,
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-                    ),
-                    items: _niveisPrioridade.map((prio) {
-                      Color corIcone = Colors.grey.shade700;
-                      IconData icone = Icons.circle_outlined;
-
-                      if (prio == 'Urgente') {
-                        corIcone = Colors.orange.shade800;
-                        icone = Icons.warning_amber_rounded;
-                      } else if (prio == 'Crítica') {
-                        corIcone = Colors.red.shade800;
-                        icone = Icons.local_fire_department_rounded;
-                      }
-
-                      return DropdownMenuItem<String>(
-                        value: prio,
-                        child: Row(
-                          children: [
-                            Icon(icone, size: 16, color: corIcone),
-                            const SizedBox(width: 8),
-                            Text(
-                              prio,
-                              style: TextStyle(
-                                fontWeight: prio != 'Normal' ? FontWeight.bold : FontWeight.normal,
-                                color: corIcone,
-                                fontSize: 13,
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    }).toList(),
-                    onChanged: (val) {
-                      if (val != null) setState(() => _prioridadeSelecionada = val);
-                    },
-                  ),
+                  _buildCampoPrioridade(),
                   const SizedBox(height: 20),
-
-                  // 📋 NOVO: REQUISITOS ESPECIAIS DE QUALIDADE / OBSERVAÇÕES S.O.P
-                  const Text('Instruções Técnicas & Requisitos de Qualidade (SOP / FAI)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87)),
-                  const SizedBox(height: 8),
-                  TextFormField(
-                    controller: _requisitosQualidadeController,
-                    maxLines: 2,
-                    decoration: InputDecoration(
-                      hintText: 'Ex: Tolerância crítica na furação; Validação da 1ª peça (FAI); Cor RAL 3020.',
-                      fillColor: Colors.grey.shade100,
-                      filled: true,
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
-                      contentPadding: const EdgeInsets.all(14),
-                    ),
-                  ),
+                  _buildCampoRequisitosQualidade(),
                   const SizedBox(height: 32),
-
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed: _isSaving ? null : _lancarEncomenda,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF111625),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 20),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                        elevation: 0,
-                      ),
-                      icon: _isSaving
-                          ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                          : const Icon(Icons.rocket_launch_outlined, size: 18),
-                      label: Text(
-                        _pedidoSelecionadoId != null ? 'Lançar Pedido da App para Produção' : 'Lançar Encomenda Manual',
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, letterSpacing: 0.5),
-                      ),
-                    ),
-                  ),
+                  _buildBotaoLancar(),
                 ],
               ),
             ),
           ),
         ),
       ],
+    );
+  }
+
+  // --- CAMPOS DO FORMULÁRIO ---
+  // Extraídos de um único método de 401 linhas.
+
+  /// Decoração comum a todos os campos do formulário.
+  InputDecoration _decoracaoCampo({String? hintText, Widget? suffixIcon, EdgeInsets? padding}) {
+    return InputDecoration(
+      hintText: hintText,
+      suffixIcon: suffixIcon,
+      fillColor: Colors.grey.shade100,
+      filled: true,
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+      contentPadding: padding ?? const EdgeInsets.symmetric(horizontal: 16),
+    );
+  }
+
+  Widget _rotuloCampo(String texto) {
+    return Text(texto,
+        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87));
+  }
+
+  Widget _buildCampoCliente() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _rotuloCampo('Seleção de Cliente'),
+        const SizedBox(height: 8),
+        DropdownButtonFormField<String>(
+          value: _clienteSelecionado,
+          decoration: _decoracaoCampo(hintText: 'Selecione um cliente'),
+          items: _clientes.map((c) {
+            return DropdownMenuItem<String>(
+              value: c.id.toString(),
+              child: Text(c.nomeCliente),
+            );
+          }).toList(),
+          onChanged: (val) => setState(() => _clienteSelecionado = val),
+          validator: (val) => val == null ? 'Selecione um cliente' : null,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCampoTipoProduto() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _rotuloCampo('Tipo de Produto'),
+        const SizedBox(height: 8),
+        DropdownButtonFormField<String>(
+          value: _tipoProdutoSelecionado,
+          decoration: _decoracaoCampo(hintText: 'Selecione o tipo de produto'),
+          items: _tiposProduto.map((p) {
+            return DropdownMenuItem<String>(
+              value: p['id'].toString(),
+              child: Text(p['nome_tipo_produto'] ?? ''),
+            );
+          }).toList(),
+          onChanged: (val) {
+            setState(() => _tipoProdutoSelecionado = val);
+            if (val != null) _carregarPreviewFluxo(val);
+          },
+          validator: (val) => val == null ? 'Selecione um tipo de produto' : null,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCamposPrazoEQuantidade() {
+    return Row(
+      children: [
+        Expanded(
+          flex: 3,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _rotuloCampo('Data Prevista de Entrega'),
+              const SizedBox(height: 8),
+              TextFormField(
+                controller: _dataEntregaController,
+                readOnly: true,
+                onTap: () => _selecionarData(context),
+                decoration: _decoracaoCampo(
+                  hintText: 'aaaa-mm-dd',
+                  suffixIcon: const Icon(Icons.calendar_month_outlined, color: Colors.black54),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                ),
+                validator: (val) => (val == null || val.isEmpty) ? 'Indique o prazo' : null,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          flex: 2,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _rotuloCampo('Quantidade'),
+              const SizedBox(height: 8),
+              TextFormField(
+                controller: _quantidadeController,
+                keyboardType: TextInputType.number,
+                decoration: _decoracaoCampo(
+                  hintText: 'Ex: 100',
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                ),
+                validator: (val) {
+                  if (val == null || val.isEmpty) return 'Obrigatório';
+                  if (int.tryParse(val) == null || int.parse(val) <= 0) return 'Inválido';
+                  return null;
+                },
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Ícone e cor de cada nível de prioridade.
+  ({IconData icone, Color cor}) _estiloPrioridade(String prio) {
+    return switch (prio) {
+      'Urgente' => (icone: Icons.warning_amber_rounded, cor: Colors.orange.shade800),
+      'Crítica' => (icone: Icons.local_fire_department_rounded, cor: Colors.red.shade800),
+      _ => (icone: Icons.circle_outlined, cor: Colors.grey.shade700),
+    };
+  }
+
+  Widget _buildCampoPrioridade() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _rotuloCampo('Prioridade da Ordem'),
+        const SizedBox(height: 8),
+        DropdownButtonFormField<String>(
+          value: _prioridadeSelecionada,
+          decoration: _decoracaoCampo(),
+          items: _niveisPrioridade.map((prio) {
+            final estilo = _estiloPrioridade(prio);
+            return DropdownMenuItem<String>(
+              value: prio,
+              child: Row(
+                children: [
+                  Icon(estilo.icone, size: 16, color: estilo.cor),
+                  const SizedBox(width: 8),
+                  Text(
+                    prio,
+                    style: TextStyle(
+                      fontWeight: prio != 'Normal' ? FontWeight.bold : FontWeight.normal,
+                      color: estilo.cor,
+                      fontSize: 13,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }).toList(),
+          onChanged: (val) {
+            if (val != null) setState(() => _prioridadeSelecionada = val);
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCampoRequisitosQualidade() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _rotuloCampo('Instruções Técnicas & Requisitos de Qualidade (SOP / FAI)'),
+        const SizedBox(height: 8),
+        TextFormField(
+          controller: _requisitosQualidadeController,
+          maxLines: 2,
+          decoration: _decoracaoCampo(
+            hintText: 'Ex: Tolerância crítica na furação; Validação da 1ª peça (FAI); Cor RAL 3020.',
+            padding: const EdgeInsets.all(14),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBotaoLancar() {
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton.icon(
+        onPressed: _isSaving ? null : _lancarEncomenda,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: const Color(0xFF111625),
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(vertical: 20),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          elevation: 0,
+        ),
+        icon: _isSaving
+            ? const SizedBox(
+                width: 18, height: 18, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+            : const Icon(Icons.rocket_launch_outlined, size: 18),
+        label: Text(
+          _pedidoSelecionadoId != null
+              ? 'Lançar Pedido da App para Produção'
+              : 'Lançar Encomenda Manual',
+          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, letterSpacing: 0.5),
+        ),
+      ),
+    );
+  }
+
+  /// Cartão com a carga total estimada, o posto gargalo e o alerta de carga elevada.
+  Widget _buildCartaoLeadTime({
+    required int tempoTotalMins,
+    required int tempoUnitarioMins,
+    required Map<String, dynamic>? gargalo,
+    required bool eCargaElevada,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.blueGrey.shade50,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.blueGrey.shade100),
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.timer_outlined, size: 18, color: Colors.blueGrey.shade800),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Carga Total Estimada:',
+                    style: TextStyle(
+                        fontSize: 12, fontWeight: FontWeight.w600, color: Colors.blueGrey.shade800),
+                  ),
+                ],
+              ),
+              Text(
+                '${_formatarTempo(tempoTotalMins)} (${_formatarTempo(tempoUnitarioMins)}/unid)',
+                style: TextStyle(
+                    fontSize: 12, fontWeight: FontWeight.bold, color: Colors.blueGrey.shade900),
+              ),
+            ],
+          ),
+
+          // ⚠️ Deteção do posto gargalo
+          if (gargalo != null) ...[
+            const Divider(height: 14),
+            Row(
+              children: [
+                Icon(Icons.warning_amber_rounded, size: 15, color: Colors.amber.shade900),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Gargalo: ${gargalo['nome_fase_padrao']} (${gargalo['tempo_estimado']} min no ${gargalo['posto_trabalho'] ?? 'Posto'})',
+                    style: TextStyle(
+                        fontSize: 11, fontWeight: FontWeight.bold, color: Colors.amber.shade900),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          ],
+
+          // 🔴 Alerta de carga elevada (mais de 8 horas de fábrica)
+          if (eCargaElevada) ...[
+            const SizedBox(height: 6),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration:
+                  BoxDecoration(color: Colors.orange.shade100, borderRadius: BorderRadius.circular(4)),
+              child: Text(
+                '⚡ Esta encomenda representa uma carga de fabrico elevada (+8 horas).',
+                style: TextStyle(
+                    fontSize: 10, color: Colors.orange.shade900, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ]
+        ],
+      ),
     );
   }
 
@@ -797,78 +909,11 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
 
       conteudo = Column(
         children: [
-          // ⏱️ CARTÃO INFORMATIVO DE TOTALIZADOR DO LEAD TIME (TEMPO DE PRODUÇÃO) & GARGALO
-          Container(
-            margin: const EdgeInsets.only(bottom: 16),
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.blueGrey.shade50,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.blueGrey.shade100),
-            ),
-            child: Column(
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.timer_outlined, size: 18, color: Colors.blueGrey.shade800),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Carga Total Estimada:',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.blueGrey.shade800,
-                          ),
-                        ),
-                      ],
-                    ),
-                    Text(
-                      '${_formatarTempo(tempoTotalMins)} (${_formatarTempo(tempoUnitarioMins)}/unid)',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.blueGrey.shade900,
-                      ),
-                    ),
-                  ],
-                ),
-                
-                // ⚠️ Linha de Detação de Gargalo
-                if (gargalo != null) ...[
-                  const Divider(height: 14),
-                  Row(
-                    children: [
-                      Icon(Icons.warning_amber_rounded, size: 15, color: Colors.amber.shade900),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          'Gargalo: ${gargalo['nome_fase_padrao']} (${gargalo['tempo_estimado']} min no ${gargalo['posto_trabalho'] ?? 'Posto'})',
-                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.amber.shade900),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-
-                // 🔴 Alerta de Carga Elevada
-                if (eCargaElevada) ...[
-                  const SizedBox(height: 6),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(color: Colors.orange.shade100, borderRadius: BorderRadius.circular(4)),
-                    child: Text(
-                      '⚡ Esta encomenda representa uma carga de fabrico elevada (+8 horas).',
-                      style: TextStyle(fontSize: 10, color: Colors.orange.shade900, fontWeight: FontWeight.w600),
-                    ),
-                  ),
-                ]
-              ],
-            ),
+          _buildCartaoLeadTime(
+            tempoTotalMins: tempoTotalMins,
+            tempoUnitarioMins: tempoUnitarioMins,
+            gargalo: gargalo,
+            eCargaElevada: eCargaElevada,
           ),
 
           // LISTA DE FASES DO FLUXO
@@ -961,6 +1006,103 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
     );
   }
 
+  /// Cores do badge de prioridade. `Normal` não mostra badge.
+  ({Color texto, Color fundo}) _coresPrioridade(String prioridade) {
+    return switch (prioridade) {
+      'Urgente' => (texto: Colors.orange.shade900, fundo: Colors.orange.shade50),
+      'Crítica' => (texto: Colors.red.shade900, fundo: Colors.red.shade50),
+      _ => (texto: Colors.grey.shade700, fundo: Colors.grey.shade100),
+    };
+  }
+
+  /// Cartão de uma das últimas ordens lançadas.
+  Widget _buildCartaoUltimaEncomenda(EncomendaModel enc) {
+    final idFormated = Formatos.referenciaOrdem(
+      enc.id,
+      criadaEm: enc.createdAt?.toIso8601String(),
+    );
+    final cores = _coresPrioridade(enc.prioridade);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: [
+                    Text(
+                      idFormated,
+                      style: const TextStyle(
+                          fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                          color: Colors.grey.shade100, borderRadius: BorderRadius.circular(4)),
+                      child: Text(
+                        enc.codigoRastreio ?? '',
+                        style: TextStyle(
+                            fontSize: 9, fontWeight: FontWeight.bold, color: Colors.grey.shade700),
+                      ),
+                    ),
+                    if (enc.prioridade != 'Normal')
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration:
+                            BoxDecoration(color: cores.fundo, borderRadius: BorderRadius.circular(4)),
+                        child: Text(
+                          enc.prioridade.toUpperCase(),
+                          style: TextStyle(
+                              fontSize: 9, fontWeight: FontWeight.bold, color: cores.texto),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(enc.nomeCliente ?? 'Desconhecido',
+                    style: TextStyle(color: Colors.grey.shade700, fontSize: 12)),
+                Text(enc.nomeProduto ?? 'N/A',
+                    style: TextStyle(color: Colors.grey.shade500, fontSize: 11)),
+              ],
+            ),
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                enc.dataEntregaIso ?? '',
+                style: TextStyle(fontSize: 11, color: Colors.grey.shade400, fontWeight: FontWeight.w500),
+              ),
+              const SizedBox(height: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration:
+                    BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(12)),
+                child: Text(
+                  'Qtd: ${enc.quantidade}',
+                  style: TextStyle(fontSize: 10, color: Colors.blue.shade700, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   // --- COLUNA DA DIREITA (BAIXO): ÚLTIMAS ENCOMENDAS ---
   Widget _buildPainelDireitoUltimas({required bool eDesktop}) {
     Widget conteudo;
@@ -980,97 +1122,7 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
           controller: _ultimasScrollController,
           itemCount: _ultimasEncomendas.length,
           padding: const EdgeInsets.only(right: 12),
-          itemBuilder: (context, index) {
-            final enc = _ultimasEncomendas[index];
-            final idFormated = Formatos.referenciaOrdem(enc['id'], criadaEm: enc['created_at']);
-
-            final nomeCliente = enc['clientes'] != null ? enc['clientes']['nome_cliente'] : 'Desconhecido';
-            final nomeProduto = enc['tipos_produto'] != null ? enc['tipos_produto']['nome_tipo_produto'] : 'N/A';
-
-            // Tratamento de estilo para prioridade
-            final String prioridade = enc['prioridade'] ?? 'Normal';
-            Color corPrioText = Colors.grey.shade700;
-            Color bgPrio = Colors.grey.shade100;
-
-            if (prioridade == 'Urgente') {
-              corPrioText = Colors.orange.shade900;
-              bgPrio = Colors.orange.shade50;
-            } else if (prioridade == 'Crítica') {
-              corPrioText = Colors.red.shade900;
-              bgPrio = Colors.red.shade50;
-            }
-
-            return Container(
-              margin: const EdgeInsets.only(bottom: 12),
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.grey.shade200),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Wrap(
-                          crossAxisAlignment: WrapCrossAlignment.center,
-                          spacing: 8,
-                          runSpacing: 4,
-                          children: [
-                            Text(
-                              idFormated,
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87),
-                            ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(4)),
-                              child: Text(
-                                enc['codigo_rastreio'] ?? '',
-                                style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.grey.shade700),
-                              ),
-                            ),
-                            if (prioridade != 'Normal')
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                decoration: BoxDecoration(color: bgPrio, borderRadius: BorderRadius.circular(4)),
-                                child: Text(
-                                  prioridade.toUpperCase(),
-                                  style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: corPrioText),
-                                ),
-                              ),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        Text(nomeCliente, style: TextStyle(color: Colors.grey.shade700, fontSize: 12)),
-                        Text(nomeProduto, style: TextStyle(color: Colors.grey.shade500, fontSize: 11)),
-                      ],
-                    ),
-                  ),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Text(
-                        enc['data_entrega'] ?? '',
-                        style: TextStyle(fontSize: 11, color: Colors.grey.shade400, fontWeight: FontWeight.w500),
-                      ),
-                      const SizedBox(height: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                        decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(12)),
-                        child: Text(
-                          'Qtd: ${enc['quantidade'] ?? 1}',
-                          style: TextStyle(fontSize: 10, color: Colors.blue.shade700, fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            );
-          },
+          itemBuilder: (context, index) => _buildCartaoUltimaEncomenda(_ultimasEncomendas[index]),
         ),
       );
     }

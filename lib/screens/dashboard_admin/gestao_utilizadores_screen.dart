@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show RealtimeChannel;
 import '../../core/temas_cores.dart';
+import '../../models/utilizador_model.dart';
 import '../../repositories/postos_repository.dart';
 import '../../repositories/utilizadores_repository.dart';
 
@@ -17,8 +18,8 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
   final _postosRepo = PostosRepository();
   final _searchController = TextEditingController();
 
-  List<dynamic> _todosUtilizadores = [];
-  List<dynamic> _utilizadoresFiltrados = [];
+  List<UtilizadorModel> _todosUtilizadores = [];
+  List<UtilizadorModel> _utilizadoresFiltrados = [];
   bool _isLoading = true;
 
   String _filtroCargo = 'Todos os cargos';
@@ -98,24 +99,18 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
     final query = _searchController.text.trim().toLowerCase();
 
     final filtrados = _todosUtilizadores.where((ut) {
-      final nome = (ut['nome_utilizador'] ?? '').toString().toLowerCase();
-      final email = (ut['email'] ?? '').toString().toLowerCase();
-      final perfil = (ut['perfil'] ?? '').toString().toLowerCase();
+      final nome = ut.nomeUtilizador.toLowerCase();
+      final email = (ut.email ?? '').toLowerCase();
 
       // Filtro por texto (Nome ou Email)
       final bateCertoComPesquisa = nome.contains(query) || email.contains(query);
 
-      // Filtro por Cargo / Perfil
+      // Filtro por Cargo / Perfil. As variantes históricas do valor da coluna
+      // ("Admin"/"Administrador", "Operador"/"Funcionario") já são normalizadas
+      // pelo `PerfilUtilizador`, pelo que aqui basta comparar o enum.
       bool bateCertoComCargo = true;
       if (_filtroCargo != 'Todos os cargos') {
-        final filtroNormalizado = _filtroCargo.toLowerCase();
-        if (filtroNormalizado == 'administrador' || filtroNormalizado == 'admin') {
-          bateCertoComCargo = perfil == 'admin' || perfil == 'administrador';
-        } else if (filtroNormalizado == 'funcionário' || filtroNormalizado == 'operador') {
-          bateCertoComCargo = perfil == 'operador' || perfil == 'funcionario' || perfil == 'funcionário';
-        } else {
-          bateCertoComCargo = perfil == filtroNormalizado;
-        }
+        bateCertoComCargo = ut.perfil == PerfilUtilizador.desdeTexto(_filtroCargo);
       }
 
       return bateCertoComPesquisa && bateCertoComCargo;
@@ -123,13 +118,26 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
 
     // Ordenação
     filtrados.sort((a, b) {
-      final va = (a[_colunaOrdenacao] ?? '').toString().toLowerCase();
-      final vb = (b[_colunaOrdenacao] ?? '').toString().toLowerCase();
-      final cmp = va.compareTo(vb);
+      final cmp = _valorOrdenacao(a).compareTo(_valorOrdenacao(b));
       return _ordemAscendente ? cmp : -cmp;
     });
 
     setState(() => _utilizadoresFiltrados = filtrados);
+  }
+
+  /// Valor de comparação para a coluna de ordenação ativa.
+  ///
+  /// Ordena-se pelo texto que a tabela mostra ao utilizador, não pelo valor
+  /// gravado na coluna — para o perfil isso é a etiqueta ("Administrador",
+  /// "Funcionário", "Cliente"), a mesma ordem que a versão anterior produzia
+  /// para os valores que existem na base de dados.
+  String _valorOrdenacao(UtilizadorModel ut) {
+    return switch (_colunaOrdenacao) {
+      'email' => (ut.email ?? '').toLowerCase(),
+      'perfil' => ut.perfil.etiqueta.toLowerCase(),
+      'estado_conta' => ut.estadoConta.valorBd.toLowerCase(),
+      _ => ut.nomeUtilizador.toLowerCase(),
+    };
   }
 
   void _ordenarPor(String coluna) {
@@ -166,18 +174,21 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
   }
 
   /// Altera apenas o estado da conta (usado pelo toggle rápido)
-  Future<void> _alterarEstadoConta(Map<String, dynamic> ut, String novoEstado) async {
-    final uid = ut['utilizador_id'] as String;
+  Future<void> _alterarEstadoConta(UtilizadorModel ut, EstadoConta novoEstado) async {
     try {
       await _utilizadoresRepo.alterarEstadoConta(
-        utilizadorId: uid,
-        estadoConta: novoEstado,
+        utilizadorId: ut.utilizadorId,
+        estadoConta: novoEstado.valorBd,
       );
 
-      // Atualização otimista local (evita recarregar tudo)
-      setState(() => ut['estado_conta'] = novoEstado);
+      // Atualização otimista local (evita recarregar tudo). O modelo é imutável,
+      // pelo que se substitui a instância na lista em vez de mutar o registo.
+      setState(() {
+        final i = _todosUtilizadores.indexWhere((u) => u.utilizadorId == ut.utilizadorId);
+        if (i != -1) _todosUtilizadores[i] = ut.copyWith(estadoConta: novoEstado);
+      });
       _filtrarUtilizadores();
-      _mostrarMensagem('Estado alterado para "$novoEstado".');
+      _mostrarMensagem('Estado alterado para "${novoEstado.valorBd}".');
     } catch (e) {
       _mostrarMensagem('Erro ao alterar estado: $e', eErro: true);
     }
@@ -198,18 +209,14 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
 
   int get _totalUtilizadores => _todosUtilizadores.length;
 
-  int get _totalAtivos => _todosUtilizadores.where((ut) {
-        return (ut['estado_conta'] ?? '').toString().toLowerCase() == 'ativo';
-      }).length;
+  int get _totalAtivos =>
+      _todosUtilizadores.where((ut) => ut.estadoConta == EstadoConta.ativo).length;
 
-  int get _totalPendentes => _todosUtilizadores.where((ut) {
-        return (ut['estado_conta'] ?? '').toString().toLowerCase() == 'pendente';
-      }).length;
+  int get _totalPendentes =>
+      _todosUtilizadores.where((ut) => ut.estadoConta == EstadoConta.pendente).length;
 
-  int get _totalAdmins => _todosUtilizadores.where((ut) {
-        final p = (ut['perfil'] ?? '').toString().toLowerCase();
-        return p == 'admin' || p == 'administrador';
-      }).length;
+  int get _totalAdmins =>
+      _todosUtilizadores.where((ut) => ut.perfil == PerfilUtilizador.administrador).length;
 
   // --- INTERFACE GRÁFICA (UI) ---
 
@@ -492,18 +499,13 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
     );
   }
 
-  Widget _buildUserRow(Map<String, dynamic> ut) {
-    final String nome = (ut['nome_utilizador'] ?? 'N/A').toString();
-    final String perfil = (ut['perfil'] ?? 'Operador').toString();
-    final String estado = (ut['estado_conta'] ?? 'Ativo').toString();
-    final String eLower = estado.toLowerCase();
-    final bool ePendente = eLower == 'pendente';
-    final bool eAtivo = eLower == 'ativo';
+  Widget _buildUserRow(UtilizadorModel ut) {
+    final String nome = ut.nomeUtilizador.isEmpty ? 'N/A' : ut.nomeUtilizador;
+    final bool ePendente = ut.estadoConta == EstadoConta.pendente;
+    final bool eAtivo = ut.estadoConta == EstadoConta.ativo;
 
-    final String uid = ut['utilizador_id'].toString();
-    final Map<String, dynamic>? posto = _postoPorOperador[uid];
-    final String pLower = perfil.toLowerCase();
-    final bool eOperador = pLower == 'operador' || pLower == 'funcionario' || pLower == 'funcionário';
+    final Map<String, dynamic>? posto = _postoPorOperador[ut.utilizadorId];
+    final bool eOperador = ut.perfil == PerfilUtilizador.operador;
 
     return InkWell(
       onTap: () => _abrirPainelDetalhe(ut),
@@ -539,7 +541,7 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
           Expanded(
             flex: 4,
             child: Text(
-              ut['email'] ?? 'N/A',
+              ut.email ?? 'N/A',
               style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
               overflow: TextOverflow.ellipsis,
             ),
@@ -547,12 +549,12 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
           // Perfil (Badge)
           Expanded(
             flex: 2,
-            child: Row(children: [_buildPerfilBadge(perfil)]),
+            child: Row(children: [_buildPerfilBadge(ut.perfil)]),
           ),
           // Estado da Conta (Badge)
           Expanded(
             flex: 2,
-            child: Row(children: [_buildEstadoBadge(estado)]),
+            child: Row(children: [_buildEstadoBadge(ut.estadoConta)]),
           ),
           // Ações
           Expanded(
@@ -581,7 +583,10 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
                       child: Switch(
                         value: eAtivo,
                         activeColor: Colors.green,
-                        onChanged: (ligar) => _alterarEstadoConta(ut, ligar ? 'Ativo' : 'Inativo'),
+                        onChanged: (ligar) => _alterarEstadoConta(
+                          ut,
+                          ligar ? EstadoConta.ativo : EstadoConta.inativo,
+                        ),
                       ),
                     ),
                   IconButton(
@@ -654,24 +659,15 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
 
   // --- ESTILIZAÇÃO DOS BADGES ---
 
-  Widget _buildPerfilBadge(String perfil) {
-    final pLower = perfil.toLowerCase();
-    final bool eAdmin = pLower == 'admin' || pLower == 'administrador';
-    final bool eCliente = pLower == 'cliente';
-
-    Color fundo = const Color(0xFFEAEAEA);
-    Color texto = Colors.black87;
-    String label = 'Funcionário';
-
-    if (eAdmin) {
-      fundo = const Color(0xFF111625);
-      texto = Colors.white;
-      label = 'Administrador';
-    } else if (eCliente) {
-      fundo = Colors.blue.shade50;
-      texto = Colors.blue.shade800;
-      label = 'Cliente';
-    }
+  Widget _buildPerfilBadge(PerfilUtilizador perfil) {
+    // Um perfil não reconhecido continua a apresentar-se como "Funcionário",
+    // tal como antes (o `else` do encadeado original).
+    final (Color fundo, Color texto) = switch (perfil) {
+      PerfilUtilizador.administrador => (const Color(0xFF111625), Colors.white),
+      PerfilUtilizador.cliente => (Colors.blue.shade50, Colors.blue.shade800),
+      _ => (const Color(0xFFEAEAEA), Colors.black87),
+    };
+    final String label = perfil.etiqueta;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -686,19 +682,12 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
     );
   }
 
-  Widget _buildEstadoBadge(String estado) {
-    final eLower = estado.toLowerCase();
-
-    Color fundo = const Color(0xFF707070);
-    Color texto = Colors.white;
-
-    if (eLower == 'inativo') {
-      fundo = Colors.red.shade50;
-      texto = Colors.red.shade700;
-    } else if (eLower == 'pendente') {
-      fundo = Colors.orange.shade50;
-      texto = Colors.orange.shade800;
-    }
+  Widget _buildEstadoBadge(EstadoConta estado) {
+    final (Color fundo, Color texto) = switch (estado) {
+      EstadoConta.inativo => (Colors.red.shade50, Colors.red.shade700),
+      EstadoConta.pendente => (Colors.orange.shade50, Colors.orange.shade800),
+      EstadoConta.ativo => (const Color(0xFF707070), Colors.white),
+    };
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -707,7 +696,7 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
         borderRadius: BorderRadius.circular(12),
       ),
       child: Text(
-        estado,
+        estado.valorBd,
         style: TextStyle(color: texto, fontSize: 11, fontWeight: FontWeight.bold),
       ),
     );
@@ -715,18 +704,17 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
 
   // --- DIALOGS E PROCESSAMENTO DE DADOS ---
 
-  Future<void> _aprovarRapido(Map<String, dynamic> ut) async {
-    final uid = ut['utilizador_id'] as String;
-    await _atualizarUtilizador(uid, ut['nome_utilizador'], 'Operador', 'Ativo');
+  Future<void> _aprovarRapido(UtilizadorModel ut) async {
+    await _atualizarUtilizador(ut.utilizadorId, ut.nomeUtilizador, 'Operador', 'Ativo');
   }
 
-  Future<void> _rejeitarRegisto(Map<String, dynamic> ut) async {
+  Future<void> _rejeitarRegisto(UtilizadorModel ut) async {
     final bool? confirmar = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Rejeitar Registo'),
         content: Text(
-          'Tem a certeza de que pretende rejeitar o registo de "${ut['nome_utilizador']}"?\n\n'
+          'Tem a certeza de que pretende rejeitar o registo de "${ut.nomeUtilizador}"?\n\n'
           'A conta ficará marcada como "Inativo" e o utilizador não poderá aceder à aplicação.',
         ),
         actions: [
@@ -741,7 +729,7 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
     );
 
     if (confirmar == true) {
-      await _alterarEstadoConta(ut, 'Inativo');
+      await _alterarEstadoConta(ut, EstadoConta.inativo);
     }
   }
 
@@ -763,11 +751,9 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
     }
   }
 
-  void _abrirPainelDetalhe(Map<String, dynamic> ut) {
-    final String uid = ut['utilizador_id'].toString();
-    final String nome = (ut['nome_utilizador'] ?? 'N/A').toString();
-    final String perfil = (ut['perfil'] ?? 'Operador').toString();
-    final String estado = (ut['estado_conta'] ?? 'Ativo').toString();
+  void _abrirPainelDetalhe(UtilizadorModel ut) {
+    final String uid = ut.utilizadorId;
+    final String nome = ut.nomeUtilizador.isEmpty ? 'N/A' : ut.nomeUtilizador;
     final Map<String, dynamic>? posto = _postoPorOperador[uid];
 
     showGeneralDialog(
@@ -800,7 +786,7 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(nome, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                                Text(ut['email'] ?? 'N/A', style: TextStyle(fontSize: 13, color: Colors.grey.shade600)),
+                                Text(ut.email ?? 'N/A', style: TextStyle(fontSize: 13, color: Colors.grey.shade600)),
                               ],
                             ),
                           ),
@@ -813,9 +799,9 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
                       const SizedBox(height: 12),
                       Row(
                         children: [
-                          _buildPerfilBadge(perfil),
+                          _buildPerfilBadge(ut.perfil),
                           const SizedBox(width: 8),
-                          _buildEstadoBadge(estado),
+                          _buildEstadoBadge(ut.estadoConta),
                         ],
                       ),
                       const Divider(height: 32),
@@ -933,15 +919,19 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
     );
   }
 
-  void _abrirDialogEditar(Map<String, dynamic> ut) {
-    final nomeController = TextEditingController(text: ut['nome_utilizador']);
-    final emailController = TextEditingController(text: ut['email']);
+  void _abrirDialogEditar(UtilizadorModel ut) {
+    final nomeController = TextEditingController(text: ut.nomeUtilizador);
+    final emailController = TextEditingController(text: ut.email);
 
-    String perfilSelecionado = ut['perfil'] ?? 'Operador';
-    if (perfilSelecionado.toLowerCase() == 'admin') perfilSelecionado = 'Administrador';
-    if (perfilSelecionado.toLowerCase() == 'funcionario') perfilSelecionado = 'Operador';
+    // Os `value` do dropdown têm de coincidir exatamente com os seus
+    // `DropdownMenuItem`, que usam 'Operador' e não a etiqueta 'Funcionário'.
+    String perfilSelecionado = switch (ut.perfil) {
+      PerfilUtilizador.administrador => 'Administrador',
+      PerfilUtilizador.cliente => 'Cliente',
+      _ => 'Operador',
+    };
 
-    String estadoSelecionado = ut['estado_conta'] ?? 'Ativo';
+    String estadoSelecionado = ut.estadoConta.valorBd;
 
     showDialog(
       context: context,
@@ -1002,10 +992,9 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
                 TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
                 ElevatedButton(
                   onPressed: () {
-                    final uid = ut['utilizador_id'] as String;
                     Navigator.pop(context);
                     _atualizarUtilizador(
-                      uid,
+                      ut.utilizadorId,
                       nomeController.text.trim(),
                       perfilSelecionado == 'Administrador' ? 'Admin' : perfilSelecionado,
                       estadoSelecionado,

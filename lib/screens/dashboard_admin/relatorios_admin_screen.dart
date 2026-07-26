@@ -1,14 +1,14 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
-import 'package:pdf/pdf.dart';
-import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../../models/cliente_model.dart';
 import '../../models/encomenda_model.dart';
 import '../../repositories/clientes_repository.dart';
 import '../../repositories/encomendas_repository.dart';
 import '../../repositories/fluxos_repository.dart';
 import '../../repositories/relatorios_repository.dart';
+import '../../services/pdf_service.dart';
 
 class MouseDragScrollBehavior extends MaterialScrollBehavior {
   @override
@@ -49,7 +49,7 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
   int? _clienteSelecionadoId;
   int? _tipoProdutoSelecionadoId;
 
-  List<Map<String, dynamic>> _clientesLista = [];
+  List<ClienteModel> _clientesLista = [];
   List<Map<String, dynamic>> _tiposProdutoLista = [];
   List<Map<String, dynamic>> _feedbacks = [];
   List<EncomendaModel> _encomendasGeral = [];
@@ -220,12 +220,11 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
       final DateTime momentoEmissao = DateTime.now();
       final String dataEmissaoStr = "${momentoEmissao.day.toString().padLeft(2, '0')}/${momentoEmissao.month.toString().padLeft(2, '0')}/${momentoEmissao.year} às ${momentoEmissao.hour.toString().padLeft(2, '0')}:${momentoEmissao.minute.toString().padLeft(2, '0')}";
 
-      // RESOLVIDO: Filtro de segurança contra conflitos de tipo em tempo de execução
       String nomeClienteFiltro = 'Todos';
       if (_clienteSelecionadoId != null) {
-        final clienteFiltrado = _clientesLista.where((c) => c['id'] == _clienteSelecionadoId);
+        final clienteFiltrado = _clientesLista.where((c) => c.id == _clienteSelecionadoId);
         if (clienteFiltrado.isNotEmpty) {
-          nomeClienteFiltro = clienteFiltrado.first['nome_cliente'] ?? 'Todos';
+          nomeClienteFiltro = clienteFiltrado.first.nomeCliente;
         }
       }
 
@@ -277,112 +276,21 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
 
       final double taxaNoPeriodo = concluidasNoPeriodo > 0 ? (noPrazoNoPeriodo / concluidasNoPeriodo) : 0.0;
 
-      // Desenhar a estrutura do PDF com Carimbo de Auditoria e Segmentação
-      final pdf = pw.Document();
-      pdf.addPage(
-        pw.MultiPage(
-          pageFormat: PdfPageFormat.a4,
-          margin: const pw.EdgeInsets.all(32),
-          footer: (pw.Context context) {
-            return pw.Container(
-              alignment: pw.Alignment.centerRight,
-              margin: const pw.EdgeInsets.only(top: 10),
-              padding: const pw.EdgeInsets.only(top: 10),
-              decoration: const pw.BoxDecoration(border: pw.Border(top: pw.BorderSide(color: PdfColors.grey300))),
-              child: pw.Text(
-                'Documento Auditado - Gerado por: $utilizadorAuditoria em $dataEmissaoStr',
-                style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600),
-              ),
-            );
-          },
-          build: (pw.Context context) => [
-            pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-              children: [
-                pw.Text('SISTEMA INDUSTRIAL', style: pw.TextStyle(fontSize: 22, fontWeight: pw.FontWeight.bold, color: PdfColors.blueGrey900)),
-                pw.Text('Relatorio de Producao', style: const pw.TextStyle(fontSize: 12, color: PdfColors.grey600)),
-              ],
-            ),
-            pw.SizedBox(height: 8),
-            pw.Divider(thickness: 1, color: PdfColors.grey400),
-            pw.SizedBox(height: 10),
-            
-            // Secção de Parâmetros de Filtro
-            pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-              children: [
-                pw.Text('Periodo: ${_dataInicioController.text} ate ${_dataFimController.text}', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
-                pw.Text('Emitido por: $utilizadorAuditoria', style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
-              ],
-            ),
-            pw.SizedBox(height: 4),
-            pw.Row(
-              children: [
-                pw.Text('Filtros Aplicados: ', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: PdfColors.blueGrey800)),
-                pw.Text('Cliente: $nomeClienteFiltro  |  Produto: $nomeProdutoFiltro', style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey800)),
-              ],
-            ),
-            pw.SizedBox(height: 20),
-
-            pw.Text('Indicadores de Desempenho do Periodo', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold, color: PdfColors.blueGrey800)),
-            pw.SizedBox(height: 8),
-            pw.Container(
-              padding: const pw.EdgeInsets.all(16),
-              decoration: pw.BoxDecoration(
-                border: pw.Border.all(color: PdfColors.grey300),
-                borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
-                color: PdfColors.grey100,
-              ),
-              child: pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceAround,
-                children: [
-                  pw.Column(children: [
-                    pw.Text('Ordens Concluidas', style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
-                    pw.SizedBox(height: 4),
-                    pw.Text('$concluidasNoPeriodo', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
-                  ]),
-                  pw.Column(children: [
-                    pw.Text('Taxa de Entrega no Prazo', style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
-                    pw.SizedBox(height: 4),
-                    pw.Text('${(taxaNoPeriodo * 100).toInt()}%', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold, color: taxaNoPeriodo >= 0.8 ? PdfColors.green700 : PdfColors.red700)),
-                  ]),
-                  pw.Column(children: [
-                    pw.Text('Satisfacao Media Geral', style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
-                    pw.SizedBox(height: 4),
-                    pw.Text('$_avaliacaoMedia / 5.0', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
-                  ]),
-                ],
-              ),
-            ),
-            pw.SizedBox(height: 24),
-
-            pw.Text('Listagem Analitica de Ordens Finalizadas', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold, color: PdfColors.blueGrey800)),
-            pw.SizedBox(height: 8),
-            linhasTabelaPDF.isEmpty
-                ? pw.Padding(
-                    padding: const pw.EdgeInsets.only(top: 16),
-                    child: pw.Center(child: pw.Text('Nenhuma ordem de producao corresponde aos filtros selecionados.', style: pw.TextStyle(fontStyle: pw.FontStyle.italic, color: PdfColors.grey600))),
-                  )
-                : pw.Table.fromTextArray(
-                    headers: ['Codigo', 'Cliente', 'Produto', 'Data Conclusao', 'Estado'],
-                    data: linhasTabelaPDF,
-                    headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, color: PdfColors.white, fontSize: 11),
-                    headerDecoration: const pw.BoxDecoration(color: PdfColors.blueGrey800),
-                    cellStyle: const pw.TextStyle(fontSize: 10),
-                    cellHeight: 24,
-                    cellAlignments: {
-                      0: pw.Alignment.centerLeft,
-                      1: pw.Alignment.centerLeft,
-                      2: pw.Alignment.centerLeft,
-                      3: pw.Alignment.center,
-                      4: pw.Alignment.center,
-                    },
-                  ),
-          ],
+      // O desenho do documento vive no PdfService; aqui ficam apenas os dados.
+      final bytesPDF = await PdfService.gerarRelatorioProducao(
+        ParametrosRelatorioProducao(
+          periodoInicio: _dataInicioController.text,
+          periodoFim: _dataFimController.text,
+          nomeClienteFiltro: nomeClienteFiltro,
+          nomeProdutoFiltro: nomeProdutoFiltro,
+          utilizadorAuditoria: utilizadorAuditoria,
+          dataEmissao: dataEmissaoStr,
+          concluidasNoPeriodo: concluidasNoPeriodo,
+          taxaNoPeriodo: taxaNoPeriodo,
+          avaliacaoMedia: _avaliacaoMedia,
+          linhas: linhasTabelaPDF,
         ),
       );
-
-      final bytesPDF = await pdf.save();
 
       // --- PERSISTÊNCIA DE AUDITORIA NO SUPABASE ---
       try {
@@ -583,8 +491,8 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
                   ),
                   ..._clientesLista.map((c) {
                     return DropdownMenuItem<int?>(
-                      value: c['id'] as int,
-                      child: Text(c['nome_cliente'] ?? '', style: const TextStyle(fontSize: 13)),
+                      value: c.id,
+                      child: Text(c.nomeCliente, style: const TextStyle(fontSize: 13)),
                     );
                   }),
                 ],

@@ -1,4 +1,6 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../models/cliente_model.dart';
+import '../models/pedido_model.dart';
 import 'base_repository.dart';
 
 /// Carteira de clientes e pedidos submetidos pelo portal B2B.
@@ -6,28 +8,29 @@ class ClientesRepository extends BaseRepository {
   // --- CLIENTES ---
 
   /// Clientes com o histórico de encomendas e os pedidos da app.
-  Future<List<Map<String, dynamic>>> obterComHistorico() {
+  Future<List<ClienteModel>> obterComHistorico() {
     return guarda('carregar a base de dados de clientes', () async {
       final dados = await client
           .from('clientes')
           .select('id, nome_cliente, contacto, email, ativo, nif, pessoa_contacto, morada, '
+              'utilizador_id, '
               'encomendas(id, codigo_rastreio, data_entrega, quantidade, prioridade, '
               'tipos_produto:tipos_produtos_id(nome_tipo_produto)), '
               'pedidos_encomenda(id, quantidade, observacoes, estado, '
               'tipos_produto:tipo_produto_id(nome_tipo_produto))')
           .order('nome_cliente', ascending: true);
-      return comoLista(dados);
+      return comoLista(dados).map(ClienteModel.fromJson).toList();
     });
   }
 
-  /// Versão reduzida para dropdowns.
-  Future<List<Map<String, dynamic>>> obterParaSelecao() {
+  /// Versão reduzida para dropdowns (só `id` e nome preenchidos).
+  Future<List<ClienteModel>> obterParaSelecao() {
     return guarda('carregar os clientes', () async {
       final dados = await client
           .from('clientes')
           .select('id, nome_cliente')
           .order('nome_cliente', ascending: true);
-      return comoLista(dados);
+      return comoLista(dados).map(ClienteModel.fromJson).toList();
     });
   }
 
@@ -46,7 +49,7 @@ class ClientesRepository extends BaseRepository {
   // --- PEDIDOS DO PORTAL B2B ---
 
   /// Todos os pedidos com cliente e produto, mais recentes primeiro.
-  Future<List<Map<String, dynamic>>> obterPedidos() {
+  Future<List<PedidoModel>> obterPedidos() {
     return guarda('carregar os pedidos', () async {
       final dados = await client
           .from('pedidos_encomenda')
@@ -62,12 +65,12 @@ class ClientesRepository extends BaseRepository {
             tipos_produto ( id, nome_tipo_produto )
           ''')
           .order('created_at', ascending: false);
-      return comoLista(dados);
+      return comoLista(dados).map(PedidoModel.fromJson).toList();
     });
   }
 
   /// Pedidos já aprovados que aguardam agendamento de produção.
-  Future<List<Map<String, dynamic>>> obterPedidosAprovados() {
+  Future<List<PedidoModel>> obterPedidosAprovados() {
     return guarda('carregar os pedidos aprovados', () async {
       final dados = await client
           .from('pedidos_encomenda')
@@ -75,7 +78,7 @@ class ClientesRepository extends BaseRepository {
               'clientes(nome_cliente), tipos_produto:tipo_produto_id(nome_tipo_produto)')
           .or('estado.ilike.Aprovado%,estado.eq.Aprovado')
           .order('id', ascending: false);
-      return comoLista(dados);
+      return comoLista(dados).map(PedidoModel.fromJson).toList();
     });
   }
 
@@ -96,13 +99,19 @@ class ClientesRepository extends BaseRepository {
 
   Future<void> rejeitarPedido(int pedidoId) {
     return guarda('rejeitar o pedido', () async {
-      await client.from('pedidos_encomenda').update({'estado': 'Rejeitado'}).eq('id', pedidoId);
+      await client
+          .from('pedidos_encomenda')
+          .update({'estado': EstadoPedido.rejeitado.valorBd})
+          .eq('id', pedidoId);
     });
   }
 
   Future<void> marcarPedidoEmProducao(int pedidoId) {
     return guarda('atualizar o estado do pedido', () async {
-      await client.from('pedidos_encomenda').update({'estado': 'Em Produção'}).eq('id', pedidoId);
+      await client
+          .from('pedidos_encomenda')
+          .update({'estado': EstadoPedido.emProducao.valorBd})
+          .eq('id', pedidoId);
     });
   }
 

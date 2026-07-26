@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import '../../models/pedido_model.dart';
 import '../../repositories/clientes_repository.dart';
 
 class PedidosClientesAdminScreen extends StatefulWidget {
@@ -11,7 +12,7 @@ class PedidosClientesAdminScreen extends StatefulWidget {
 
 class _PedidosClientesAdminScreenState extends State<PedidosClientesAdminScreen> {
   final _clientesRepo = ClientesRepository();
-  List<dynamic> _pedidos = [];
+  List<PedidoModel> _pedidos = [];
   bool _isLoading = true;
 
   @override
@@ -42,7 +43,120 @@ class _PedidosClientesAdminScreenState extends State<PedidosClientesAdminScreen>
     return 'TRC-$codigo';
   }
 
-  Future<void> _aprovarELancarEncomenda(Map<String, dynamic> pedido) async {
+  /// Cartão de um pedido de cliente.
+  ///
+  /// Nota sobre as cores: o estado "Aprovado" mostra-se em verde e **todos os
+  /// outros estados não-pendentes em vermelho**, incluindo "Em Produção". Este
+  /// comportamento vinha do código original e foi preservado deliberadamente
+  /// neste refactor — ver a nota em ARQUITETURA_REFACTOR.md.
+  Widget _buildPedidoCard(PedidoModel p) {
+    final bool isPendente = p.estado.aguardaDecisao;
+    final bool isAprovado = p.estado == EstadoPedido.aprovado;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 16),
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: Colors.grey.shade200),
+      ),
+      color: Colors.white,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Row(
+          children: [
+            _buildIconeEstado(isPendente: isPendente, isAprovado: isAprovado),
+            const SizedBox(width: 16),
+            Expanded(child: _buildResumoPedido(p)),
+            if (isPendente)
+              _buildAcoesPendente(p)
+            else
+              _buildBadgeEstado(p, isAprovado: isAprovado),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildIconeEstado({required bool isPendente, required bool isAprovado}) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: isPendente
+            ? Colors.amber.shade50
+            : (isAprovado ? Colors.green.shade50 : Colors.red.shade50),
+        shape: BoxShape.circle,
+      ),
+      child: Icon(
+        isPendente
+            ? Icons.pending_actions
+            : (isAprovado ? Icons.check_circle_outline : Icons.cancel_outlined),
+        color: isPendente ? Colors.amber.shade800 : (isAprovado ? Colors.green : Colors.red),
+      ),
+    );
+  }
+
+  Widget _buildResumoPedido(PedidoModel p) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '${p.nomeCliente ?? 'Cliente'} — ${p.nomeProduto ?? 'Artigo'} (${p.quantidade} unid.)',
+          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+        ),
+        if (p.temObservacoes) ...[
+          const SizedBox(height: 4),
+          Text(
+            'Obs: ${p.observacoes}',
+            style: const TextStyle(color: Color(0xFF64748B), fontSize: 13),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildAcoesPendente(PedidoModel p) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        OutlinedButton(
+          onPressed: () => _rejeitarPedido(p.id),
+          style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
+          child: const Text('Rejeitar'),
+        ),
+        const SizedBox(width: 12),
+        ElevatedButton.icon(
+          onPressed: () => _aprovarELancarEncomenda(p),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.blue,
+            foregroundColor: Colors.white,
+          ),
+          icon: const Icon(Icons.rocket_launch, size: 18),
+          label: const Text('Aprovar e Lançar'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBadgeEstado(PedidoModel p, {required bool isAprovado}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+      decoration: BoxDecoration(
+        color: isAprovado ? Colors.green.shade100 : Colors.red.shade100,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        p.estado.etiqueta.toUpperCase(),
+        style: TextStyle(
+          color: isAprovado ? Colors.green.shade900 : Colors.red.shade900,
+          fontWeight: FontWeight.bold,
+          fontSize: 12,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _aprovarELancarEncomenda(PedidoModel pedido) async {
     DateTime dataEntregaSelecionada = DateTime.now().add(const Duration(days: 15));
 
     // Modal para selecionar data de entrega prevista antes do lançamento
@@ -68,7 +182,7 @@ class _PedidosClientesAdminScreenState extends State<PedidosClientesAdminScreen>
       // `nome_utilizador` com `nome_cliente`, o que falhava ou acertava na pessoa
       // errada perante nomes repetidos ou ligeiramente diferentes.
       await _clientesRepo.aprovarPedido(
-        pedidoId: pedido['id'] as int,
+        pedidoId: pedido.id,
         dataEntrega: dataFormatted,
         codigoRastreio: codigoRastreio,
       );
@@ -149,99 +263,7 @@ class _PedidosClientesAdminScreenState extends State<PedidosClientesAdminScreen>
                         ? const Center(child: Text('Nenhum pedido de encomenda registado.'))
                         : ListView.builder(
                             itemCount: _pedidos.length,
-                            itemBuilder: (context, index) {
-                              final p = _pedidos[index];
-                              final String clienteNome = p['clientes']?['nome_cliente'] ?? 'Cliente';
-                              final String produtoNome = p['tipos_produto']?['nome_tipo_produto'] ?? 'Artigo';
-                              final String estado = p['estado'] ?? 'Pendente';
-                              final bool isPendente = estado == 'Pendente';
-
-                              return Card(
-                                margin: const EdgeInsets.only(bottom: 16),
-                                elevation: 0,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                  side: BorderSide(color: Colors.grey.shade200),
-                                ),
-                                color: Colors.white,
-                                child: Padding(
-                                  padding: const EdgeInsets.all(20),
-                                  child: Row(
-                                    children: [
-                                      Container(
-                                        padding: const EdgeInsets.all(12),
-                                        decoration: BoxDecoration(
-                                          color: isPendente
-                                              ? Colors.amber.shade50
-                                              : (estado == 'Aprovado' ? Colors.green.shade50 : Colors.red.shade50),
-                                          shape: BoxShape.circle,
-                                        ),
-                                        child: Icon(
-                                          isPendente
-                                              ? Icons.pending_actions
-                                              : (estado == 'Aprovado' ? Icons.check_circle_outline : Icons.cancel_outlined),
-                                          color: isPendente
-                                              ? Colors.amber.shade800
-                                              : (estado == 'Aprovado' ? Colors.green : Colors.red),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 16),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              '$clienteNome — $produtoNome (${p['quantidade']} unid.)',
-                                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                                            ),
-                                            if (p['observacoes'] != null) ...[
-                                              const SizedBox(height: 4),
-                                              Text(
-                                                'Obs: ${p['observacoes']}',
-                                                style: const TextStyle(color: Color(0xFF64748B), fontSize: 13),
-                                              ),
-                                            ],
-                                          ],
-                                        ),
-                                      ),
-                                      if (isPendente) ...[
-                                        OutlinedButton(
-                                          onPressed: () => _rejeitarPedido(p['id']),
-                                          style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
-                                          child: const Text('Rejeitar'),
-                                        ),
-                                        const SizedBox(width: 12),
-                                        ElevatedButton.icon(
-                                          onPressed: () => _aprovarELancarEncomenda(p),
-                                          style: ElevatedButton.styleFrom(
-                                            backgroundColor: Colors.blue,
-                                            foregroundColor: Colors.white,
-                                          ),
-                                          icon: const Icon(Icons.rocket_launch, size: 18),
-                                          label: const Text('Aprovar e Lançar'),
-                                        ),
-                                      ] else ...[
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                                          decoration: BoxDecoration(
-                                            color: estado == 'Aprovado' ? Colors.green.shade100 : Colors.red.shade100,
-                                            borderRadius: BorderRadius.circular(20),
-                                          ),
-                                          child: Text(
-                                            estado.toUpperCase(),
-                                            style: TextStyle(
-                                              color: estado == 'Aprovado' ? Colors.green.shade900 : Colors.red.shade900,
-                                              fontWeight: FontWeight.bold,
-                                              fontSize: 12,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ],
-                                  ),
-                                ),
-                              );
-                            },
+                            itemBuilder: (context, index) => _buildPedidoCard(_pedidos[index]),
                           ),
                   ),
                 ],
