@@ -1,7 +1,11 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show RealtimeChannel;
+import '../../core/iniciais.dart';
 import '../../core/temas_cores.dart';
+import '../../core/mensagens.dart';
+import 'widgets/cartao_kpi.dart';
+import 'widgets/etiqueta_estado.dart';
 import '../../models/utilizador_model.dart';
 import '../../repositories/postos_repository.dart';
 import '../../repositories/utilizadores_repository.dart';
@@ -196,12 +200,7 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
 
   void _mostrarMensagem(String msg, {bool eErro = false}) {
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(msg),
-          backgroundColor: eErro ? TemasCores.vermelhoErro : TemasCores.verdeSucesso,
-        ),
-      );
+      context.mostrarMensagem(msg, eErro: eErro);
     }
   }
 
@@ -223,7 +222,7 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey.shade50,
+      backgroundColor: TemasCores.fundoEcra,
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
@@ -237,11 +236,11 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
 
                   // --- CARTÃO PRINCIPAL COM TABELA ---
                   Card(
-                    color: Colors.white,
+                    color: TemasCores.superficie,
                     elevation: 1,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
-                      side: BorderSide(color: Colors.grey.shade200),
+                      side: const BorderSide(color: TemasCores.borda),
                     ),
                     child: Padding(
                       padding: const EdgeInsets.all(24),
@@ -254,7 +253,7 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
                           const SizedBox(height: 12),
                           Text(
                             'A mostrar ${_utilizadoresFiltrados.length} de $_totalUtilizadores utilizadores',
-                            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                            style: const TextStyle(fontSize: 12, color: TemasCores.textoApoio),
                           ),
                           const SizedBox(height: 12),
                           _buildTabela(),
@@ -272,10 +271,10 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final cards = [
-          _buildKpiCard('Total de Utilizadores', '$_totalUtilizadores', Icons.people_outline, Colors.indigo),
-          _buildKpiCard('Contas Ativas', '$_totalAtivos', Icons.check_circle_outline, Colors.green),
-          _buildKpiCard('Pendentes de Aprovação', '$_totalPendentes', Icons.hourglass_empty, Colors.orange),
-          _buildKpiCard('Administradores', '$_totalAdmins', Icons.shield_outlined, Colors.deepPurple),
+          _buildKpiCard('Total de Utilizadores', '$_totalUtilizadores', Icons.people_outline, TemasCores.acentoIndigo),
+          _buildKpiCard('Contas Ativas', '$_totalAtivos', Icons.check_circle_outline, TemasCores.sucesso),
+          _buildKpiCard('Pendentes de Aprovação', '$_totalPendentes', Icons.hourglass_empty, TemasCores.alerta),
+          _buildKpiCard('Administradores', '$_totalAdmins', Icons.shield_outlined, TemasCores.acentoRoxo),
         ];
 
         // Responsivo: 4 numa linha em ecrãs largos, 2 em médios, 1 em pequenos
@@ -294,40 +293,12 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
   }
 
   Widget _buildKpiCard(String titulo, String valor, IconData icone, Color cor) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade200),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4)),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: cor.withOpacity(0.12),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(icone, color: cor, size: 24),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(valor, style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: cor)),
-                const SizedBox(height: 2),
-                Text(titulo, style: const TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.w500)),
-              ],
-            ),
-          ),
-        ],
-      ),
+    return ItemKpiCompacto(
+      estilo: EstiloKpi.utilizadores,
+      titulo: titulo,
+      valor: valor,
+      icone: icone,
+      cor: cor,
     );
   }
 
@@ -338,7 +309,7 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
         const Flexible(
           child: Text(
             'Gestão de Utilizadores',
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87),
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: TemasCores.textoPrimario),
           ),
         ),
         Row(
@@ -348,14 +319,14 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
               onPressed: _carregarUtilizadores,
               icon: const Icon(Icons.refresh),
               tooltip: 'Atualizar lista',
-              color: Colors.black54,
+              color: TemasCores.textoSecundario,
             ),
             const SizedBox(width: 8),
             ElevatedButton.icon(
               onPressed: _abrirDialogAdicionar,
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.black,
-                foregroundColor: Colors.white,
+                backgroundColor: TemasCores.acaoPrincipal,
+                foregroundColor: TemasCores.textoInverso,
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
               ),
@@ -377,10 +348,10 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
             controller: _searchController,
             decoration: InputDecoration(
               hintText: 'Pesquisar por nome ou email...',
-              prefixIcon: const Icon(Icons.search, color: Colors.grey, size: 20),
+              prefixIcon: const Icon(Icons.search, color: TemasCores.textoTerciario, size: 20),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(8),
-                borderSide: BorderSide(color: Colors.grey.shade300),
+                borderSide: const BorderSide(color: TemasCores.bordaForte),
               ),
               contentPadding: const EdgeInsets.symmetric(vertical: 0),
             ),
@@ -394,7 +365,7 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
             decoration: InputDecoration(
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(8),
-                borderSide: BorderSide(color: Colors.grey.shade300),
+                borderSide: const BorderSide(color: TemasCores.bordaForte),
               ),
               contentPadding: const EdgeInsets.symmetric(horizontal: 12),
             ),
@@ -422,7 +393,7 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: 40),
         child: Center(
-          child: Text('Nenhum utilizador encontrado.', style: TextStyle(color: Colors.grey)),
+          child: Text('Nenhum utilizador encontrado.', style: TextStyle(color: TemasCores.textoTerciario)),
         ),
       );
     }
@@ -461,7 +432,7 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
                 titulo,
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
-                  color: ativa ? Colors.black87 : Colors.grey,
+                  color: ativa ? TemasCores.textoPrimario : TemasCores.textoTerciario,
                   fontSize: 13,
                 ),
               ),
@@ -469,7 +440,7 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
                 Icon(
                   _ordemAscendente ? Icons.arrow_upward : Icons.arrow_downward,
                   size: 14,
-                  color: Colors.black87,
+                  color: TemasCores.textoPrimario,
                 ),
             ],
           ),
@@ -491,7 +462,7 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
             flex: 3,
             child: Align(
               alignment: Alignment.centerRight,
-              child: Text('Ações', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey, fontSize: 13)),
+              child: Text('Ações', style: TextStyle(fontWeight: FontWeight.bold, color: TemasCores.textoTerciario, fontSize: 13)),
             ),
           ),
         ],
@@ -527,7 +498,7 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
                     children: [
                       Text(
                         nome,
-                        style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.black87, fontSize: 14),
+                        style: const TextStyle(fontWeight: FontWeight.w600, color: TemasCores.textoPrimario, fontSize: 14),
                         overflow: TextOverflow.ellipsis,
                       ),
                       if (eOperador) _buildChipPosto(posto),
@@ -542,7 +513,7 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
             flex: 4,
             child: Text(
               ut.email ?? 'N/A',
-              style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
+              style: const TextStyle(color: TemasCores.textoApoio, fontSize: 14),
               overflow: TextOverflow.ellipsis,
             ),
           ),
@@ -567,12 +538,12 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
                   // Fluxo de pendentes: aprovar / rejeitar
                   if (ePendente) ...[
                     IconButton(
-                      icon: const Icon(Icons.check_circle_outline, color: Colors.green, size: 20),
+                      icon: const Icon(Icons.check_circle_outline, color: TemasCores.sucesso, size: 20),
                       tooltip: 'Aprovar Registo',
                       onPressed: () => _aprovarRapido(ut),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.cancel_outlined, color: Colors.red, size: 20),
+                      icon: const Icon(Icons.cancel_outlined, color: TemasCores.erro, size: 20),
                       tooltip: 'Rejeitar Registo',
                       onPressed: () => _rejeitarRegisto(ut),
                     ),
@@ -582,7 +553,7 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
                       message: eAtivo ? 'Desativar conta' : 'Ativar conta',
                       child: Switch(
                         value: eAtivo,
-                        activeColor: Colors.green,
+                        activeColor: TemasCores.sucesso,
                         onChanged: (ligar) => _alterarEstadoConta(
                           ut,
                           ligar ? EstadoConta.ativo : EstadoConta.inativo,
@@ -590,7 +561,7 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
                       ),
                     ),
                   IconButton(
-                    icon: const Icon(Icons.edit_outlined, color: Colors.black54, size: 20),
+                    icon: const Icon(Icons.edit_outlined, color: TemasCores.textoSecundario, size: 20),
                     tooltip: 'Editar Utilizador',
                     onPressed: () => _abrirDialogEditar(ut),
                   ),
@@ -608,7 +579,7 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
   Widget _buildChipPosto(Map<String, dynamic>? posto) {
     final bool temPosto = posto != null && (posto['nome_posto']?.toString().trim().isNotEmpty ?? false);
     final String label = temPosto ? posto['nome_posto'].toString() : 'Sem posto';
-    final Color cor = temPosto ? Colors.teal : Colors.grey;
+    final Color cor = temPosto ? TemasCores.acentoTurquesa : TemasCores.textoTerciario;
 
     return Padding(
       padding: const EdgeInsets.only(top: 3),
@@ -630,22 +601,13 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
   }
 
   Widget _buildAvatar(String nome) {
-    final partes = nome.trim().split(RegExp(r'\s+'));
-    String iniciais;
-    if (partes.isEmpty || partes.first.isEmpty) {
-      iniciais = '?';
-    } else if (partes.length == 1) {
-      iniciais = partes.first.substring(0, 1).toUpperCase();
-    } else {
-      iniciais = (partes.first.substring(0, 1) + partes.last.substring(0, 1)).toUpperCase();
-    }
-
-    // Cor determinística a partir do nome
-    final cores = [
-      Colors.indigo, Colors.teal, Colors.deepOrange, Colors.purple,
-      Colors.blue, Colors.green, Colors.red, Colors.brown,
-    ];
-    final cor = cores[nome.hashCode.abs() % cores.length];
+    final iniciais = obterIniciais(
+      nome,
+      omissao: '?',
+      letrasNomeUnico: 1,
+      usarUltimoNome: true,
+    );
+    final cor = corAvatar(nome);
 
     return CircleAvatar(
       radius: 16,
@@ -663,43 +625,21 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
     // Um perfil não reconhecido continua a apresentar-se como "Funcionário",
     // tal como antes (o `else` do encadeado original).
     final (Color fundo, Color texto) = switch (perfil) {
-      PerfilUtilizador.administrador => (const Color(0xFF111625), Colors.white),
-      PerfilUtilizador.cliente => (Colors.blue.shade50, Colors.blue.shade800),
-      _ => (const Color(0xFFEAEAEA), Colors.black87),
+      PerfilUtilizador.administrador => (TemasCores.marcaEscura, TemasCores.textoInverso),
+      PerfilUtilizador.cliente => (TemasCores.infoFundo, TemasCores.infoTextoForte),
+      _ => (TemasCores.estadoInativoFundo, TemasCores.textoPrimario),
     };
-    final String label = perfil.etiqueta;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: fundo,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(color: texto, fontSize: 11, fontWeight: FontWeight.bold),
-      ),
-    );
+    return EtiquetaEstado.pilula(rotulo: perfil.etiqueta, fundo: fundo, texto: texto);
   }
 
   Widget _buildEstadoBadge(EstadoConta estado) {
     final (Color fundo, Color texto) = switch (estado) {
-      EstadoConta.inativo => (Colors.red.shade50, Colors.red.shade700),
-      EstadoConta.pendente => (Colors.orange.shade50, Colors.orange.shade800),
-      EstadoConta.ativo => (const Color(0xFF707070), Colors.white),
+      EstadoConta.inativo => (TemasCores.erroFundo, TemasCores.erroTexto),
+      EstadoConta.pendente => (TemasCores.alertaFundo, TemasCores.alertaTexto),
+      EstadoConta.ativo => (TemasCores.estadoAtivoFundo, TemasCores.textoInverso),
     };
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: fundo,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Text(
-        estado.valorBd,
-        style: TextStyle(color: texto, fontSize: 11, fontWeight: FontWeight.bold),
-      ),
-    );
+    return EtiquetaEstado.pilula(rotulo: estado.valorBd, fundo: fundo, texto: texto);
   }
 
   // --- DIALOGS E PROCESSAMENTO DE DADOS ---
@@ -720,7 +660,7 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(backgroundColor: TemasCores.erro, foregroundColor: TemasCores.textoInverso),
             onPressed: () => Navigator.pop(context, true),
             child: const Text('Rejeitar'),
           ),
@@ -760,13 +700,13 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
       context: context,
       barrierDismissible: true,
       barrierLabel: 'Fechar',
-      barrierColor: Colors.black54,
+      barrierColor: TemasCores.veuModal,
       transitionDuration: const Duration(milliseconds: 220),
       pageBuilder: (context, anim1, anim2) {
         return Align(
           alignment: Alignment.centerRight,
           child: Material(
-            color: Colors.white,
+            color: TemasCores.superficie,
             child: SizedBox(
               width: 420,
               height: double.infinity,
@@ -786,7 +726,7 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(nome, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                                Text(ut.email ?? 'N/A', style: TextStyle(fontSize: 13, color: Colors.grey.shade600)),
+                                Text(ut.email ?? 'N/A', style: const TextStyle(fontSize: 13, color: TemasCores.textoApoio)),
                               ],
                             ),
                           ),
@@ -813,7 +753,7 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
                         posto != null && (posto['nome_posto']?.toString().isNotEmpty ?? false)
                             ? '${posto['nome_posto']}  (${posto['estado'] ?? 'N/D'})'
                             : 'Nenhum posto atribuído',
-                        Colors.teal,
+                        TemasCores.acentoTurquesa,
                       ),
 
                       // Métricas carregadas de forma assíncrona
@@ -831,7 +771,7 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
                               return Padding(
                                 padding: const EdgeInsets.only(top: 24),
                                 child: Text('Erro ao carregar métricas: ${snapshot.error}',
-                                    style: const TextStyle(color: Colors.red)),
+                                    style: const TextStyle(color: TemasCores.erro)),
                               );
                             }
                             final m = snapshot.data ?? {};
@@ -842,19 +782,19 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
                                   Icons.check_circle_outline,
                                   'Fases de produção concluídas',
                                   '${m['fasesConcluidas'] ?? 0}',
-                                  Colors.green,
+                                  TemasCores.sucesso,
                                 ),
                                 _buildLinhaDetalhe(
                                   Icons.schedule,
                                   'Última atividade',
                                   _formatarData(m['ultimaAtividade']),
-                                  Colors.indigo,
+                                  TemasCores.acentoIndigo,
                                 ),
                                 _buildLinhaDetalhe(
                                   Icons.build_outlined,
                                   'Intervenções como técnico',
                                   '${m['incidencias'] ?? 0}',
-                                  Colors.deepOrange,
+                                  TemasCores.acentoLaranjaEscuro,
                                 ),
                               ],
                             );
@@ -908,9 +848,9 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(titulo, style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                Text(titulo, style: const TextStyle(fontSize: 12, color: TemasCores.textoApoio)),
                 const SizedBox(height: 2),
-                Text(valor, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Colors.black87)),
+                Text(valor, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: TemasCores.textoPrimario)),
               ],
             ),
           ),
@@ -1048,7 +988,7 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
                       Text(
                         'A conta é criada de imediato como Operador (Ativo). '
                         'Entregue estas credenciais ao funcionário para ele iniciar sessão.',
-                        style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                        style: const TextStyle(fontSize: 12, color: TemasCores.textoApoio),
                       ),
                       const SizedBox(height: 16),
                       TextFormField(
@@ -1125,7 +1065,7 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
                       ? const SizedBox(
                           width: 18,
                           height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          child: CircularProgressIndicator(strokeWidth: 2, color: TemasCores.textoInverso),
                         )
                       : const Text('Criar Funcionário'),
                 ),

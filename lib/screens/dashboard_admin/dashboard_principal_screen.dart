@@ -1,9 +1,12 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show RealtimeChannel;
+import '../../core/realtime.dart';
+import '../../core/temas_cores.dart';
 import '../../models/encomenda_model.dart';
 import '../../repositories/encomendas_repository.dart';
 import '../../repositories/fluxos_repository.dart';
+import 'widgets/cartao_kpi.dart';
 
 class DashboardPrincipalScreen extends StatefulWidget {
   const DashboardPrincipalScreen({super.key});
@@ -49,18 +52,33 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
   @override
   void dispose() {
     _everySecondTimer?.cancel();
+    _recarregador.descartar();
     if (_factorySubscription != null) {
       _encomendasRepo.client.removeChannel(_factorySubscription!);
     }
     super.dispose();
   }
 
+  /// Junta os eventos de uma rajada num só recarregamento.
+  ///
+  /// Todos os números deste ecrã são agregados sobre o conjunto inteiro
+  /// (ocupação por fase, OEE, atrasadas, concluídas hoje): não há como os
+  /// incrementar a partir de um evento isolado sem arriscar deriva acumulada, e
+  /// cada recarregamento custa quatro queries. Aqui a resposta é só o debounce —
+  /// mas com janela larga, porque estes indicadores são de leitura e não de
+  /// reação. A primeira alteração continua a aparecer de imediato.
+  late final RecarregadorDebounced _recarregador = RecarregadorDebounced(
+    aoRecarregar: _carregarDadosDashboard,
+    janela: janelaRealtimeAgregado,
+    tetoEspera: tetoRealtimeAgregado,
+  );
+
   /// ⚡ Liga o canal de escuta em tempo real às tabelas de encomendas e incidências
   void _inicializarSubscricaoTempoReal() {
-    _factorySubscription = _encomendasRepo.escutarProducao('db-factory-changes', () {
-      debugPrint('⚡ [Realtime] Alteração na produção! Recarregando...');
-      _carregarDadosDashboard();
-    });
+    _factorySubscription = _encomendasRepo.escutarProducao(
+      'db-factory-changes',
+      (_) => _recarregador.pedir(),
+    );
   }
 
   /// Carrega e calcula todas as métricas com base no teu esquema relacional real
@@ -197,7 +215,7 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
     final bool eDesktop = larguraEcra > 950;
 
     return Scaffold(
-      backgroundColor: Colors.grey.shade50,
+      backgroundColor: TemasCores.fundoEcra,
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
@@ -221,16 +239,16 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
                             titulo: 'Encomendas Ativas',
                             valor: '$_encomendasAtivas',
                             subtitulo: 'A decorrer na fábrica',
-                            corIcone: Colors.blue.shade600,
-                            fundoIcone: Colors.blue.shade50,
+                            corIcone: TemasCores.infoForte,
+                            fundoIcone: TemasCores.infoFundo,
                             icone: Icons.precision_manufacturing_outlined,
                           ),
                           _buildKpiCard(
                             titulo: 'Encomendas Atrasadas',
                             valor: '$_encomendasAtrasadas',
                             subtitulo: 'Prazo de entrega expirado',
-                            corIcone: Colors.red.shade600,
-                            fundoIcone: Colors.red.shade50,
+                            corIcone: TemasCores.erroForte,
+                            fundoIcone: TemasCores.erroFundo,
                             icone: Icons.warning_amber_rounded,
                             alerta: _encomendasAtrasadas > 0,
                           ),
@@ -238,16 +256,16 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
                             titulo: 'Concluídas Hoje',
                             valor: '$_concluidasHoje',
                             subtitulo: 'Finalizadas nas últimas 24h',
-                            corIcone: Colors.green.shade600,
-                            fundoIcone: Colors.green.shade50,
+                            corIcone: TemasCores.sucessoForte,
+                            fundoIcone: TemasCores.sucessoFundo,
                             icone: Icons.check_circle_outline,
                           ),
                           _buildKpiCard(
                             titulo: 'Disponibilidade de Postos',
                             valor: '${_disponibilidadeOEE.toStringAsFixed(0)}%',
                             subtitulo: 'Métrica de OEE Industrial',
-                            corIcone: Colors.deepPurple.shade600,
-                            fundoIcone: Colors.deepPurple.shade50,
+                            corIcone: TemasCores.acentoRoxoForte,
+                            fundoIcone: TemasCores.acentoRoxoFundo,
                             icone: Icons.bolt_outlined,
                             alerta: _disponibilidadeOEE < 90,
                           ),
@@ -287,7 +305,7 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
           children: [
             const Text(
               'Painel de Controlo Operacional',
-              style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: Colors.black87),
+              style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: TemasCores.textoPrimario),
             ),
             const SizedBox(height: 4),
             Row(
@@ -296,14 +314,14 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
                   width: 8,
                   height: 8,
                   decoration: const BoxDecoration(
-                    color: Colors.green,
+                    color: TemasCores.sucesso,
                     shape: BoxShape.circle,
                   ),
                 ),
                 const SizedBox(width: 8),
                 Text(
                   'Ligação ao Chão de Fábrica Ativa',
-                  style: TextStyle(fontSize: 13, color: Colors.grey.shade600, fontWeight: FontWeight.w500),
+                  style: TextStyle(fontSize: 13, color: TemasCores.textoApoio, fontWeight: FontWeight.w500),
                 ),
               ],
             ),
@@ -327,53 +345,15 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
     required IconData icone,
     bool alerta = false,
   }) {
-    return Card(
-      color: Colors.white,
-      elevation: 1,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(
-          color: alerta ? Colors.red.shade200 : Colors.grey.shade200, 
-          width: alerta ? 1.5 : 1,
-        ),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    titulo,
-                    style: TextStyle(fontSize: 13, color: Colors.grey.shade500, fontWeight: FontWeight.w500),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    valor,
-                    style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.black87),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    subtitulo,
-                    style: TextStyle(fontSize: 11, color: Colors.grey.shade400),
-                  ),
-                ],
-              ),
-            ),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: fundoIcone,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(icone, color: corIcone, size: 24),
-            ),
-          ],
-        ),
-      ),
+    return CartaoKpi(
+      estilo: EstiloKpi.principal,
+      titulo: titulo,
+      valor: valor,
+      subtitulo: subtitulo,
+      icone: icone,
+      corIcone: corIcone,
+      fundoIcone: fundoIcone,
+      alerta: alerta,
     );
   }
 
@@ -382,11 +362,11 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
     final double alturaGrafico = 250.0;
 
     return Card(
-      color: Colors.white,
+      color: TemasCores.superficie,
       elevation: 1,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: Colors.grey.shade200),
+        side: const BorderSide(color: TemasCores.borda),
       ),
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -395,12 +375,12 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
           children: [
             const Text(
               'Distribuição por Fase de Produção',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: TemasCores.textoPrimario),
             ),
             const SizedBox(height: 4),
             Text(
               'Quantidade de encomendas atualmente ativas em cada etapa',
-              style: TextStyle(fontSize: 13, color: Colors.grey.shade500),
+              style: TextStyle(fontSize: 13, color: TemasCores.textoTerciario),
             ),
             const SizedBox(height: 32),
             SizedBox(
@@ -437,8 +417,8 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
                             decoration: BoxDecoration(
                               gradient: LinearGradient(
                                 colors: [
-                                  Colors.blue.shade400,
-                                  Colors.blue.shade600,
+                                  TemasCores.graficoBarraTopo,
+                                  TemasCores.graficoBarraBase,
                                 ],
                                 begin: Alignment.topCenter,
                                 end: Alignment.bottomCenter,
@@ -452,7 +432,7 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
                           const SizedBox(height: 6),
                           Text(
                             fase,
-                            style: TextStyle(fontSize: 10, fontWeight: FontWeight.w500, color: Colors.grey.shade600),
+                            style: TextStyle(fontSize: 10, fontWeight: FontWeight.w500, color: TemasCores.textoApoio),
                             textAlign: TextAlign.center,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -472,11 +452,11 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
 
   Widget _buildIncidentsCard() {
     return Card(
-      color: Colors.white,
+      color: TemasCores.superficie,
       elevation: 1,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: Colors.grey.shade200),
+        side: const BorderSide(color: TemasCores.borda),
       ),
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -488,18 +468,18 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
               children: [
                 const Text(
                   'Alertas de Incidência',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: TemasCores.textoPrimario),
                 ),
                 if (_alertasIncidencias.isNotEmpty)
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
-                      color: Colors.red.shade50,
+                      color: TemasCores.erroFundo,
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
                       '${_alertasIncidencias.length} Paragens',
-                      style: TextStyle(fontSize: 11, color: Colors.red.shade600, fontWeight: FontWeight.bold),
+                      style: TextStyle(fontSize: 11, color: TemasCores.erroForte, fontWeight: FontWeight.bold),
                     ),
                   ),
               ],
@@ -507,7 +487,7 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
             const SizedBox(height: 4),
             Text(
               'Paragens registadas no chão de fábrica',
-              style: TextStyle(fontSize: 13, color: Colors.grey.shade500),
+              style: TextStyle(fontSize: 13, color: TemasCores.textoTerciario),
             ),
             const SizedBox(height: 20),
 
@@ -534,15 +514,15 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.gpp_good_outlined, size: 48, color: Colors.green),
+            Icon(Icons.gpp_good_outlined, size: 48, color: TemasCores.sucesso),
             SizedBox(height: 12),
             Text(
               'Chão de Fábrica a 100%!',
-              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green),
+              style: TextStyle(fontWeight: FontWeight.bold, color: TemasCores.sucesso),
             ),
             Text(
               'Sem paragens ou bloqueios reportados.',
-              style: TextStyle(color: Colors.grey, fontSize: 12),
+              style: TextStyle(color: TemasCores.textoTerciario, fontSize: 12),
             ),
           ],
         ),
@@ -582,14 +562,14 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.grey.shade50,
+        color: TemasCores.superficieTenue,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.grey.shade200),
+        border: Border.all(color: TemasCores.borda),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.error_outline_rounded, color: Colors.red.shade600, size: 20),
+          const Icon(Icons.error_outline_rounded, color: TemasCores.erroForte, size: 20),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -605,12 +585,12 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
-                        color: Colors.red.shade100,
+                        color: TemasCores.erroFundoForte,
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: const Text(
                         'ATENÇÃO',
-                        style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.red),
+                        style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: TemasCores.erro),
                       ),
                     ),
                   ],
@@ -619,12 +599,12 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
                 Text(
                   'Posto: ${dados.posto}',
                   style: const TextStyle(
-                      fontSize: 12, fontWeight: FontWeight.w500, color: Colors.black54),
+                      fontSize: 12, fontWeight: FontWeight.w500, color: TemasCores.textoSecundario),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   inc['motivo'] ?? 'Sem motivo indicado.',
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                  style: TextStyle(fontSize: 12, color: TemasCores.textoApoio),
                 ),
                 const SizedBox(height: 6),
                 Row(
@@ -633,11 +613,11 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
                     Text(
                       '⏱️ Ativo: ${_calcularTempoDowntime(inc['created_at'] ?? DateTime.now().toIso8601String())}',
                       style: TextStyle(
-                          fontSize: 11, color: Colors.red.shade400, fontWeight: FontWeight.bold),
+                          fontSize: 11, color: TemasCores.erroMedio, fontWeight: FontWeight.bold),
                     ),
                     Text(
                       'Op: ${dados.operador}',
-                      style: TextStyle(fontSize: 11, color: Colors.grey.shade400),
+                      style: TextStyle(fontSize: 11, color: TemasCores.textoDesativado),
                     ),
                   ],
                 ),

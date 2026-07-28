@@ -1,7 +1,8 @@
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:printing/printing.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../../core/mensagens.dart';
+import '../../core/temas_cores.dart';
 import '../../models/cliente_model.dart';
 import '../../models/encomenda_model.dart';
 import '../../repositories/clientes_repository.dart';
@@ -9,15 +10,7 @@ import '../../repositories/encomendas_repository.dart';
 import '../../repositories/fluxos_repository.dart';
 import '../../repositories/relatorios_repository.dart';
 import '../../services/pdf_service.dart';
-
-class MouseDragScrollBehavior extends MaterialScrollBehavior {
-  @override
-  Set<PointerDeviceKind> get dragDevices => {
-        PointerDeviceKind.touch,
-        PointerDeviceKind.mouse,
-        PointerDeviceKind.trackpad,
-      };
-}
+import 'widgets/mouse_drag_scroll_behavior.dart';
 
 class RelatoriosAdminScreen extends StatefulWidget {
   const RelatoriosAdminScreen({super.key});
@@ -51,7 +44,11 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
 
   List<ClienteModel> _clientesLista = [];
   List<Map<String, dynamic>> _tiposProdutoLista = [];
+  /// As avaliações já carregadas — a lista da direita é paginada por scroll.
   List<Map<String, dynamic>> _feedbacks = [];
+  bool _aCarregarMaisFeedbacks = false;
+  bool _temMaisFeedbacks = false;
+
   List<EncomendaModel> _encomendasGeral = [];
   List<Map<String, dynamic>> _dadosHistorico = [];
   List<Map<String, dynamic>> _historicoRelatorios = []; // Guarda os relatórios gerados da BD
@@ -61,6 +58,36 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
   void initState() {
     super.initState();
     _carregarDadosReais();
+    _feedbackScrollController.addListener(_aoDeslizarFeedbacks);
+  }
+
+  void _aoDeslizarFeedbacks() {
+    if (!_feedbackScrollController.hasClients) return;
+    final posicao = _feedbackScrollController.position;
+    if (posicao.pixels >= posicao.maxScrollExtent - 200) {
+      _carregarMaisFeedbacks();
+    }
+  }
+
+  /// Acrescenta a página seguinte de avaliações ao fim da lista.
+  ///
+  /// A avaliação média não é recalculada: já veio do servidor sobre a tabela
+  /// inteira e não depende do que está carregado.
+  Future<void> _carregarMaisFeedbacks() async {
+    if (_aCarregarMaisFeedbacks || !_temMaisFeedbacks) return;
+    setState(() => _aCarregarMaisFeedbacks = true);
+    try {
+      final pagina = await _relatoriosRepo.obterAvaliacoes(deslocamento: _feedbacks.length);
+      if (!mounted) return;
+      setState(() {
+        _feedbacks = [..._feedbacks, ...pagina.itens];
+        _temMaisFeedbacks = pagina.temMais;
+        _aCarregarMaisFeedbacks = false;
+      });
+    } catch (e) {
+      debugPrint('Erro ao carregar mais avaliações: $e');
+      if (mounted) setState(() => _aCarregarMaisFeedbacks = false);
+    }
   }
 
   @override
@@ -128,8 +155,9 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
       // 2. Carregar lista de Tipos de Produto para o Dropdown
       final dadosTiposProduto = await _fluxosRepo.obterTipologiasParaSelecao();
 
-      // 3. Procurar os Feedbacks Reais
-      final dadosAvaliacoes = await _relatoriosRepo.obterAvaliacoes();
+      // 3. Procurar os Feedbacks Reais (primeira página) e a média global
+      final paginaAvaliacoes = await _relatoriosRepo.obterAvaliacoes();
+      final avaliacaoMedia = await _relatoriosRepo.obterAvaliacaoMedia();
 
       // 4. Procurar as encomendas trazendo relacionamentos para o PDF e filtros
       //    (as ordens canceladas não contam para indicadores de desempenho)
@@ -162,17 +190,10 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
       // --- CÁLCULOS LOGÍSTICOS GLOBAIS ---
       int concluidas = 0;
       int noPrazo = 0;
-      double somaNotas = 0.0;
 
-      // Calcular Avaliação Média Real
-      if (dadosAvaliacoes.isNotEmpty) {
-        for (var av in dadosAvaliacoes) {
-          somaNotas += (av['nota'] ?? 0 as num).toDouble();
-        }
-        _avaliacaoMedia = double.parse((somaNotas / dadosAvaliacoes.length).toStringAsFixed(1));
-      } else {
-        _avaliacaoMedia = 0.0;
-      }
+      // A avaliação média vem do servidor: somá-la sobre a lista carregada daria
+      // a média das avaliações que por acaso estivessem no ecrã.
+      _avaliacaoMedia = avaliacaoMedia;
 
       // Analisar prazos e conclusões reais
       for (var enc in dadosEncomendas) {
@@ -188,7 +209,8 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
         setState(() {
           _clientesLista = dadosClientes;
           _tiposProdutoLista = dadosTiposProduto;
-          _feedbacks = dadosAvaliacoes;
+          _feedbacks = paginaAvaliacoes.itens;
+          _temMaisFeedbacks = paginaAvaliacoes.temMais;
           _encomendasGeral = dadosEncomendas;
           _dadosHistorico = dadosHistorico;
           _historicoRelatorios = dadosHistoricoRelatorios;
@@ -312,12 +334,10 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
       } catch (cloudError) {
         debugPrint('Aviso de Auditoria Cloud: $cloudError');
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Aviso: PDF gerado, mas o registo de auditoria falhou na nuvem: $cloudError'),
-              backgroundColor: Colors.orange.shade700,
-              duration: const Duration(seconds: 4),
-            ),
+          context.mostrarSnack(
+            'Aviso: PDF gerado, mas o registo de auditoria falhou na nuvem: $cloudError',
+            cor: TemasCores.alertaMedio,
+            duracao: const Duration(seconds: 4),
           );
         }
       }
@@ -330,11 +350,9 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
     } catch (e) {
       debugPrint('Erro ao gerar relatório: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Erro estrutural ao renderizar PDF: $e'),
-            backgroundColor: Colors.redAccent,
-          ),
+        context.mostrarSnack(
+          'Erro estrutural ao renderizar PDF: $e',
+          cor: TemasCores.erroVivo,
         );
       }
     } finally {
@@ -360,7 +378,7 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
-            colorScheme: const ColorScheme.light(primary: Colors.black, onPrimary: Colors.white, onSurface: Colors.black87),
+            colorScheme: const ColorScheme.light(primary: TemasCores.acaoPrincipal, onPrimary: TemasCores.textoInverso, onSurface: TemasCores.textoPrimario),
           ),
           child: child!,
         );
@@ -385,7 +403,7 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
     return ScrollConfiguration(
       behavior: MouseDragScrollBehavior(),
       child: Scaffold(
-        backgroundColor: Colors.grey.shade50,
+        backgroundColor: TemasCores.fundoEcra,
         body: Padding(
           padding: const EdgeInsets.all(24),
           child: Column(
@@ -422,9 +440,9 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
 
   Widget _buildPainelEsquerdoEstatisticas() {
     return Card(
-      color: Colors.white,
+      color: TemasCores.superficie,
       elevation: 1,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey.shade200)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: const BorderSide(color: TemasCores.borda)),
       child: Padding(
         padding: const EdgeInsets.all(32),
         child: Form(
@@ -432,12 +450,12 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('Gerar Relatório', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87)),
+              const Text('Gerar Relatório', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: TemasCores.textoPrimario)),
               const SizedBox(height: 4),
-              Text('Selecione o período e os filtros para análise', style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+              Text('Selecione o período e os filtros para análise', style: TextStyle(fontSize: 12, color: TemasCores.textoTerciario)),
               const SizedBox(height: 24),
 
-              const Text('Data de Início', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87)),
+              const Text('Data de Início', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: TemasCores.textoPrimario)),
               const SizedBox(height: 8),
               TextFormField(
                 controller: _dataInicioController,
@@ -445,9 +463,9 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
                 onTap: () => _selecionarData(context, _dataInicioController),
                 decoration: InputDecoration(
                   hintText: 'dd / mm / aaaa',
-                  fillColor: Colors.grey.shade100,
+                  fillColor: TemasCores.superficieSuave,
                   filled: true,
-                  suffixIcon: const Icon(Icons.calendar_month_outlined, color: Colors.black54, size: 20),
+                  suffixIcon: const Icon(Icons.calendar_month_outlined, color: TemasCores.textoSecundario, size: 20),
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
                   contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                 ),
@@ -455,7 +473,7 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
               ),
               const SizedBox(height: 16),
 
-              const Text('Data de Fim', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87)),
+              const Text('Data de Fim', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: TemasCores.textoPrimario)),
               const SizedBox(height: 8),
               TextFormField(
                 controller: _dataFimController,
@@ -463,9 +481,9 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
                 onTap: () => _selecionarData(context, _dataFimController),
                 decoration: InputDecoration(
                   hintText: 'dd / mm / aaaa',
-                  fillColor: Colors.grey.shade100,
+                  fillColor: TemasCores.superficieSuave,
                   filled: true,
-                  suffixIcon: const Icon(Icons.calendar_month_outlined, color: Colors.black54, size: 20),
+                  suffixIcon: const Icon(Icons.calendar_month_outlined, color: TemasCores.textoSecundario, size: 20),
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
                   contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                 ),
@@ -474,12 +492,12 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
               const SizedBox(height: 16),
 
               // --- FILTRO DE SEGMENTAÇÃO: CLIENTE ---
-              const Text('Filtrar por Cliente', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87)),
+              const Text('Filtrar por Cliente', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: TemasCores.textoPrimario)),
               const SizedBox(height: 8),
               DropdownButtonFormField<int?>(
                 value: _clienteSelecionadoId,
                 decoration: InputDecoration(
-                  fillColor: Colors.grey.shade100,
+                  fillColor: TemasCores.superficieSuave,
                   filled: true,
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
                   contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -501,12 +519,12 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
               const SizedBox(height: 16),
 
               // --- FILTRO DE SEGMENTAÇÃO: TIPO DE PRODUTO ---
-              const Text('Filtrar por Tipo de Produto', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87)),
+              const Text('Filtrar por Tipo de Produto', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: TemasCores.textoPrimario)),
               const SizedBox(height: 8),
               DropdownButtonFormField<int?>(
                 value: _tipoProdutoSelecionadoId,
                 decoration: InputDecoration(
-                  fillColor: Colors.grey.shade100,
+                  fillColor: TemasCores.superficieSuave,
                   filled: true,
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
                   contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -532,14 +550,14 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
                 child: ElevatedButton.icon(
                   onPressed: _isExporting ? null : _gerarRelatorioPDF,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF111625),
-                    foregroundColor: Colors.white,
+                    backgroundColor: TemasCores.marcaEscura,
+                    foregroundColor: TemasCores.textoInverso,
                     padding: const EdgeInsets.symmetric(vertical: 18),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                     elevation: 0,
                   ),
                   icon: _isExporting
-                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: TemasCores.textoInverso, strokeWidth: 2))
                       : const Icon(Icons.picture_as_pdf_outlined, size: 18),
                   label: const Text('Gerar Relatório (PDF)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                 ),
@@ -550,20 +568,20 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
                 child: Divider(),
               ),
 
-              const Text('Estatísticas Rápidas Globais', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.black87)),
+              const Text('Estatísticas Rápidas Globais', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: TemasCores.textoPrimario)),
               const SizedBox(height: 20),
 
               _buildRowIndicador('Encomendas Concluídas', '$_encomendasConcluidas'),
               const SizedBox(height: 6),
-              Container(height: 4, width: double.infinity, decoration: BoxDecoration(color: const Color(0xFF111625), borderRadius: BorderRadius.circular(2))),
+              Container(height: 4, width: double.infinity, decoration: BoxDecoration(color: TemasCores.marcaEscura, borderRadius: BorderRadius.circular(2))),
               const SizedBox(height: 24),
 
               _buildRowIndicador('Taxa de Entrega no Prazo', '${(_taxaEntregaNoPrazo * 100).toInt()}%'),
               const SizedBox(height: 6),
               LinearProgressIndicator(
                 value: _taxaEntregaNoPrazo,
-                backgroundColor: Colors.grey.shade200,
-                color: const Color(0xFF111625),
+                backgroundColor: TemasCores.borda,
+                color: TemasCores.marcaEscura,
                 minHeight: 4,
                 borderRadius: BorderRadius.circular(2),
               ),
@@ -572,16 +590,16 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text('Avaliação Média', style: TextStyle(color: Colors.grey, fontSize: 13, fontWeight: FontWeight.w500)),
+                  const Text('Avaliação Média', style: TextStyle(color: TemasCores.textoTerciario, fontSize: 13, fontWeight: FontWeight.w500)),
                   Row(
                     children: [
-                      Text('$_avaliacaoMedia', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.black87)),
+                      Text('$_avaliacaoMedia', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: TemasCores.textoPrimario)),
                       const SizedBox(width: 6),
                       Row(
                         children: List.generate(5, (index) {
                           return Icon(
                             index < _avaliacaoMedia.floor() ? Icons.star : Icons.star_border,
-                            color: Colors.amber,
+                            color: TemasCores.avaliacaoEstrela,
                             size: 16,
                           );
                         }),
@@ -596,15 +614,15 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
                 padding: EdgeInsets.symmetric(vertical: 24),
                 child: Divider(),
               ),
-              const Text('Histórico e Logs de Auditoria', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.black87)),
+              const Text('Histórico e Logs de Auditoria', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: TemasCores.textoPrimario)),
               const SizedBox(height: 4),
-              Text('Registos imutáveis com autoria das emissões', style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
+              Text('Registos imutáveis com autoria das emissões', style: TextStyle(fontSize: 11, color: TemasCores.textoTerciario)),
               const SizedBox(height: 16),
 
               _historicoRelatorios.isEmpty
                   ? Padding(
                       padding: const EdgeInsets.symmetric(vertical: 16),
-                      child: Text('Nenhum relatório emitido guardado.', style: TextStyle(fontSize: 12, color: Colors.grey.shade400, fontStyle: FontStyle.italic)),
+                      child: Text('Nenhum relatório emitido guardado.', style: TextStyle(fontSize: 12, color: TemasCores.textoDesativado, fontStyle: FontStyle.italic)),
                     )
                   : Column(
                       children: List.generate(_historicoRelatorios.length, (idx) {
@@ -631,9 +649,9 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
                           margin: const EdgeInsets.only(bottom: 12),
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: Colors.grey.shade50,
+                            color: TemasCores.superficieTenue,
                             borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.grey.shade200),
+                            border: Border.all(color: TemasCores.borda),
                           ),
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -642,18 +660,18 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text('$inicio até $fim', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.black87)),
+                                    Text('$inicio até $fim', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: TemasCores.textoPrimario)),
                                     const SizedBox(height: 3),
-                                    Text('Ordens: $total  |  Prazo: ${taxa.toInt()}%', style: TextStyle(fontSize: 11, color: Colors.grey.shade700)),
+                                    Text('Ordens: $total  |  Prazo: ${taxa.toInt()}%', style: TextStyle(fontSize: 11, color: TemasCores.textoApoioForte)),
                                     const SizedBox(height: 3),
                                     Row(
                                       children: [
-                                        Icon(Icons.person_outline_rounded, size: 12, color: Colors.grey.shade500),
+                                        const Icon(Icons.person_outline_rounded, size: 12, color: TemasCores.textoTerciario),
                                         const SizedBox(width: 4),
                                         Expanded(
                                           child: Text(
                                             '$autor ${dataHoraFormatada.isNotEmpty ? "• $dataHoraFormatada" : ""}',
-                                            style: TextStyle(fontSize: 10, color: Colors.grey.shade500, fontWeight: FontWeight.w500),
+                                            style: const TextStyle(fontSize: 10, color: TemasCores.textoTerciario, fontWeight: FontWeight.w500),
                                             overflow: TextOverflow.ellipsis,
                                           ),
                                         ),
@@ -663,7 +681,7 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
                                 ),
                               ),
                               IconButton(
-                                icon: const Icon(Icons.open_in_new_rounded, size: 18, color: Color(0xFF111625)),
+                                icon: const Icon(Icons.open_in_new_rounded, size: 18, color: TemasCores.marcaEscura),
                                 tooltip: 'Abrir PDF impresso',
                                 onPressed: () => _abrirUrlFicheiro(url),
                               )
@@ -683,8 +701,8 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(label, style: const TextStyle(color: Colors.grey, fontSize: 13, fontWeight: FontWeight.w500)),
-        Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.black87)),
+        Text(label, style: const TextStyle(color: TemasCores.textoTerciario, fontSize: 13, fontWeight: FontWeight.w500)),
+        Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: TemasCores.textoPrimario)),
       ],
     );
   }
@@ -696,7 +714,7 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
       conteudo = const Center(
         child: Padding(
           padding: EdgeInsets.symmetric(vertical: 40),
-          child: Text('Nenhuma avaliação real submetida por clientes na base de dados.', style: TextStyle(color: Colors.grey, fontSize: 13)),
+          child: Text('Nenhuma avaliação real submetida por clientes na base de dados.', style: TextStyle(color: TemasCores.textoTerciario, fontSize: 13)),
         ),
       );
     } else {
@@ -705,9 +723,24 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
         thumbVisibility: true,
         child: ListView.builder(
           controller: _feedbackScrollController,
-          itemCount: _feedbacks.length,
+          // A última posição é o rodapé de paginação, não uma avaliação.
+          itemCount: _feedbacks.length + (_temMaisFeedbacks ? 1 : 0),
           padding: const EdgeInsets.only(right: 12),
           itemBuilder: (context, index) {
+            if (index == _feedbacks.length) {
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 20),
+                child: Center(
+                  child: _aCarregarMaisFeedbacks
+                      ? const SizedBox(height: 22, width: 22, child: CircularProgressIndicator(strokeWidth: 2))
+                      : TextButton.icon(
+                          onPressed: _carregarMaisFeedbacks,
+                          icon: const Icon(Icons.expand_more_rounded, size: 18),
+                          label: const Text('Carregar mais', style: TextStyle(fontSize: 13)),
+                        ),
+                ),
+              );
+            }
             final fb = _feedbacks[index];
             final String codigo = fb['encomendas']?['codigo_rastreio'] ?? 'TRC-N/A';
             final String cliente = fb['clientes']?['nome_cliente'] ?? 'Cliente Desconhecido';
@@ -719,9 +752,9 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
               margin: const EdgeInsets.only(bottom: 20),
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: TemasCores.superficie,
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.grey.shade200),
+                border: Border.all(color: TemasCores.borda),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -735,39 +768,39 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
                           spacing: 8,
                           runSpacing: 4,
                           children: [
-                            Text(codigo, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87)),
+                            Text(codigo, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: TemasCores.textoPrimario)),
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                              decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(4)),
-                              child: Text(cliente, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: Colors.grey.shade700)),
+                              decoration: BoxDecoration(color: TemasCores.superficieSuave, borderRadius: BorderRadius.circular(4)),
+                              child: Text(cliente, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: TemasCores.textoApoioForte)),
                             ),
                           ],
                         ),
                       ),
                       Row(
                         children: List.generate(5, (idx) {
-                          return Icon(idx < estrelas ? Icons.star : Icons.star_border, color: Colors.amber, size: 15);
+                          return Icon(idx < estrelas ? Icons.star : Icons.star_border, color: TemasCores.avaliacaoEstrela, size: 15);
                         }),
                       ),
                     ],
                   ),
                   const SizedBox(height: 4),
-                  Text(data, style: TextStyle(fontSize: 11, color: Colors.grey.shade400)),
+                  Text(data, style: TextStyle(fontSize: 11, color: TemasCores.textoDesativado)),
                   const SizedBox(height: 12),
 
                   Container(
                     width: double.infinity,
                     padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(color: Colors.grey.shade50, borderRadius: BorderRadius.circular(6)),
+                    decoration: BoxDecoration(color: TemasCores.superficieTenue, borderRadius: BorderRadius.circular(6)),
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Icon(Icons.chat_bubble_outline_rounded, size: 14, color: Colors.grey.shade400),
+                        const Icon(Icons.chat_bubble_outline_rounded, size: 14, color: TemasCores.textoDesativado),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
                             texto,
-                            style: TextStyle(fontSize: 12, color: Colors.grey.shade700, height: 1.4),
+                            style: const TextStyle(fontSize: 12, color: TemasCores.textoApoioForte, height: 1.4),
                           ),
                         ),
                       ],
@@ -782,17 +815,17 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
     }
 
     return Card(
-      color: Colors.white,
+      color: TemasCores.superficie,
       elevation: 1,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey.shade200)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: const BorderSide(color: TemasCores.borda)),
       child: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Feedback dos Clientes', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87)),
+            const Text('Feedback dos Clientes', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: TemasCores.textoPrimario)),
             const SizedBox(height: 4),
-            Text('Avaliações recebidas após conclusão das encomendas', style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+            Text('Avaliações recebidas após conclusão das encomendas', style: TextStyle(fontSize: 12, color: TemasCores.textoTerciario)),
             const SizedBox(height: 20),
             eDesktop ? Expanded(child: conteudo) : SizedBox(height: 450, child: conteudo),
           ],

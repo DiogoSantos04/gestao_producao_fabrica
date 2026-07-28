@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
 import '../../core/formatos.dart';
+import '../../core/mensagens.dart';
+import '../../core/temas_cores.dart';
 import '../../models/encomenda_model.dart';
 import '../../models/incidencia_model.dart';
 import '../../repositories/encomendas_repository.dart';
 import '../../repositories/postos_repository.dart';
 import '../../repositories/utilizadores_repository.dart';
+import 'widgets/cartao_kpi.dart';
+import 'widgets/etiqueta_estado.dart';
 
 class PostosTrabalhoScreen extends StatefulWidget {
   const PostosTrabalhoScreen({super.key});
@@ -50,12 +54,10 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
       });
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Erro ao carregar dados: $e'),
-            backgroundColor: Colors.red.shade800,
-            duration: const Duration(seconds: 5),
-          ),
+        context.mostrarSnack(
+          'Erro ao carregar dados: $e',
+          cor: TemasCores.erroTextoForte,
+          duracao: const Duration(seconds: 5),
         );
       }
       setState(() => _isLoading = false);
@@ -122,9 +124,7 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
       _carregarDados();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro ao atualizar operador: $e')),
-        );
+        context.mostrarSnack('Erro ao atualizar operador: $e');
       }
     }
   }
@@ -135,9 +135,7 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
       _carregarDados();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro ao alterar estado: $e')),
-        );
+        context.mostrarSnack('Erro ao alterar estado: $e');
       }
     }
   }
@@ -177,51 +175,37 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
       margin: const EdgeInsets.only(bottom: 20),
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: TemasCores.superficie,
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: TemasCores.sombraBase.withOpacity(0.04),
             blurRadius: 10,
             offset: const Offset(0, 4),
           )
         ],
-        border: Border.all(color: Colors.grey.shade200),
+        border: Border.all(color: TemasCores.borda),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          _construirItemKPI('Total de Postos', '$totalPostos', Icons.factory_outlined, Colors.blue),
-          _construirItemKPI('Em Produção', '$postosEmProducao', Icons.play_circle_outline, Colors.green),
-          _construirItemKPI('Postos Ocupados', '$postosOcupados', Icons.person_outline, Colors.indigo),
-          _construirItemKPI('Parados / WIP Hold', '$postosParados', Icons.warning_amber_rounded, Colors.red),
-          _construirItemKPI('Disponíveis / Livres', '$postosLivres', Icons.check_circle_outline, Colors.grey),
+          _construirItemKPI('Total de Postos', '$totalPostos', Icons.factory_outlined, TemasCores.acentoAzul),
+          _construirItemKPI('Em Produção', '$postosEmProducao', Icons.play_circle_outline, TemasCores.sucesso),
+          _construirItemKPI('Postos Ocupados', '$postosOcupados', Icons.person_outline, TemasCores.acentoIndigo),
+          _construirItemKPI('Parados / WIP Hold', '$postosParados', Icons.warning_amber_rounded, TemasCores.erro),
+          _construirItemKPI('Disponíveis / Livres', '$postosLivres', Icons.check_circle_outline, TemasCores.inativo),
         ],
       ),
     );
   }
 
   Widget _construirItemKPI(String titulo, String valor, IconData icone, Color cor) {
-    return Row(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: cor.withOpacity(0.12),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Icon(icone, color: cor, size: 22),
-        ),
-        const SizedBox(width: 12),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(valor, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: cor)),
-            Text(titulo, style: const TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.w500)),
-          ],
-        )
-      ],
+    return ItemKpiCompacto(
+      estilo: EstiloKpi.postos,
+      titulo: titulo,
+      valor: valor,
+      icone: icone,
+      cor: cor,
     );
   }
 
@@ -281,19 +265,19 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
 
                               if (temIncidencia) {
                                 estadoBadge = 'WIP HOLD';
-                                corBadge = Colors.red;
+                                corBadge = TemasCores.erro;
                               } else if (ordemAtiva != null && operadorIdAtual != null) {
                                 estadoBadge = 'EM PRODUÇÃO';
-                                corBadge = Colors.green;
+                                corBadge = TemasCores.sucesso;
                               } else if (ordemAtiva != null && operadorIdAtual == null) {
                                 estadoBadge = 'AGUARDA OPERADOR';
-                                corBadge = Colors.orange;
+                                corBadge = TemasCores.alerta;
                               } else if (operadorIdAtual != null) {
                                 estadoBadge = 'OCUPADO';
-                                corBadge = Colors.blue;
+                                corBadge = TemasCores.info;
                               } else {
                                 estadoBadge = 'LIVRE';
-                                corBadge = Colors.grey;
+                                corBadge = TemasCores.inativo;
                               }
 
                               // Cliente e produto: o modelo já desembrulha as junções
@@ -334,21 +318,14 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
                                               overflow: TextOverflow.ellipsis,
                                             ),
                                           ),
-                                          Container(
+                                          EtiquetaEstado(
+                                            rotulo: estadoBadge,
+                                            fundo: corBadge.withOpacity(0.15),
+                                            texto: corBadge,
+                                            borda: corBadge,
                                             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                            decoration: BoxDecoration(
-                                              color: corBadge.withOpacity(0.15),
-                                              borderRadius: BorderRadius.circular(20),
-                                              border: Border.all(color: corBadge),
-                                            ),
-                                            child: Text(
-                                              estadoBadge,
-                                              style: TextStyle(
-                                                color: corBadge,
-                                                fontWeight: FontWeight.bold,
-                                                fontSize: 11,
-                                              ),
-                                            ),
+                                            raio: 20,
+                                            tamanhoLetra: 11,
                                           ),
                                         ],
                                       ),
@@ -357,7 +334,7 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
                                       // Seletor de Operador
                                       const Text(
                                         'Operador Atribuído:',
-                                        style: TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.w500),
+                                        style: TextStyle(fontSize: 11, color: TemasCores.textoTerciario, fontWeight: FontWeight.w500),
                                       ),
                                       const SizedBox(height: 4),
                                       DropdownButtonFormField<String?>(
@@ -370,7 +347,7 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
                                         items: [
                                           const DropdownMenuItem<String?>(
                                             value: null,
-                                            child: Text('-- Sem Operador --', style: TextStyle(color: Colors.grey, fontSize: 13)),
+                                            child: Text('-- Sem Operador --', style: TextStyle(color: TemasCores.textoTerciario, fontSize: 13)),
                                           ),
                                           ..._operadores.map((op) {
                                             return DropdownMenuItem<String?>(
@@ -392,13 +369,13 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
                                         padding: const EdgeInsets.all(10),
                                         decoration: BoxDecoration(
                                           color: ordemAtiva != null
-                                              ? (temIncidencia ? Colors.red.shade50 : Colors.blue.shade50)
-                                              : Colors.grey.shade100,
+                                              ? (temIncidencia ? TemasCores.erroFundo : TemasCores.infoFundo)
+                                              : TemasCores.superficieSuave,
                                           borderRadius: BorderRadius.circular(8),
                                           border: Border.all(
                                             color: ordemAtiva != null
-                                                ? (temIncidencia ? Colors.red.shade200 : Colors.blue.shade200)
-                                                : Colors.grey.shade300,
+                                                ? (temIncidencia ? TemasCores.erroBorda : TemasCores.infoBorda)
+                                                : TemasCores.bordaForte,
                                           ),
                                         ),
                                         child: ordemAtiva != null
@@ -417,7 +394,7 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
                                                             ),
                                                         style: TextStyle(
                                                           fontWeight: FontWeight.bold,
-                                                          color: temIncidencia ? Colors.red.shade900 : Colors.blue.shade900,
+                                                          color: temIncidencia ? TemasCores.erroTextoIntenso : TemasCores.infoTextoIntenso,
                                                           fontSize: 12,
                                                         ),
                                                       ),
@@ -425,7 +402,7 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
                                                         const Text(
                                                           '🚨 WIP HOLD',
                                                           style: TextStyle(
-                                                            color: Colors.red,
+                                                            color: TemasCores.erro,
                                                             fontWeight: FontWeight.bold,
                                                             fontSize: 10,
                                                           ),
@@ -435,12 +412,12 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
                                                   const SizedBox(height: 2),
                                                   Text(
                                                     'Cliente: $nomeCliente',
-                                                    style: const TextStyle(fontSize: 11, color: Colors.black87),
+                                                    style: const TextStyle(fontSize: 11, color: TemasCores.textoPrimario),
                                                     overflow: TextOverflow.ellipsis,
                                                   ),
                                                   Text(
                                                     'Produto: $nomeProduto',
-                                                    style: const TextStyle(fontSize: 11, color: Colors.black87),
+                                                    style: const TextStyle(fontSize: 11, color: TemasCores.textoPrimario),
                                                     overflow: TextOverflow.ellipsis,
                                                   ),
 
@@ -450,12 +427,12 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
                                                     Container(
                                                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
                                                       decoration: BoxDecoration(
-                                                        color: Colors.red.shade100,
+                                                        color: TemasCores.erroFundoForte,
                                                         borderRadius: BorderRadius.circular(4),
                                                       ),
                                                       child: Row(
                                                         children: [
-                                                          const Icon(Icons.warning_amber_rounded, size: 12, color: Colors.red),
+                                                          const Icon(Icons.warning_amber_rounded, size: 12, color: TemasCores.erro),
                                                           const SizedBox(width: 4),
                                                           Expanded(
                                                             child: Text(
@@ -463,7 +440,7 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
                                                               style: const TextStyle(
                                                                 fontSize: 10,
                                                                 fontWeight: FontWeight.bold,
-                                                                color: Colors.redAccent,
+                                                                color: TemasCores.erroVivo,
                                                               ),
                                                               overflow: TextOverflow.ellipsis,
                                                             ),
@@ -481,7 +458,7 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
                                                     '-- Sem Ordem em Carga --',
                                                     style: TextStyle(
                                                       fontSize: 11,
-                                                      color: Colors.grey,
+                                                      color: TemasCores.textoTerciario,
                                                       fontStyle: FontStyle.italic,
                                                     ),
                                                   ),
@@ -505,7 +482,7 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
                                                       )
                                                   : () => _alterarEstadoPosto(postoId, EstadoPosto.parado),
                                               style: OutlinedButton.styleFrom(
-                                                foregroundColor: estaEmManutencao ? Colors.green : Colors.red,
+                                                foregroundColor: estaEmManutencao ? TemasCores.sucesso : TemasCores.erro,
                                               ),
                                               child: Text(
                                                 estaEmManutencao ? 'Concluir Manutenção' : 'Manutenção Programada',

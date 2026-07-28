@@ -48,3 +48,28 @@ enum EstadoOrdem {
   /// A ordem está a ocupar um posto de trabalho.
   bool get estaNaLinha => this == EstadoOrdem.emProducao || this == EstadoOrdem.emHold;
 }
+
+/// Filtro de estado escolhido pelo utilizador no painel de controlo.
+///
+/// Existe separado de [EstadoOrdem] porque inclui o valor "todos", que não é um
+/// estado de nenhuma ordem, e porque a tradução para condições SQL vive num só
+/// sítio — o `EncomendasRepository`. Enquanto a filtragem era feita em memória
+/// bastava comparar com [EstadoOrdem]; agora que desce para o servidor, o risco
+/// é a regra ficar escrita duas vezes e divergir, que foi exatamente a origem do
+/// bug (b) em BUGS_RESOLVIDOS.md.
+enum FiltroEstadoOrdem {
+  todos,
+  emProducao,
+  emHold,
+  concluida,
+  cancelada;
+
+  /// O estado que este filtro seleciona, ou `null` para [todos].
+  EstadoOrdem? get estado => switch (this) {
+        FiltroEstadoOrdem.todos => null,
+        FiltroEstadoOrdem.emProducao => EstadoOrdem.emProducao,
+        FiltroEstadoOrdem.emHold => EstadoOrdem.emHold,
+        FiltroEstadoOrdem.concluida => EstadoOrdem.concluida,
+        FiltroEstadoOrdem.cancelada => EstadoOrdem.cancelada,
+      };
+}

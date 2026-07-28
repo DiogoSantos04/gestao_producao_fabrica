@@ -1,6 +1,43 @@
 import 'encomenda_model.dart';
 import 'pedido_model.dart';
 
+/// Filtro de carteira escolhido no ecrã de clientes.
+///
+/// Existe como enum, e não como as strings que estavam no `DropdownButtonFormField`,
+/// porque a tradução para condições SQL vive agora no `ClientesRepository` — um
+/// `default:` sobre texto livre seria fácil de dessincronizar da query.
+enum FiltroCliente {
+  todos,
+  ativos,
+  inativos,
+  comEncomendas;
+
+  String get etiqueta => switch (this) {
+        FiltroCliente.todos => 'Todos os Clientes',
+        FiltroCliente.ativos => 'Ativos no Portal',
+        FiltroCliente.inativos => 'Inativos',
+        FiltroCliente.comEncomendas => 'Com Encomendas',
+      };
+}
+
+/// Contadores do topo do ecrã de clientes.
+///
+/// São apurados no servidor: contá-los sobre a lista carregada passaria a dar o
+/// tamanho da página em vez do total da carteira.
+class MetricasClientes {
+  final int total;
+  final int ativosPortal;
+  final int comEncomendas;
+  final int totalEncomendas;
+
+  const MetricasClientes({
+    this.total = 0,
+    this.ativosPortal = 0,
+    this.comEncomendas = 0,
+    this.totalEncomendas = 0,
+  });
+}
+
 /// Cliente da fábrica.
 ///
 /// Substitui o acesso por `Map` no ecrã de clientes, que dependia de quatro

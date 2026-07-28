@@ -1,7 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show RealtimeChannel;
+import '../../core/mensagens.dart';
+import '../../core/paginacao.dart';
+import '../../core/realtime.dart';
 import '../../core/temas_cores.dart';
+import 'widgets/cartao_kpi.dart';
 import '../../models/cliente_model.dart';
 import '../../models/encomenda_model.dart';
 import '../../models/pedido_model.dart';
@@ -33,13 +39,22 @@ class _ClientesScreenState extends State<ClientesScreen> {
   final _clientesRepo = ClientesRepository();
   RealtimeChannel? _clientesSubscription;
 
+  /// Os clientes já carregados — a primeira página mais o que o scroll trouxe.
+  ///
+  /// Não há aqui lista "filtrada": o filtro e a pesquisa são resolvidos pelo
+  /// servidor, porque filtrar em memória sobre uma lista paginada esconderia
+  /// todos os clientes que ainda não tivessem sido descarregados.
   List<ClienteModel> _clientes = [];
+  MetricasClientes _metricas = const MetricasClientes();
   bool _isLoading = true;
+  bool _aCarregarMais = false;
+  bool _temMais = false;
 
   // 🔍 CONTROLADORES E ESTADOS DE FILTRAGEM
   final TextEditingController _searchController = TextEditingController();
-  String _pesquisaQuery = '';
-  String _filtroEstado = 'Todos'; // 'Todos', 'Ativos', 'Inativos', 'Com Encomendas'
+  final ScrollController _scrollController = ScrollController();
+  Timer? _debouncePesquisa;
+  FiltroCliente _filtroEstado = FiltroCliente.todos;
 
   // 🗂️ PAINEL LATERAL (DRAWER DETALHES DO CLIENTE)
   ClienteModel? _clienteDetalhesSelecionado;
@@ -48,83 +63,164 @@ class _ClientesScreenState extends State<ClientesScreen> {
   void initState() {
     super.initState();
     _carregarClientes();
+    _carregarMetricas();
     _inicializarSubscricaoRealtime();
 
-    _searchController.addListener(() {
-      if (mounted) {
-        setState(() {
-          _pesquisaQuery = _searchController.text.trim().toLowerCase();
-        });
-      }
-    });
+    _searchController.addListener(_aoEscreverPesquisa);
+    _scrollController.addListener(_aoDeslizar);
   }
 
   @override
   void dispose() {
+    _recarregador.descartar();
+    _debouncePesquisa?.cancel();
     _searchController.dispose();
+    _scrollController.dispose();
     if (_clientesSubscription != null) {
       _clientesRepo.client.removeChannel(_clientesSubscription!);
     }
     super.dispose();
   }
 
-  // --- GETTER QUE DEVOLVE OS CLIENTES FILTRADOS EM TEMPO REAL ---
+  // --- LIGAÇÃO À BASE DE DADOS & REALTIME (SUPABASE) ---
   //
   // Os quatro helpers defensivos que existiam aqui (_obterTotalEncomendas,
   // _temEncomendas, _obterListaEncomendas, _obterListaPedidos) desapareceram:
   // desembrulhavam à mão as junções vindas do Supabase, trabalho que passou
   // para as fábricas dos modelos.
 
-  List<ClienteModel> get _clientesFiltrados {
-    return _clientes.where((cliente) {
-      if (!cliente.corresponde(_pesquisaQuery)) return false;
-
-      switch (_filtroEstado) {
-        case 'Ativos':
-          return cliente.ativo;
-        case 'Inativos':
-          return !cliente.ativo;
-        case 'Com Encomendas':
-          return cliente.temEncomendas;
-        default:
-          return true;
-      }
-    }).toList();
-  }
-
-  // --- LIGAÇÃO À BASE DE DADOS & REALTIME (SUPABASE) ---
+  /// Um evento aqui custa a lista **e** as quatro métricas do topo. O
+  /// recarregador funde as rajadas num só ciclo — e impede que dois corram
+  /// sobrepostos, o que podia fazer a resposta mais antiga escrever por cima da
+  /// mais recente.
+  late final RecarregadorDebounced _recarregador = RecarregadorDebounced(
+    aoRecarregar: () async {
+      await _recarregarMantendoPosicao();
+      await _carregarMetricas();
+    },
+    janela: janelaRealtimeCarteira,
+    tetoEspera: tetoRealtimeCarteira,
+  );
 
   void _inicializarSubscricaoRealtime() {
     _clientesSubscription =
-        _clientesRepo.escutarCarteira('db-clientes-realtime', _carregarClientes);
+        _clientesRepo.escutarCarteira('db-clientes-realtime', _recarregador.pedir);
   }
 
+  /// Carrega a primeira página, descartando o que estivesse carregado.
   Future<void> _carregarClientes() async {
     try {
-      final data = await _clientesRepo.obterComHistorico();
-
-      if (mounted) {
-        setState(() {
-          _clientes = data;
-          _isLoading = false;
-
-          // Mantém o painel de detalhe sincronizado com os dados recarregados.
-          final selecionado = _clienteDetalhesSelecionado;
-          if (selecionado != null) {
-            for (final c in _clientes) {
-              if (c.id == selecionado.id) {
-                _clienteDetalhesSelecionado = c;
-                break;
-              }
-            }
-          }
-        });
-      }
+      final pagina = await _clientesRepo.obterComHistorico(
+        filtro: _filtroEstado,
+        pesquisa: _searchController.text,
+      );
+      if (!mounted) return;
+      setState(() {
+        _clientes = pagina.itens;
+        _temMais = pagina.temMais;
+        _isLoading = false;
+        _sincronizarDetalhe();
+      });
     } catch (e) {
       _mostrarMensagem('Erro ao carregar base de dados de clientes: $e', eErro: true);
       if (mounted) setState(() => _isLoading = false);
     }
   }
+
+  /// Acrescenta a página seguinte ao fim da lista.
+  Future<void> _carregarMais() async {
+    if (_aCarregarMais || !_temMais) return;
+    setState(() => _aCarregarMais = true);
+    try {
+      final pagina = await _clientesRepo.obterComHistorico(
+        deslocamento: _clientes.length,
+        filtro: _filtroEstado,
+        pesquisa: _searchController.text,
+      );
+      if (!mounted) return;
+      setState(() {
+        _clientes = [..._clientes, ...pagina.itens];
+        _temMais = pagina.temMais;
+        _aCarregarMais = false;
+      });
+    } catch (e) {
+      _mostrarMensagem('Erro ao carregar mais clientes: $e', eErro: true);
+      if (mounted) setState(() => _aCarregarMais = false);
+    }
+  }
+
+  /// Repõe as linhas que o utilizador tem à frente, sem o atirar de volta ao topo.
+  Future<void> _recarregarMantendoPosicao() async {
+    final int carregadas =
+        _clientes.length < tamanhoPaginaPadrao ? tamanhoPaginaPadrao : _clientes.length;
+    try {
+      final pagina = await _clientesRepo.obterComHistorico(
+        tamanho: carregadas,
+        filtro: _filtroEstado,
+        pesquisa: _searchController.text,
+      );
+      if (!mounted) return;
+      setState(() {
+        _clientes = pagina.itens;
+        _temMais = pagina.temMais;
+        _isLoading = false;
+        _sincronizarDetalhe();
+      });
+    } catch (e) {
+      _mostrarMensagem('Erro ao atualizar a carteira de clientes: $e', eErro: true);
+    }
+  }
+
+  Future<void> _carregarMetricas() async {
+    try {
+      final metricas = await _clientesRepo.obterMetricas();
+      if (mounted) setState(() => _metricas = metricas);
+    } catch (e) {
+      _mostrarMensagem('Erro ao carregar as métricas de clientes: $e', eErro: true);
+    }
+  }
+
+  /// Mantém o painel de detalhe a apontar para a versão recarregada do cliente.
+  ///
+  /// Se o cliente aberto tiver saído da fatia carregada — por o filtro ou a
+  /// pesquisa terem mudado — a referência anterior é mantida, para o painel não
+  /// se fechar sozinho por baixo de quem está a lê-lo.
+  void _sincronizarDetalhe() {
+    final selecionado = _clienteDetalhesSelecionado;
+    if (selecionado == null) return;
+    for (final c in _clientes) {
+      if (c.id == selecionado.id) {
+        _clienteDetalhesSelecionado = c;
+        return;
+      }
+    }
+  }
+
+  void _aoEscreverPesquisa() {
+    _debouncePesquisa?.cancel();
+    _debouncePesquisa = Timer(esperaPesquisa, () {
+      _voltarAoTopo();
+      _carregarClientes();
+    });
+    // Redesenha só para o botão de limpar aparecer/desaparecer de imediato.
+    if (mounted) setState(() {});
+  }
+
+  void _aoDeslizar() {
+    if (!_scrollController.hasClients) return;
+    final posicao = _scrollController.position;
+    if (posicao.pixels >= posicao.maxScrollExtent - 400) {
+      _carregarMais();
+    }
+  }
+
+  void _voltarAoTopo() {
+    if (_scrollController.hasClients) _scrollController.jumpTo(0);
+  }
+
+  /// Não há pesquisa nem filtro de estado a restringir a carteira.
+  bool get _semFiltrosAtivos =>
+      _searchController.text.trim().isEmpty && _filtroEstado == FiltroCliente.todos;
 
   Future<void> _inserirCliente({
     required String nome,
@@ -186,12 +282,7 @@ class _ClientesScreenState extends State<ClientesScreen> {
 
   void _mostrarMensagem(String msg, {bool eErro = false}) {
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(msg),
-          backgroundColor: eErro ? TemasCores.vermelhoErro : TemasCores.verdeSucesso,
-        ),
-      );
+      context.mostrarMensagem(msg, eErro: eErro);
     }
   }
 
@@ -202,15 +293,14 @@ class _ClientesScreenState extends State<ClientesScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final listaExibida = _clientesFiltrados;
-
     return Scaffold(
-      backgroundColor: Colors.grey.shade50,
+      backgroundColor: TemasCores.fundoEcra,
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : Stack(
               children: [
                 SingleChildScrollView(
+                  controller: _scrollController,
                   padding: const EdgeInsets.all(24),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -221,11 +311,11 @@ class _ClientesScreenState extends State<ClientesScreen> {
 
                       // TABELA DE CLIENTES & FERRAMENTAS DE PESQUISA
                       Card(
-                        color: Colors.white,
+                        color: TemasCores.superficie,
                         elevation: 1,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
-                          side: BorderSide(color: Colors.grey.shade200),
+                          side: const BorderSide(color: TemasCores.borda),
                         ),
                         child: Padding(
                           padding: const EdgeInsets.all(24),
@@ -240,20 +330,20 @@ class _ClientesScreenState extends State<ClientesScreen> {
                                     children: [
                                       const Text(
                                         'Base de Dados de Clientes',
-                                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87),
+                                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: TemasCores.textoPrimario),
                                       ),
                                       const SizedBox(height: 4),
                                       Text(
                                         'Gestão de informações fiscais, logísticas e credenciais de acesso',
-                                        style: TextStyle(fontSize: 13, color: Colors.grey.shade500),
+                                        style: TextStyle(fontSize: 13, color: TemasCores.textoTerciario),
                                       ),
                                     ],
                                   ),
                                   ElevatedButton.icon(
                                     onPressed: () => _abrirDialogCliente(),
                                     style: ElevatedButton.styleFrom(
-                                      backgroundColor: const Color(0xFF111625),
-                                      foregroundColor: Colors.white,
+                                      backgroundColor: TemasCores.marcaEscura,
+                                      foregroundColor: TemasCores.textoInverso,
                                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
                                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                                     ),
@@ -269,24 +359,29 @@ class _ClientesScreenState extends State<ClientesScreen> {
                               const SizedBox(height: 24),
 
                               // TABELA OU MENSAGEM VAZIA
-                              if (_clientes.isEmpty)
+                              //
+                              // Só existe uma lista: a que o servidor devolveu já
+                              // filtrada. A mensagem distingue "carteira vazia" de
+                              // "os filtros não deram resultados" pelo que está
+                              // pedido, e não por comparar duas listas em memória.
+                              if (_clientes.isEmpty && _semFiltrosAtivos)
                                 const Padding(
                                   padding: EdgeInsets.symmetric(vertical: 40),
                                   child: Center(
-                                    child: Text('Nenhum cliente registado na base de dados.', style: TextStyle(color: Colors.grey)),
+                                    child: Text('Nenhum cliente registado na base de dados.', style: TextStyle(color: TemasCores.textoTerciario)),
                                   ),
                                 )
-                              else if (listaExibida.isEmpty)
-                                Padding(
-                                  padding: const EdgeInsets.symmetric(vertical: 40),
+                              else if (_clientes.isEmpty)
+                                const Padding(
+                                  padding: EdgeInsets.symmetric(vertical: 40),
                                   child: Center(
                                     child: Column(
                                       children: [
-                                        Icon(Icons.search_off_rounded, size: 36, color: Colors.grey.shade400),
-                                        const SizedBox(height: 8),
+                                        Icon(Icons.search_off_rounded, size: 36, color: TemasCores.textoDesativado),
+                                        SizedBox(height: 8),
                                         Text(
                                           'Nenhum cliente encontrado com os filtros aplicados.',
-                                          style: TextStyle(color: Colors.grey.shade600, fontSize: 13, fontWeight: FontWeight.w500),
+                                          style: TextStyle(color: TemasCores.textoApoio, fontSize: 13, fontWeight: FontWeight.w500),
                                         ),
                                       ],
                                     ),
@@ -300,12 +395,13 @@ class _ClientesScreenState extends State<ClientesScreen> {
                                     ListView.separated(
                                       shrinkWrap: true,
                                       physics: const NeverScrollableScrollPhysics(),
-                                      itemCount: listaExibida.length,
+                                      itemCount: _clientes.length,
                                       separatorBuilder: (context, index) => const Divider(height: 1, thickness: 1),
                                       itemBuilder: (context, index) {
-                                        return _buildClienteRow(listaExibida[index]);
+                                        return _buildClienteRow(_clientes[index]);
                                       },
                                     ),
+                                    if (_temMais) _buildRodapePaginacao(),
                                   ],
                                 ),
                             ],
@@ -321,7 +417,7 @@ class _ClientesScreenState extends State<ClientesScreen> {
                   GestureDetector(
                     onTap: () => setState(() => _clienteDetalhesSelecionado = null),
                     child: Container(
-                      color: Colors.black.withOpacity(0.35),
+                      color: TemasCores.sombraBase.withOpacity(0.35),
                       width: double.infinity,
                       height: double.infinity,
                     ),
@@ -370,15 +466,15 @@ class _ClientesScreenState extends State<ClientesScreen> {
       controller: _searchController,
       decoration: InputDecoration(
         hintText: 'Pesquisar por nome, email, NIF, contacto ou morada...',
-        hintStyle: TextStyle(fontSize: 13, color: Colors.grey.shade400),
-        prefixIcon: const Icon(Icons.search_rounded, size: 20, color: Colors.black54),
+        hintStyle: const TextStyle(fontSize: 13, color: TemasCores.textoDesativado),
+        prefixIcon: const Icon(Icons.search_rounded, size: 20, color: TemasCores.textoSecundario),
         suffixIcon: _searchController.text.isNotEmpty
             ? IconButton(
                 icon: const Icon(Icons.clear_rounded, size: 18),
                 onPressed: () => _searchController.clear(),
               )
             : null,
-        fillColor: Colors.grey.shade100,
+        fillColor: TemasCores.superficieSuave,
         filled: true,
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -387,33 +483,59 @@ class _ClientesScreenState extends State<ClientesScreen> {
   }
 
   Widget _buildDropdownFiltro() {
-    return DropdownButtonFormField<String>(
+    return DropdownButtonFormField<FiltroCliente>(
       value: _filtroEstado,
       decoration: InputDecoration(
-        fillColor: Colors.grey.shade100,
+        fillColor: TemasCores.superficieSuave,
         filled: true,
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       ),
-      items: const [
-        DropdownMenuItem(value: 'Todos', child: Text('Todos os Clientes', style: TextStyle(fontSize: 13))),
-        DropdownMenuItem(value: 'Ativos', child: Text('Ativos no Portal', style: TextStyle(fontSize: 13))),
-        DropdownMenuItem(value: 'Inativos', child: Text('Inativos', style: TextStyle(fontSize: 13))),
-        DropdownMenuItem(value: 'Com Encomendas', child: Text('Com Encomendas', style: TextStyle(fontSize: 13))),
+      items: [
+        for (final filtro in FiltroCliente.values)
+          DropdownMenuItem(
+            value: filtro,
+            child: Text(filtro.etiqueta, style: const TextStyle(fontSize: 13)),
+          ),
       ],
       onChanged: (val) {
-        if (val != null) setState(() => _filtroEstado = val);
+        if (val == null) return;
+        setState(() => _filtroEstado = val);
+        // Mudar de filtro recomeça a paginação do início.
+        _voltarAoTopo();
+        _carregarClientes();
       },
+    );
+  }
+
+  /// Rodapé da lista paginada.
+  ///
+  /// O scroll da página já carrega a fatia seguinte ao aproximar-se do fim; o
+  /// botão cobre o caso de a janela ser alta o bastante para não haver scroll.
+  Widget _buildRodapePaginacao() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 16),
+      child: Center(
+        child: _aCarregarMais
+            ? const SizedBox(height: 22, width: 22, child: CircularProgressIndicator(strokeWidth: 2))
+            : TextButton.icon(
+                onPressed: _carregarMais,
+                icon: const Icon(Icons.expand_more_rounded, size: 18),
+                label: const Text('Carregar mais', style: TextStyle(fontSize: 13)),
+              ),
+      ),
     );
   }
 
   // --- WIDGET DOS CARTÕES DE MÉTRICAS (KPIS) ---
 
   Widget _buildKpiCards() {
-    final int totalClientes = _clientes.length;
-    final int ativosPortal = _clientes.where((c) => c.ativo).length;
-    final int comEncomendas = _clientes.where((c) => c.temEncomendas).length;
-    final int totalEncomendas = _clientes.fold<int>(0, (sum, c) => sum + c.totalEncomendas);
+    // Vêm do servidor: contados sobre a lista carregada, passariam a descrever o
+    // tamanho da página em vez do total da carteira.
+    final int totalClientes = _metricas.total;
+    final int ativosPortal = _metricas.ativosPortal;
+    final int comEncomendas = _metricas.comEncomendas;
+    final int totalEncomendas = _metricas.totalEncomendas;
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -430,7 +552,7 @@ class _ClientesScreenState extends State<ClientesScreen> {
               valor: '$totalClientes',
               subtitulo: 'Empresas registadas',
               icone: Icons.business_rounded,
-              corIcone: const Color(0xFF111625),
+              corIcone: TemasCores.marcaEscura,
             ),
             _buildKpiCard(
               largura: cardWidth,
@@ -438,7 +560,7 @@ class _ClientesScreenState extends State<ClientesScreen> {
               valor: '$ativosPortal',
               subtitulo: 'Contas ativas',
               icone: Icons.verified_user_outlined,
-              corIcone: Colors.green.shade700,
+              corIcone: TemasCores.sucessoTexto,
             ),
             _buildKpiCard(
               largura: cardWidth,
@@ -446,7 +568,7 @@ class _ClientesScreenState extends State<ClientesScreen> {
               valor: '$comEncomendas',
               subtitulo: 'Com histórico associado',
               icone: Icons.shopping_bag_outlined,
-              corIcone: Colors.blue.shade700,
+              corIcone: TemasCores.infoTexto,
             ),
             _buildKpiCard(
               largura: cardWidth,
@@ -454,7 +576,7 @@ class _ClientesScreenState extends State<ClientesScreen> {
               valor: '$totalEncomendas',
               subtitulo: 'Total acumulado',
               icone: Icons.inventory_2_outlined,
-              corIcone: Colors.amber.shade800,
+              corIcone: TemasCores.avisoTexto,
             ),
           ],
         );
@@ -470,66 +592,14 @@ class _ClientesScreenState extends State<ClientesScreen> {
     required IconData icone,
     required Color corIcone,
   }) {
-    return Container(
-      width: largura,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade200),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.02),
-            blurRadius: 6,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  titulo,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.grey.shade600,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  valor,
-                  style: const TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black87,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  subtitulo,
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: Colors.grey.shade500,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: corIcone.withOpacity(0.08),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(icone, color: corIcone, size: 22),
-          ),
-        ],
-      ),
+    return CartaoKpi(
+      estilo: EstiloKpi.clientes,
+      largura: largura,
+      titulo: titulo,
+      valor: valor,
+      subtitulo: subtitulo,
+      icone: icone,
+      corIcone: corIcone,
     );
   }
 
@@ -540,25 +610,25 @@ class _ClientesScreenState extends State<ClientesScreen> {
         children: const [
           Expanded(
             flex: 3,
-            child: Text('Cliente & NIF', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey, fontSize: 13)),
+            child: Text('Cliente & NIF', style: TextStyle(fontWeight: FontWeight.bold, color: TemasCores.textoTerciario, fontSize: 13)),
           ),
           Expanded(
             flex: 3,
-            child: Text('Contacto / Interlocutor', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey, fontSize: 13)),
+            child: Text('Contacto / Interlocutor', style: TextStyle(fontWeight: FontWeight.bold, color: TemasCores.textoTerciario, fontSize: 13)),
           ),
           Expanded(
             flex: 2,
-            child: Text('Histórico', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey, fontSize: 13)),
+            child: Text('Histórico', style: TextStyle(fontWeight: FontWeight.bold, color: TemasCores.textoTerciario, fontSize: 13)),
           ),
           Expanded(
             flex: 2,
-            child: Text('Acesso ao Portal', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey, fontSize: 13)),
+            child: Text('Acesso ao Portal', style: TextStyle(fontWeight: FontWeight.bold, color: TemasCores.textoTerciario, fontSize: 13)),
           ),
           Expanded(
             flex: 2,
             child: Align(
               alignment: Alignment.centerRight,
-              child: Text('Ações', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey, fontSize: 13)),
+              child: Text('Ações', style: TextStyle(fontWeight: FontWeight.bold, color: TemasCores.textoTerciario, fontSize: 13)),
             ),
           ),
         ],
@@ -580,7 +650,7 @@ class _ClientesScreenState extends State<ClientesScreen> {
       children: [
         Text(
           cliente.nomeCliente.isNotEmpty ? cliente.nomeCliente : 'N/A',
-          style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.black87, fontSize: 14),
+          style: const TextStyle(fontWeight: FontWeight.w600, color: TemasCores.textoPrimario, fontSize: 14),
           overflow: TextOverflow.ellipsis,
         ),
         const SizedBox(height: 4),
@@ -590,22 +660,22 @@ class _ClientesScreenState extends State<ClientesScreen> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
                 decoration: BoxDecoration(
-                  color: Colors.grey.shade200,
+                  color: TemasCores.borda,
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: Text(
                   'NIF $nif',
-                  style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey.shade800),
+                  style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: TemasCores.textoApoioIntenso),
                 ),
               ),
               const SizedBox(width: 8),
             ],
-            Icon(Icons.email_outlined, size: 12, color: Colors.grey.shade400),
+            const Icon(Icons.email_outlined, size: 12, color: TemasCores.textoDesativado),
             const SizedBox(width: 4),
             Expanded(
               child: Text(
                 cliente.email ?? 'Sem email',
-                style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+                style: const TextStyle(color: TemasCores.textoTerciario, fontSize: 12),
                 overflow: TextOverflow.ellipsis,
               ),
             ),
@@ -628,11 +698,11 @@ class _ClientesScreenState extends State<ClientesScreen> {
       children: [
         Row(
           children: [
-            Icon(Icons.phone_outlined, size: 14, color: Colors.grey.shade400),
+            const Icon(Icons.phone_outlined, size: 14, color: TemasCores.textoDesativado),
             const SizedBox(width: 6),
             Text(
               cliente.contactoFormatado,
-              style: TextStyle(color: Colors.grey.shade700, fontSize: 13, fontWeight: FontWeight.w500),
+              style: const TextStyle(color: TemasCores.textoApoioForte, fontSize: 13, fontWeight: FontWeight.w500),
             ),
           ],
         ),
@@ -654,18 +724,18 @@ class _ClientesScreenState extends State<ClientesScreen> {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: TemasCores.superficie,
               borderRadius: BorderRadius.circular(6),
-              border: Border.all(color: Colors.grey.shade300),
+              border: Border.all(color: TemasCores.bordaForte),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.history_toggle_off_rounded, size: 13, color: Colors.grey.shade600),
+                const Icon(Icons.history_toggle_off_rounded, size: 13, color: TemasCores.textoApoio),
                 const SizedBox(width: 6),
                 Text(
                   '${cliente.totalEncomendas} encomendas',
-                  style: TextStyle(color: Colors.grey.shade700, fontSize: 12, fontWeight: FontWeight.w600),
+                  style: const TextStyle(color: TemasCores.textoApoioForte, fontSize: 12, fontWeight: FontWeight.w600),
                 ),
               ],
             ),
@@ -682,13 +752,13 @@ class _ClientesScreenState extends State<ClientesScreen> {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
           decoration: BoxDecoration(
-            color: cliente.ativo ? const Color(0xFF707070) : const Color(0xFFEAEAEA),
+            color: cliente.ativo ? TemasCores.estadoAtivoFundo : TemasCores.estadoInativoFundo,
             borderRadius: BorderRadius.circular(12),
           ),
           child: Text(
             cliente.ativo ? 'Ativo' : 'Inativo',
             style: TextStyle(
-              color: cliente.ativo ? Colors.white : Colors.black54,
+              color: cliente.ativo ? TemasCores.textoInverso : TemasCores.textoSecundario,
               fontSize: 11,
               fontWeight: FontWeight.bold,
             ),
@@ -705,13 +775,13 @@ class _ClientesScreenState extends State<ClientesScreen> {
       child: OutlinedButton.icon(
         onPressed: () => _abrirDialogCliente(clienteExistente: cliente),
         style: OutlinedButton.styleFrom(
-          side: BorderSide(color: Colors.grey.shade300),
+          side: const BorderSide(color: TemasCores.bordaForte),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
         ),
-        icon: const Icon(Icons.edit_outlined, size: 14, color: Colors.black87),
+        icon: const Icon(Icons.edit_outlined, size: 14, color: TemasCores.textoPrimario),
         label: const Text('Editar Dados',
-            style: TextStyle(color: Colors.black87, fontSize: 12, fontWeight: FontWeight.w500)),
+            style: TextStyle(color: TemasCores.textoPrimario, fontSize: 12, fontWeight: FontWeight.w500)),
       ),
     );
   }
@@ -721,12 +791,12 @@ class _ClientesScreenState extends State<ClientesScreen> {
       {double tamanho = 12, FontWeight peso = FontWeight.normal}) {
     return Row(
       children: [
-        Icon(icone, size: 12, color: Colors.grey.shade400),
+        Icon(icone, size: 12, color: TemasCores.textoDesativado),
         const SizedBox(width: 4),
         Expanded(
           child: Text(
             texto,
-            style: TextStyle(color: Colors.grey.shade500, fontSize: tamanho, fontWeight: peso),
+            style: TextStyle(color: TemasCores.textoTerciario, fontSize: tamanho, fontWeight: peso),
             overflow: TextOverflow.ellipsis,
           ),
         ),
@@ -762,9 +832,9 @@ class _ClientesScreenState extends State<ClientesScreen> {
 
     return Container(
       decoration: const BoxDecoration(
-        color: Colors.white,
+        color: TemasCores.superficie,
         boxShadow: [
-          BoxShadow(color: Colors.black26, blurRadius: 16, offset: Offset(-4, 0)),
+          BoxShadow(color: TemasCores.sombraMarcada, blurRadius: 16, offset: Offset(-4, 0)),
         ],
       ),
       child: Column(
@@ -798,8 +868,8 @@ class _ClientesScreenState extends State<ClientesScreen> {
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: const Color(0xFF111625),
-        border: Border(bottom: BorderSide(color: Colors.grey.shade800)),
+        color: TemasCores.marcaEscura,
+        border: const Border(bottom: BorderSide(color: TemasCores.bordaEscura)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -810,12 +880,12 @@ class _ClientesScreenState extends State<ClientesScreen> {
               Expanded(
                 child: Text(
                   cliente.nomeCliente.isNotEmpty ? cliente.nomeCliente : 'Cliente',
-                  style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+                  style: const TextStyle(color: TemasCores.textoInverso, fontSize: 20, fontWeight: FontWeight.bold),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
               IconButton(
-                icon: const Icon(Icons.close_rounded, color: Colors.white70),
+                icon: const Icon(Icons.close_rounded, color: TemasCores.textoInversoAtenuado),
                 onPressed: () => setState(() => _clienteDetalhesSelecionado = null),
               ),
             ],
@@ -828,19 +898,19 @@ class _ClientesScreenState extends State<ClientesScreen> {
               if (nif.isNotEmpty)
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(color: Colors.white12, borderRadius: BorderRadius.circular(4)),
+                  decoration: BoxDecoration(color: TemasCores.realceSobreEscuroForte, borderRadius: BorderRadius.circular(4)),
                   child: Text('NIF: $nif',
-                      style: const TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w500)),
+                      style: const TextStyle(color: TemasCores.textoInversoAtenuado, fontSize: 11, fontWeight: FontWeight.w500)),
                 ),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
-                  color: cliente.ativo ? Colors.green.shade800 : Colors.red.shade800,
+                  color: cliente.ativo ? TemasCores.sucessoTextoForte : TemasCores.erroTextoForte,
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: Text(
                   cliente.ativo ? 'Portal Ativo' : 'Portal Bloqueado',
-                  style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                  style: const TextStyle(color: TemasCores.textoInverso, fontSize: 11, fontWeight: FontWeight.bold),
                 ),
               ),
             ],
@@ -861,14 +931,14 @@ class _ClientesScreenState extends State<ClientesScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text('Informações Fiscais e Logísticas',
-            style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black87)),
+            style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: TemasCores.textoPrimario)),
         const SizedBox(height: 12),
         Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: Colors.grey.shade50,
+            color: TemasCores.superficieTenue,
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: Colors.grey.shade200),
+            border: Border.all(color: TemasCores.borda),
           ),
           child: Column(
             children: [
@@ -903,8 +973,8 @@ class _ClientesScreenState extends State<ClientesScreen> {
         _buildDrawerTituloSeccao(
           'Pedidos da Aplicação B2B',
           pedidos.length,
-          fundoContador: Colors.blue.shade50,
-          corContador: Colors.blue.shade800,
+          fundoContador: TemasCores.infoFundo,
+          corContador: TemasCores.infoTextoForte,
         ),
         const SizedBox(height: 12),
         if (pedidos.isEmpty)
@@ -918,10 +988,10 @@ class _ClientesScreenState extends State<ClientesScreen> {
                 trailing: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                   decoration:
-                      BoxDecoration(color: Colors.amber.shade50, borderRadius: BorderRadius.circular(4)),
+                      BoxDecoration(color: TemasCores.avisoFundo, borderRadius: BorderRadius.circular(4)),
                   child: Text(p.estado.etiqueta,
                       style: TextStyle(
-                          fontSize: 10, fontWeight: FontWeight.bold, color: Colors.amber.shade900)),
+                          fontSize: 10, fontWeight: FontWeight.bold, color: TemasCores.avisoTextoForte)),
                 ),
               );
             }).toList(),
@@ -938,8 +1008,8 @@ class _ClientesScreenState extends State<ClientesScreen> {
         _buildDrawerTituloSeccao(
           'Ordens de Produção Lançadas',
           encomendas.length,
-          fundoContador: Colors.grey.shade100,
-          corContador: Colors.grey.shade800,
+          fundoContador: TemasCores.superficieSuave,
+          corContador: TemasCores.textoApoioIntenso,
         ),
         const SizedBox(height: 12),
         if (encomendas.isEmpty)
@@ -952,7 +1022,7 @@ class _ClientesScreenState extends State<ClientesScreen> {
                 subtitulo: '${e.nomeProduto ?? 'Produto'} • Qtd: ${e.quantidade}',
                 trailing: Text(
                   e.dataEntregaIso ?? '',
-                  style: TextStyle(fontSize: 11, color: Colors.grey.shade500, fontWeight: FontWeight.w500),
+                  style: const TextStyle(fontSize: 11, color: TemasCores.textoTerciario, fontWeight: FontWeight.w500),
                 ),
               );
             }).toList(),
@@ -970,7 +1040,7 @@ class _ClientesScreenState extends State<ClientesScreen> {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(titulo, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black87)),
+        Text(titulo, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: TemasCores.textoPrimario)),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
           decoration: BoxDecoration(color: fundoContador, borderRadius: BorderRadius.circular(10)),
@@ -983,7 +1053,7 @@ class _ClientesScreenState extends State<ClientesScreen> {
 
   Widget _buildDrawerVazio(String mensagem) {
     return Text(mensagem,
-        style: TextStyle(fontSize: 12, color: Colors.grey.shade500, fontStyle: FontStyle.italic));
+        style: const TextStyle(fontSize: 12, color: TemasCores.textoTerciario, fontStyle: FontStyle.italic));
   }
 
   /// Cartão de item usado tanto pelos pedidos como pelas encomendas.
@@ -997,9 +1067,9 @@ class _ClientesScreenState extends State<ClientesScreen> {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: TemasCores.superficie,
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: Colors.grey.shade200),
+        border: Border.all(color: TemasCores.borda),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1008,8 +1078,8 @@ class _ClientesScreenState extends State<ClientesScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(titulo,
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.black87)),
-              Text(subtitulo, style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: TemasCores.textoPrimario)),
+              Text(subtitulo, style: const TextStyle(fontSize: 11, color: TemasCores.textoApoio)),
             ],
           ),
           trailing,
@@ -1021,16 +1091,16 @@ class _ClientesScreenState extends State<ClientesScreen> {
   Widget _buildLinhaDetalhe(IconData icone, String titulo, String valor) {
     return Row(
       children: [
-        Icon(icone, size: 16, color: Colors.grey.shade600),
+        Icon(icone, size: 16, color: TemasCores.textoApoio),
         const SizedBox(width: 10),
         SizedBox(
           width: 100,
-          child: Text(titulo, style: TextStyle(fontSize: 12, color: Colors.grey.shade600, fontWeight: FontWeight.w500)),
+          child: Text(titulo, style: const TextStyle(fontSize: 12, color: TemasCores.textoApoio, fontWeight: FontWeight.w500)),
         ),
         Expanded(
           child: Text(
             valor,
-            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black87),
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: TemasCores.textoPrimario),
             overflow: TextOverflow.ellipsis,
           ),
         ),
@@ -1130,7 +1200,7 @@ class _ClientesScreenState extends State<ClientesScreen> {
                         title: const Text('Acesso ao Portal de Rastreio', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
                         subtitle: Text(acessoAtivo ? 'Cliente consegue rastrear encomendas' : 'Acesso temporariamente bloqueado'),
                         value: acessoAtivo,
-                        activeColor: Colors.black87,
+                        activeColor: TemasCores.textoPrimario,
                         onChanged: (val) {
                           setDialogState(() => acessoAtivo = val);
                         },

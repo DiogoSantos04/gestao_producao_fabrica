@@ -1,7 +1,10 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import '../../core/mensagens.dart';
+import '../../core/temas_cores.dart';
 import '../../models/pedido_model.dart';
 import '../../repositories/clientes_repository.dart';
+import 'widgets/etiqueta_estado.dart';
 
 class PedidosClientesAdminScreen extends StatefulWidget {
   const PedidosClientesAdminScreen({super.key});
@@ -58,9 +61,9 @@ class _PedidosClientesAdminScreenState extends State<PedidosClientesAdminScreen>
       elevation: 0,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: Colors.grey.shade200),
+        side: const BorderSide(color: TemasCores.borda),
       ),
-      color: Colors.white,
+      color: TemasCores.superficie,
       child: Padding(
         padding: const EdgeInsets.all(20),
         child: Row(
@@ -83,15 +86,15 @@ class _PedidosClientesAdminScreenState extends State<PedidosClientesAdminScreen>
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: isPendente
-            ? Colors.amber.shade50
-            : (isAprovado ? Colors.green.shade50 : Colors.red.shade50),
+            ? TemasCores.avisoFundo
+            : (isAprovado ? TemasCores.sucessoFundo : TemasCores.erroFundo),
         shape: BoxShape.circle,
       ),
       child: Icon(
         isPendente
             ? Icons.pending_actions
             : (isAprovado ? Icons.check_circle_outline : Icons.cancel_outlined),
-        color: isPendente ? Colors.amber.shade800 : (isAprovado ? Colors.green : Colors.red),
+        color: isPendente ? TemasCores.avisoTexto : (isAprovado ? TemasCores.sucesso : TemasCores.erro),
       ),
     );
   }
@@ -108,7 +111,7 @@ class _PedidosClientesAdminScreenState extends State<PedidosClientesAdminScreen>
           const SizedBox(height: 4),
           Text(
             'Obs: ${p.observacoes}',
-            style: const TextStyle(color: Color(0xFF64748B), fontSize: 13),
+            style: const TextStyle(color: TemasCores.textoSecundarioFrio, fontSize: 13),
           ),
         ],
       ],
@@ -121,15 +124,15 @@ class _PedidosClientesAdminScreenState extends State<PedidosClientesAdminScreen>
       children: [
         OutlinedButton(
           onPressed: () => _rejeitarPedido(p.id),
-          style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
+          style: OutlinedButton.styleFrom(foregroundColor: TemasCores.erro),
           child: const Text('Rejeitar'),
         ),
         const SizedBox(width: 12),
         ElevatedButton.icon(
           onPressed: () => _aprovarELancarEncomenda(p),
           style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.blue,
-            foregroundColor: Colors.white,
+            backgroundColor: TemasCores.marcaAcento,
+            foregroundColor: TemasCores.textoInverso,
           ),
           icon: const Icon(Icons.rocket_launch, size: 18),
           label: const Text('Aprovar e Lançar'),
@@ -139,20 +142,10 @@ class _PedidosClientesAdminScreenState extends State<PedidosClientesAdminScreen>
   }
 
   Widget _buildBadgeEstado(PedidoModel p, {required bool isAprovado}) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-      decoration: BoxDecoration(
-        color: isAprovado ? Colors.green.shade100 : Colors.red.shade100,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Text(
-        p.estado.etiqueta.toUpperCase(),
-        style: TextStyle(
-          color: isAprovado ? Colors.green.shade900 : Colors.red.shade900,
-          fontWeight: FontWeight.bold,
-          fontSize: 12,
-        ),
-      ),
+    return EtiquetaEstado.destacada(
+      rotulo: p.estado.etiqueta.toUpperCase(),
+      fundo: isAprovado ? TemasCores.sucessoFundoForte : TemasCores.erroFundoForte,
+      texto: isAprovado ? TemasCores.sucessoTextoIntenso : TemasCores.erroTextoIntenso,
     );
   }
 
@@ -188,20 +181,13 @@ class _PedidosClientesAdminScreenState extends State<PedidosClientesAdminScreen>
       );
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Encomenda $codigoRastreio lançada com sucesso!'),
-            backgroundColor: Colors.green,
-          ),
-        );
+        context.mostrarMensagem('Encomenda $codigoRastreio lançada com sucesso!');
         _carregarPedidos();
       }
     } catch (e) {
       debugPrint('Erro ao lançar encomenda: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro ao processar: $e'), backgroundColor: Colors.red),
-        );
+        context.mostrarMensagem('Erro ao processar: $e', eErro: true);
       }
     }
   }
@@ -218,7 +204,7 @@ class _PedidosClientesAdminScreenState extends State<PedidosClientesAdminScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
+      backgroundColor: TemasCores.fundoEcraFrio,
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : Padding(
@@ -237,13 +223,13 @@ class _PedidosClientesAdminScreenState extends State<PedidosClientesAdminScreen>
                             style: TextStyle(
                               fontSize: 28,
                               fontWeight: FontWeight.bold,
-                              color: Color(0xFF0F172A),
+                              color: TemasCores.textoPrimarioFrio,
                             ),
                           ),
                           SizedBox(height: 4),
                           Text(
                             'Analise e aprove as solicitações submetidas pelos clientes comerciais.',
-                            style: TextStyle(fontSize: 14, color: Color(0xFF64748B)),
+                            style: TextStyle(fontSize: 14, color: TemasCores.textoSecundarioFrio),
                           ),
                         ],
                       ),

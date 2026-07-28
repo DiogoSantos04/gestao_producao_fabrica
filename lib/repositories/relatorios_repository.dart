@@ -1,19 +1,43 @@
 import 'dart:typed_data';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../core/paginacao.dart';
 import 'base_repository.dart';
 
 /// Avaliações de clientes e o registo de auditoria dos relatórios emitidos.
 class RelatoriosRepository extends BaseRepository {
   static const String _bucket = 'relatorios';
 
-  /// Avaliações submetidas pelos clientes, mais recentes primeiro.
-  Future<List<Map<String, dynamic>>> obterAvaliacoes() {
+  /// Uma fatia das avaliações submetidas pelos clientes, mais recentes primeiro.
+  Future<PaginaResultado<Map<String, dynamic>>> obterAvaliacoes({
+    int deslocamento = 0,
+    int tamanho = tamanhoPaginaPadrao,
+  }) {
     return guarda('carregar as avaliações', () async {
       final dados = await client
           .from('avaliacoes')
           .select('nota, comentario, data_registo, encomendas(codigo_rastreio), clientes(nome_cliente)')
-          .order('data_registo', ascending: false);
-      return comoLista(dados);
+          .order('data_registo', ascending: false)
+          // Uma linha a mais serve de sonda para saber se há mais avaliações.
+          .range(deslocamento, deslocamento + tamanho);
+      return PaginaResultado.aPartirDeSondagem(comoLista(dados), tamanho);
+    });
+  }
+
+  /// Nota média de todas as avaliações, apurada sobre a tabela inteira.
+  ///
+  /// A média não pode sair da lista paginada — daria a média das avaliações que
+  /// por acaso já estivessem no ecrã. Como o PostgREST não expõe `avg`, lê-se
+  /// apenas a coluna `nota`: uma leitura de inteiros, sem as junções e os
+  /// comentários que a lista precisa.
+  Future<double> obterAvaliacaoMedia() {
+    return guarda('calcular a avaliação média', () async {
+      final notas = comoLista(await client.from('avaliacoes').select('nota'))
+          .map((a) => (a['nota'] as num?)?.toDouble())
+          .whereType<double>()
+          .toList();
+      if (notas.isEmpty) return 0.0;
+      final media = notas.reduce((a, b) => a + b) / notas.length;
+      return double.parse(media.toStringAsFixed(1));
     });
   }
 

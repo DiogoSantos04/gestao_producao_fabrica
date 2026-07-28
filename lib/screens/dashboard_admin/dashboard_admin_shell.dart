@@ -1,5 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../../core/iniciais.dart';
+import '../../core/mensagens.dart';
+import '../../core/temas_cores.dart';
 import '../../repositories/utilizadores_repository.dart';
 import '../../services/auth_service.dart';
 import '../login_screen.dart';
@@ -98,16 +101,7 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
     }
   }
 
-  /// Converte o nome em iniciais (ex: "Diogo Santos" -> "DS")
-  String _obterIniciais(String? nome) {
-    if (nome == null || nome.toString().trim().isEmpty) return 'AD';
-    final String limpo = nome.toString().trim();
-    final partes = limpo.split(' ');
-    if (partes.length >= 2 && partes[0].isNotEmpty && partes[1].isNotEmpty) {
-      return '${partes[0][0]}${partes[1][0]}'.toUpperCase();
-    }
-    return limpo.substring(0, limpo.length >= 2 ? 2 : 1).toUpperCase();
-  }
+  String _obterIniciais(String? nome) => obterIniciais(nome, omissao: 'AD');
 
   /// Diálogo interativo para alterar a palavra-passe no Auth e na tabela utilizadores
   void _mostrarDialogoAlterarPalavraPasse() {
@@ -125,7 +119,7 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               title: const Row(
                 children: [
-                  Icon(Icons.lock_reset_outlined, color: Colors.blue),
+                  Icon(Icons.lock_reset_outlined, color: TemasCores.marcaAcento),
                   SizedBox(width: 10),
                   Text('Alterar Palavra-passe'),
                 ],
@@ -191,34 +185,24 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
 
                             if (context.mounted) {
                               Navigator.pop(context);
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Palavra-passe alterada com sucesso!'),
-                                  backgroundColor: Colors.green,
-                                ),
-                              );
+                              context.mostrarMensagem('Palavra-passe alterada com sucesso!');
                             }
                           } catch (e) {
                             setDialogState(() => aCarregar = false);
                             if (context.mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text('Erro ao alterar palavra-passe: $e'),
-                                  backgroundColor: Colors.red,
-                                ),
-                              );
+                              context.mostrarMensagem('Erro ao alterar palavra-passe: $e', eErro: true);
                             }
                           }
                         },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue,
-                    foregroundColor: Colors.white,
+                    backgroundColor: TemasCores.marcaAcento,
+                    foregroundColor: TemasCores.textoInverso,
                   ),
                   child: aCarregar
                       ? const SizedBox(
                           width: 18,
                           height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          child: CircularProgressIndicator(strokeWidth: 2, color: TemasCores.textoInverso),
                         )
                       : const Text('Guardar'),
                 ),
@@ -261,10 +245,10 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
                       children: [
                         CircleAvatar(
                           radius: 45,
-                          backgroundColor: Colors.blue.shade600,
+                          backgroundColor: TemasCores.infoForte,
                           child: Text(
                             iniciais,
-                            style: const TextStyle(fontSize: 28, color: Colors.white, fontWeight: FontWeight.bold),
+                            style: const TextStyle(fontSize: 28, color: TemasCores.textoInverso, fontWeight: FontWeight.bold),
                           ),
                         ),
                         const SizedBox(height: 20),
@@ -275,7 +259,7 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
                         const SizedBox(height: 4),
                         const Text(
                           'Administrador do Sistema',
-                          style: TextStyle(fontSize: 14, color: Colors.grey, fontWeight: FontWeight.w500),
+                          style: TextStyle(fontSize: 14, color: TemasCores.textoTerciario, fontWeight: FontWeight.w500),
                         ),
                         const Divider(height: 40),
                         
@@ -296,19 +280,19 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
                           onPressed: _mostrarDialogoAlterarPalavraPasse,
                           style: OutlinedButton.styleFrom(
                             minimumSize: const Size.fromHeight(50),
-                            side: BorderSide(color: Colors.grey.shade300),
+                            side: const BorderSide(color: TemasCores.bordaForte),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                           ),
-                          icon: const Icon(Icons.vpn_key_outlined, color: Colors.black87),
-                          label: const Text('Alterar Palavra-passe', style: TextStyle(color: Colors.black87)),
+                          icon: const Icon(Icons.vpn_key_outlined, color: TemasCores.textoPrimario),
+                          label: const Text('Alterar Palavra-passe', style: TextStyle(color: TemasCores.textoPrimario)),
                         ),
                         const SizedBox(height: 12),
                         
                         ElevatedButton.icon(
                           onPressed: _efetuarLogout,
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.red.shade600,
-                            foregroundColor: Colors.white,
+                            backgroundColor: TemasCores.erroForte,
+                            foregroundColor: TemasCores.textoInverso,
                             minimumSize: const Size.fromHeight(50),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                           ),
@@ -332,18 +316,18 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: Colors.grey.shade50,
+        color: TemasCores.superficieTenue,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(width: 1, color: Colors.grey.shade200),
+        border: Border.all(width: 1, color: TemasCores.borda),
       ),
       child: Row(
         children: [
-          Icon(icone, color: Colors.grey),
+          Icon(icone, color: TemasCores.textoTerciario),
           const SizedBox(width: 16),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+              Text(label, style: const TextStyle(fontSize: 11, color: TemasCores.textoTerciario)),
               const SizedBox(height: 2),
               Text(valor, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
             ],
@@ -378,7 +362,7 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
               title: Text(_indiceAtual == 9 
                   ? 'O Meu Perfil' 
                   : _menuItens[_indiceAtual]['titulo']),
-              backgroundColor: Colors.deepPurple.shade50,
+              backgroundColor: TemasCores.acentoRoxoFundo,
             )
           : null,
       drawer: !eDesktop ? Drawer(child: _buildSidebar(dentroDrawer: true)) : null,
@@ -404,7 +388,7 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
   // --- CONSTRUTOR DA SIDEBAR ---
   Widget _buildSidebar({required bool dentroDrawer}) {
     return Container(
-      color: const Color(0xFF111625), 
+      color: TemasCores.marcaEscura, 
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -412,12 +396,12 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
             child: const Row(
               children: [
-                Icon(Icons.settings_suggest_rounded, color: Colors.blue, size: 28),
+                Icon(Icons.settings_suggest_rounded, color: TemasCores.marcaAcento, size: 28),
                 SizedBox(width: 12),
                 Text(
                   'Sistema Industrial',
                   style: TextStyle(
-                    color: Colors.white,
+                    color: TemasCores.textoInverso,
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
                     letterSpacing: 0.5,
@@ -427,7 +411,7 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
             ),
           ),
           
-          const Divider(color: Colors.white10, height: 1),
+          const Divider(color: TemasCores.separadorEscuro, height: 1),
           const SizedBox(height: 16),
 
           // Lista de Opções do Menu
@@ -443,16 +427,16 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
                   child: ListTile(
                     selected: estaSelecionado,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    selectedTileColor: Colors.white.withOpacity(0.08), 
+                    selectedTileColor: TemasCores.realceSobreEscuro, 
                     leading: Icon(
                       item['icone'],
-                      color: estaSelecionado ? Colors.blue : Colors.grey.shade500,
+                      color: estaSelecionado ? TemasCores.marcaAcento : TemasCores.textoInversoTenue,
                       size: 20,
                     ),
                     title: Text(
                       item['titulo'],
                       style: TextStyle(
-                        color: estaSelecionado ? Colors.white : Colors.grey.shade400,
+                        color: estaSelecionado ? TemasCores.textoInverso : TemasCores.textoInversoSuave,
                         fontSize: 14,
                         fontWeight: estaSelecionado ? FontWeight.w600 : FontWeight.normal,
                       ),
@@ -472,7 +456,7 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
           ),
 
           // Rodapé com o Logout e Info do Utilizador
-          const Divider(color: Colors.white10, height: 1),
+          const Divider(color: TemasCores.separadorEscuro, height: 1),
           _buildRodapeSidebar(dentroDrawer),
         ],
       ),
@@ -502,17 +486,17 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
             child: Container(
               padding: const EdgeInsets.all(8.0),
               decoration: BoxDecoration(
-                color: estaNoPerfil ? Colors.white.withOpacity(0.08) : Colors.transparent,
+                color: estaNoPerfil ? TemasCores.realceSobreEscuro : Colors.transparent,
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Row(
                 children: [
                   CircleAvatar(
-                    backgroundColor: Colors.blue.shade100,
+                    backgroundColor: TemasCores.infoFundoForte,
                     radius: 18,
                     child: Text(
                       iniciais,
-                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.blue),
+                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: TemasCores.marcaAcento),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -522,12 +506,12 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
                       children: [
                         Text(
                           _nomeUtilizador,
-                          style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                          style: const TextStyle(color: TemasCores.textoInverso, fontSize: 13, fontWeight: FontWeight.bold),
                           overflow: TextOverflow.ellipsis,
                         ),
                         Text(
                           idDisplay,
-                          style: TextStyle(color: Colors.grey.shade500, fontSize: 11),
+                          style: const TextStyle(color: TemasCores.textoInversoTenue, fontSize: 11),
                           overflow: TextOverflow.ellipsis,
                         ),
                       ],
@@ -541,8 +525,8 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
           ElevatedButton.icon(
             onPressed: _efetuarLogout,
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red.withOpacity(0.15),
-              foregroundColor: Colors.redAccent,
+              backgroundColor: TemasCores.erro.withOpacity(0.15),
+              foregroundColor: TemasCores.erroVivo,
               elevation: 0,
               minimumSize: const Size.fromHeight(38),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),

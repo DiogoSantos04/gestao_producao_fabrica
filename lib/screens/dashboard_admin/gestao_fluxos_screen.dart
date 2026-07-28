@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/mensagens.dart';
 import '../../core/temas_cores.dart';
 import '../../models/fase_model.dart';
 import '../../repositories/fluxos_repository.dart';
@@ -111,11 +112,9 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
       _selecionarTipologia(novoProduto);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Fluxo "$novoNome" duplicado com sucesso!'),
-            backgroundColor: Colors.green.shade700,
-          ),
+        context.mostrarSnack(
+          'Fluxo "$novoNome" duplicado com sucesso!',
+          cor: TemasCores.sucessoTexto,
         );
       }
     } catch (e) {
@@ -194,9 +193,7 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
 
   void _mostrarErro(String msg) {
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(msg), backgroundColor: TemasCores.vermelhoErro),
-      );
+      context.mostrarMensagem(msg, eErro: true);
     }
   }
 
@@ -208,7 +205,7 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
     final bool eDesktop = larguraEcra > 850;
 
     return Scaffold(
-      backgroundColor: Colors.grey.shade50,
+      backgroundColor: TemasCores.fundoEcra,
       body: Padding(
         padding: const EdgeInsets.all(24.0),
         child: Column(
@@ -247,11 +244,11 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
 
   Widget _buildPainelEsquerdoTipologias() {
     return Card(
-      color: Colors.white,
+      color: TemasCores.superficie,
       elevation: 1,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: Colors.grey.shade200),
+        side: const BorderSide(color: TemasCores.borda),
       ),
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -265,7 +262,7 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
             const SizedBox(height: 4),
             Text(
               'Selecione uma tipologia para desenhar o fluxo',
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+              style: TextStyle(fontSize: 12, color: TemasCores.textoTerciario),
             ),
             const SizedBox(height: 16),
             _isLoadingTipologias
@@ -284,17 +281,17 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(8),
                           border: Border.all(
-                            color: eSelecionado ? Colors.blue : Colors.grey.shade200,
+                            color: eSelecionado ? TemasCores.marcaAcento : TemasCores.borda,
                             width: eSelecionado ? 2 : 1,
                           ),
-                          color: eSelecionado ? Colors.blue.withOpacity(0.05) : Colors.transparent,
+                          color: eSelecionado ? TemasCores.marcaAcento.withOpacity(0.05) : Colors.transparent,
                         ),
                         child: ListTile(
                           title: Text(
                             tipo['nome_tipo_produto'] ?? '',
                             style: TextStyle(
                               fontWeight: eSelecionado ? FontWeight.bold : FontWeight.normal,
-                              color: eSelecionado ? Colors.blue.shade800 : Colors.black87,
+                              color: eSelecionado ? TemasCores.infoTextoForte : TemasCores.textoPrimario,
                             ),
                           ),
                           trailing: Row(
@@ -303,7 +300,7 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
                               const Icon(Icons.arrow_forward_ios_rounded, size: 14),
                               if (eSelecionado)
                                 IconButton(
-                                  icon: const Icon(Icons.delete_outline, color: Colors.red, size: 18),
+                                  icon: const Icon(Icons.delete_outline, color: TemasCores.erro, size: 18),
                                   onPressed: () => _eliminarTipologia(tipo['id']),
                                 ),
                             ],
@@ -318,8 +315,8 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
               onPressed: _abrirDialogNovaTipologia,
               style: ElevatedButton.styleFrom(
                 minimumSize: const Size.fromHeight(45),
-                backgroundColor: Colors.grey.shade100,
-                foregroundColor: Colors.black87,
+                backgroundColor: TemasCores.superficieSuave,
+                foregroundColor: TemasCores.textoPrimario,
                 elevation: 0,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
               ),
@@ -342,11 +339,11 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
     }
 
     return Card(
-      color: Colors.white,
+      color: TemasCores.superficie,
       elevation: 1,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: Colors.grey.shade200),
+        side: const BorderSide(color: TemasCores.borda),
       ),
       child: Padding(
         padding: const EdgeInsets.all(20),
@@ -381,7 +378,7 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
             ),
             Text(
               'Defina o circuito sequencial de produção das peças',
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+              style: TextStyle(fontSize: 12, color: TemasCores.textoTerciario),
             ),
           ],
         ),
@@ -390,8 +387,8 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
             OutlinedButton.icon(
               onPressed: _abrirDialogDuplicarFluxo,
               style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.blue.shade700,
-                side: BorderSide(color: Colors.blue.shade300),
+                foregroundColor: TemasCores.infoTexto,
+                side: const BorderSide(color: TemasCores.infoClaro),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
               ),
               icon: const Icon(Icons.copy, size: 16),
@@ -401,8 +398,8 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
             ElevatedButton.icon(
               onPressed: () => _abrirDialogFase(),
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.black,
-                foregroundColor: Colors.white,
+                backgroundColor: TemasCores.acaoPrincipal,
+                foregroundColor: TemasCores.textoInverso,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
               ),
               icon: const Icon(Icons.add, size: 18),
@@ -423,7 +420,7 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: 40),
         child: Center(
-          child: Text('Nenhuma fase definida para este fluxo.', style: TextStyle(color: Colors.grey)),
+          child: Text('Nenhuma fase definida para este fluxo.', style: TextStyle(color: TemasCores.textoTerciario)),
         ),
       );
     }
@@ -449,13 +446,13 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
                               elevation: 0,
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(8),
-                                side: BorderSide(color: Colors.grey.shade200),
+                                side: const BorderSide(color: TemasCores.borda),
                               ),
                               child: Padding(
                                 padding: const EdgeInsets.all(16),
                                 child: Row(
                                   children: [
-                                    const Icon(Icons.drag_indicator, color: Colors.grey),
+                                    const Icon(Icons.drag_indicator, color: TemasCores.textoTerciario),
                                     const SizedBox(width: 12),
                                     Expanded(
                                       child: Column(
@@ -466,13 +463,13 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
                                               Container(
                                                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                                                 decoration: BoxDecoration(
-                                                  color: Colors.blue.shade50,
+                                                  color: TemasCores.infoFundo,
                                                   borderRadius: BorderRadius.circular(4),
                                                 ),
                                                 child: Text(
                                                   'Fase ${index + 1}',
                                                   style: TextStyle(
-                                                    color: Colors.blue.shade700,
+                                                    color: TemasCores.infoTexto,
                                                     fontWeight: FontWeight.bold,
                                                     fontSize: 11,
                                                   ),
@@ -508,7 +505,7 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
                                           const SizedBox(height: 6),
                                           Text(
                                             fase.descricao ?? 'Sem descrição.',
-                                            style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+                                            style: TextStyle(color: TemasCores.textoApoio, fontSize: 13),
                                           ),
                                           if (checklistItems.isNotEmpty) ...[
                                             const SizedBox(height: 8),
@@ -519,18 +516,18 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
                                                 return Container(
                                                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                                   decoration: BoxDecoration(
-                                                    color: Colors.green.shade50,
+                                                    color: TemasCores.sucessoFundo,
                                                     borderRadius: BorderRadius.circular(4),
-                                                    border: Border.all(color: Colors.green.shade200),
+                                                    border: Border.all(color: TemasCores.sucessoBorda),
                                                   ),
                                                   child: Row(
                                                     mainAxisSize: MainAxisSize.min,
                                                     children: [
-                                                      Icon(Icons.check_box_outlined, size: 11, color: Colors.green.shade700),
+                                                      const Icon(Icons.check_box_outlined, size: 11, color: TemasCores.sucessoTexto),
                                                       const SizedBox(width: 4),
                                                       Text(
                                                         item,
-                                                        style: TextStyle(fontSize: 10, color: Colors.green.shade800),
+                                                        style: const TextStyle(fontSize: 10, color: TemasCores.sucessoTextoForte),
                                                       ),
                                                     ],
                                                   ),
@@ -543,11 +540,11 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
                                     ),
                                     const SizedBox(width: 12),
                                     IconButton(
-                                      icon: const Icon(Icons.edit_outlined, color: Colors.grey, size: 20),
+                                      icon: const Icon(Icons.edit_outlined, color: TemasCores.textoTerciario, size: 20),
                                       onPressed: () => _abrirDialogFase(faseExistente: fase),
                                     ),
                                     IconButton(
-                                      icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                                      icon: const Icon(Icons.delete_outline, color: TemasCores.erro, size: 20),
                                       onPressed: () => _eliminarFase(fase.id),
                                     ),
                                   ],
@@ -569,18 +566,18 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF111625),
+                  color: TemasCores.marcaEscura,
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: Text(
                   'Fase ${index + 1}: ${f.nomeFasePadrao}',
-                  style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                  style: const TextStyle(color: TemasCores.textoInverso, fontSize: 11, fontWeight: FontWeight.bold),
                 ),
               ),
               if (!eUltimo)
                 const Padding(
                   padding: EdgeInsets.symmetric(horizontal: 8),
-                  child: Icon(Icons.chevron_right, color: Colors.grey, size: 16),
+                  child: Icon(Icons.chevron_right, color: TemasCores.textoTerciario, size: 16),
                 ),
             ],
           );
@@ -635,7 +632,7 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
             children: [
               Text(
                 'Irá ser criada uma nova tipologia clonando todas as fases, postos e tempos do fluxo "$nomeAtual".',
-                style: const TextStyle(fontSize: 13, color: Colors.black87),
+                style: const TextStyle(fontSize: 13, color: TemasCores.textoPrimario),
               ),
               const SizedBox(height: 16),
               TextField(
@@ -655,8 +652,8 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
             ),
             ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.blue.shade700,
-                foregroundColor: Colors.white,
+                backgroundColor: TemasCores.infoTexto,
+                foregroundColor: TemasCores.textoInverso,
               ),
               icon: const Icon(Icons.copy, size: 16),
               label: const Text('Duplicar'),
@@ -753,7 +750,7 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
                         alignment: Alignment.centerLeft,
                         child: Text(
                           '📋 Checklist SOP (Passos obrigatórios do Operador):',
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.blueGrey),
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: TemasCores.acentoAzulAcinzentado),
                         ),
                       ),
                       const SizedBox(height: 8),
@@ -769,7 +766,7 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
                             ),
                           ),
                           IconButton(
-                            icon: const Icon(Icons.add_circle, color: Colors.blue),
+                            icon: const Icon(Icons.add_circle, color: TemasCores.marcaAcento),
                             onPressed: () {
                               if (taskController.text.isNotEmpty) {
                                 setDialogState(() {
@@ -792,7 +789,7 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
                               title: Text(checklistLocal[idx], style: const TextStyle(fontSize: 12)),
                               dense: true,
                               trailing: IconButton(
-                                icon: const Icon(Icons.remove_circle_outline, color: Colors.red, size: 16),
+                                icon: const Icon(Icons.remove_circle_outline, color: TemasCores.erro, size: 16),
                                 onPressed: () {
                                   setDialogState(() {
                                     checklistLocal.removeAt(idx);

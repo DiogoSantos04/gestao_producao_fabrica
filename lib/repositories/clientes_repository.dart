@@ -1,4 +1,5 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../core/paginacao.dart';
 import '../models/cliente_model.dart';
 import '../models/pedido_model.dart';
 import 'base_repository.dart';
@@ -7,20 +8,104 @@ import 'base_repository.dart';
 class ClientesRepository extends BaseRepository {
   // --- CLIENTES ---
 
-  /// Clientes com o histórico de encomendas e os pedidos da app.
-  Future<List<ClienteModel>> obterComHistorico() {
+  /// Colunas do cliente e as junções que o painel de detalhe precisa.
+  ///
+  /// A junção com `encomendas` leva `!inner` quando o filtro é "com encomendas":
+  /// é o que transforma o embed num critério de seleção do próprio cliente, em
+  /// vez de apenas o acompanhar.
+  static String _selectClientes({required bool exigirEncomendas}) =>
+      'id, nome_cliente, contacto, email, ativo, nif, pessoa_contacto, morada, '
+      'utilizador_id, '
+      'encomendas${exigirEncomendas ? '!inner' : ''}'
+      '(id, codigo_rastreio, data_entrega, quantidade, prioridade, '
+      'tipos_produto:tipos_produtos_id(nome_tipo_produto)), '
+      'pedidos_encomenda(id, quantidade, observacoes, estado, '
+      'tipos_produto:tipo_produto_id(nome_tipo_produto))';
+
+  /// Colunas textuais cobertas pela pesquisa — as mesmas de
+  /// [ClienteModel.corresponde], que fazia esta comparação em memória.
+  static const List<String> _camposPesquisa = [
+    'nome_cliente',
+    'email',
+    'contacto',
+    'nif',
+    'pessoa_contacto',
+    'morada',
+  ];
+
+  /// Uma fatia da carteira, com histórico de encomendas e pedidos.
+  ///
+  /// O filtro e a pesquisa correm no servidor: filtrar em memória sobre uma lista
+  /// paginada esconderia todos os clientes que ainda não tivessem sido carregados.
+  Future<PaginaResultado<ClienteModel>> obterComHistorico({
+    int deslocamento = 0,
+    int tamanho = tamanhoPaginaPadrao,
+    FiltroCliente filtro = FiltroCliente.todos,
+    String pesquisa = '',
+  }) {
     return guarda('carregar a base de dados de clientes', () async {
-      final dados = await client
-          .from('clientes')
-          .select('id, nome_cliente, contacto, email, ativo, nif, pessoa_contacto, morada, '
-              'utilizador_id, '
-              'encomendas(id, codigo_rastreio, data_entrega, quantidade, prioridade, '
-              'tipos_produto:tipos_produtos_id(nome_tipo_produto)), '
-              'pedidos_encomenda(id, quantidade, observacoes, estado, '
-              'tipos_produto:tipo_produto_id(nome_tipo_produto))')
-          .order('nome_cliente', ascending: true);
-      return comoLista(dados).map(ClienteModel.fromJson).toList();
+      var query = client.from('clientes').select(
+            _selectClientes(exigirEncomendas: filtro == FiltroCliente.comEncomendas),
+          );
+
+      query = switch (filtro) {
+        FiltroCliente.todos || FiltroCliente.comEncomendas => query,
+        FiltroCliente.ativos => query.eq('ativo', true),
+        FiltroCliente.inativos => query.eq('ativo', false),
+      };
+
+      final termo = _termoPesquisa(pesquisa);
+      if (termo != null) {
+        query = query.or(_camposPesquisa.map((c) => '$c.ilike.%$termo%').join(','));
+      }
+
+      // Uma linha a mais do que o pedido serve de sonda para saber se ainda há
+      // resultados depois desta fatia.
+      final dados = await query
+          .order('nome_cliente', ascending: true)
+          .range(deslocamento, deslocamento + tamanho);
+
+      return PaginaResultado.aPartirDeSondagem(
+        comoLista(dados).map(ClienteModel.fromJson).toList(),
+        tamanho,
+      );
     });
+  }
+
+  /// Contadores do topo do ecrã, apurados sobre a carteira inteira.
+  ///
+  /// As duas primeiras métricas são `count` no servidor, sem trazer linhas. As
+  /// duas últimas saem de uma leitura de `encomendas.cliente_id` — uma coluna de
+  /// inteiros — porque o PostgREST não sabe contar valores distintos. É a tabela
+  /// toda, mas apenas uma coluna: incomparavelmente mais leve do que a junção
+  /// completa que alimentava estes números antes.
+  Future<MetricasClientes> obterMetricas() {
+    return guarda('carregar as métricas de clientes', () async {
+      final total = await client.from('clientes').count(CountOption.exact);
+      final ativos =
+          await client.from('clientes').select('id').eq('ativo', true).count(CountOption.exact);
+      final encomendas = comoLista(await client.from('encomendas').select('cliente_id'));
+
+      // Só as encomendas com cliente entram: o total apresentado sempre foi a
+      // soma das encomendas *por cliente*, e não as da tabela inteira.
+      final idsClientes = encomendas.map((e) => e['cliente_id']).whereType<Object>().toList();
+
+      return MetricasClientes(
+        total: total,
+        ativosPortal: ativos.count,
+        comEncomendas: idsClientes.toSet().length,
+        totalEncomendas: idsClientes.length,
+      );
+    });
+  }
+
+  /// Normaliza o termo de pesquisa, ou devolve `null` se não houver pesquisa.
+  ///
+  /// Vírgulas, parênteses e aspas são a sintaxe do `or()` do PostgREST — deixá-los
+  /// passar partiria a query em vez de os procurar.
+  static String? _termoPesquisa(String pesquisa) {
+    final termo = pesquisa.trim().replaceAll(RegExp(r'[,()"]'), '');
+    return termo.isEmpty ? null : termo;
   }
 
   /// Versão reduzida para dropdowns (só `id` e nome preenchidos).

@@ -1,7 +1,8 @@
 import 'dart:math';
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show RealtimeChannel;
+import '../../core/mensagens.dart';
+import '../../core/realtime.dart';
 import '../../core/temas_cores.dart';
 import '../../core/formatos.dart';
 import '../../models/cliente_model.dart';
@@ -10,16 +11,7 @@ import '../../models/pedido_model.dart';
 import '../../repositories/clientes_repository.dart';
 import '../../repositories/encomendas_repository.dart';
 import '../../repositories/fluxos_repository.dart';
-
-// Classe que força o Flutter a aceitar arrastamento direto com o rato no meio da lista
-class MouseDragScrollBehavior extends MaterialScrollBehavior {
-  @override
-  Set<PointerDeviceKind> get dragDevices => {
-        PointerDeviceKind.touch,
-        PointerDeviceKind.mouse,
-        PointerDeviceKind.trackpad,
-      };
-}
+import 'widgets/mouse_drag_scroll_behavior.dart';
 
 class CriarEncomendaScreen extends StatefulWidget {
   const CriarEncomendaScreen({super.key});
@@ -83,6 +75,7 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
     _previewScrollController.dispose();
     _ultimasScrollController.dispose();
     _pedidosScrollController.dispose();
+    _recarregador.descartar();
     if (_planeamentoSubscription != null) {
       _clientesRepo.client.removeChannel(_planeamentoSubscription!);
     }
@@ -130,13 +123,20 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
 
   // --- BUSCA DE DADOS & REALTIME (SUPABASE) ---
 
+  /// Este canal escuta quatro tabelas (`pedidos_encomenda`, `tipos_produto`,
+  /// `clientes`, `encomendas`) e qualquer uma delas recarregava tudo. Basta uma
+  /// ordem a avançar de fase para disparar aqui um recarregamento que nada tem
+  /// a ver com o que este ecrã mostra — daí o debounce.
+  late final RecarregadorDebounced _recarregador = RecarregadorDebounced(
+    aoRecarregar: _carregarDados,
+    janela: janelaRealtimeCarteira,
+    tetoEspera: tetoRealtimeCarteira,
+  );
+
   void _inicializarSubscricaoRealtime() {
     _planeamentoSubscription = _clientesRepo.escutarPlaneamento(
       'db-planeamento-realtime',
-      () {
-        debugPrint('⚡ [Realtime] Alteração detetada no planeamento!');
-        _carregarDados();
-      },
+      _recarregador.pedir,
     );
   }
 
@@ -284,9 +284,9 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
         return Theme(
           data: Theme.of(context).copyWith(
             colorScheme: const ColorScheme.light(
-              primary: Colors.black,
-              onPrimary: Colors.white,
-              onSurface: Colors.black87,
+              primary: TemasCores.acaoPrincipal,
+              onPrimary: TemasCores.textoInverso,
+              onSurface: TemasCores.textoPrimario,
             ),
           ),
           child: child!,
@@ -303,12 +303,7 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
 
   void _mostrarMensagem(String msg, {bool eErro = false}) {
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(msg),
-          backgroundColor: eErro ? TemasCores.vermelhoErro : TemasCores.verdeSucesso,
-        ),
-      );
+      context.mostrarMensagem(msg, eErro: eErro);
     }
   }
 
@@ -326,7 +321,7 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
     return ScrollConfiguration(
       behavior: MouseDragScrollBehavior(),
       child: Scaffold(
-        backgroundColor: Colors.grey.shade50,
+        backgroundColor: TemasCores.fundoEcra,
         body: Padding(
           padding: const EdgeInsets.all(24),
           child: Column(
@@ -386,10 +381,10 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
         margin: const EdgeInsets.only(right: 12, bottom: 8),
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: selecionado ? const Color(0xFF111625) : Colors.white,
+          color: selecionado ? TemasCores.marcaEscura : TemasCores.superficie,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
-            color: selecionado ? const Color(0xFF111625) : Colors.blue.shade200,
+            color: selecionado ? TemasCores.marcaEscura : TemasCores.infoBorda,
             width: selecionado ? 2 : 1,
           ),
         ),
@@ -406,7 +401,7 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 12,
-                      color: selecionado ? Colors.white : Colors.black87,
+                      color: selecionado ? TemasCores.textoInverso : TemasCores.textoPrimario,
                     ),
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -416,7 +411,7 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 11,
-                    color: selecionado ? Colors.blue.shade200 : Colors.blue.shade700,
+                    color: selecionado ? TemasCores.infoBorda : TemasCores.infoTexto,
                   ),
                 ),
               ],
@@ -425,7 +420,7 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
               ped.nomeProduto ?? 'Produto',
               style: TextStyle(
                 fontSize: 11,
-                color: selecionado ? Colors.grey.shade300 : Colors.grey.shade700,
+                color: selecionado ? TemasCores.textoInversoClaro : TemasCores.textoApoioForte,
               ),
               overflow: TextOverflow.ellipsis,
             ),
@@ -434,7 +429,7 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
               style: TextStyle(
                 fontSize: 10,
                 fontStyle: FontStyle.italic,
-                color: selecionado ? Colors.grey.shade400 : Colors.grey.shade500,
+                color: selecionado ? TemasCores.textoInversoSuave : TemasCores.textoTerciario,
               ),
               overflow: TextOverflow.ellipsis,
             ),
@@ -452,11 +447,11 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
         // --- SECÇÃO: PEDIDOS DA APP AGUARDANDO AGENDAMENTO ---
         if (_pedidosAprovados.isNotEmpty) ...[
           Card(
-            color: Colors.blue.shade50.withOpacity(0.6),
+            color: TemasCores.infoFundo.withOpacity(0.6),
             elevation: 0,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
-              side: BorderSide(color: Colors.blue.shade200),
+              side: const BorderSide(color: TemasCores.infoBorda),
             ),
             child: Padding(
               padding: const EdgeInsets.all(20),
@@ -468,20 +463,20 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
                     children: [
                       Row(
                         children: [
-                          Icon(Icons.move_to_inbox_rounded, color: Colors.blue.shade800, size: 20),
+                          const Icon(Icons.move_to_inbox_rounded, color: TemasCores.infoTextoForte, size: 20),
                           const SizedBox(width: 8),
                           Text(
                             'Pedidos Aprovados (App)',
-                            style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.blue.shade900),
+                            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: TemasCores.infoTextoIntenso),
                           ),
                         ],
                       ),
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                        decoration: BoxDecoration(color: Colors.blue.shade700, borderRadius: BorderRadius.circular(12)),
+                        decoration: BoxDecoration(color: TemasCores.infoTexto, borderRadius: BorderRadius.circular(12)),
                         child: Text(
                           '${_pedidosAprovados.length} pendentes',
-                          style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                          style: const TextStyle(color: TemasCores.textoInverso, fontSize: 11, fontWeight: FontWeight.bold),
                         ),
                       ),
                     ],
@@ -489,7 +484,7 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
                   const SizedBox(height: 6),
                   Text(
                     'Clique num pedido para preencher automaticamente o formulário de agendamento',
-                    style: TextStyle(fontSize: 12, color: Colors.blue.shade800),
+                    style: const TextStyle(fontSize: 12, color: TemasCores.infoTextoForte),
                   ),
                   const SizedBox(height: 14),
 
@@ -515,11 +510,11 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
 
         // --- FORMULÁRIO PRINCIPAL DE LANÇAMENTO ---
         Card(
-          color: Colors.white,
+          color: TemasCores.superficie,
           elevation: 1,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: Colors.grey.shade200),
+            side: const BorderSide(color: TemasCores.borda),
           ),
           child: Padding(
             padding: const EdgeInsets.all(32),
@@ -536,22 +531,22 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
                         children: [
                           const Text(
                             'Lançar Nova Encomenda',
-                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87),
+                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: TemasCores.textoPrimario),
                           ),
                           const SizedBox(height: 4),
                           Text(
                             _pedidoSelecionadoId != null
                                 ? 'Agendando pedido vindo da Aplicação B2B'
                                 : 'Preencha os dados para iniciar uma nova ordem de produção',
-                            style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+                            style: const TextStyle(fontSize: 12, color: TemasCores.textoTerciario),
                           ),
                         ],
                       ),
                       if (_pedidoSelecionadoId != null)
                         TextButton.icon(
                           onPressed: _limparSelecaoPedido,
-                          icon: const Icon(Icons.close_rounded, size: 16, color: Colors.redAccent),
-                          label: const Text('Entrada Manual', style: TextStyle(color: Colors.redAccent, fontSize: 12)),
+                          icon: const Icon(Icons.close_rounded, size: 16, color: TemasCores.erroVivo),
+                          label: const Text('Entrada Manual', style: TextStyle(color: TemasCores.erroVivo, fontSize: 12)),
                         ),
                     ],
                   ),
@@ -561,18 +556,18 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: Colors.amber.shade50,
+                        color: TemasCores.avisoFundo,
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.amber.shade300),
+                        border: Border.all(color: TemasCores.avisoBorda),
                       ),
                       child: Row(
                         children: [
-                          Icon(Icons.link_rounded, color: Colors.amber.shade900, size: 18),
+                          const Icon(Icons.link_rounded, color: TemasCores.avisoTextoForte, size: 18),
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
                               'Vinculado ao Pedido #${_pedidoSelecionadoId!} da App${_observacoesPedido != null && _observacoesPedido!.isNotEmpty ? " • Nota: $_observacoesPedido" : ""}',
-                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.amber.shade900),
+                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: TemasCores.avisoTextoForte),
                             ),
                           ),
                         ],
@@ -609,7 +604,7 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
     return InputDecoration(
       hintText: hintText,
       suffixIcon: suffixIcon,
-      fillColor: Colors.grey.shade100,
+      fillColor: TemasCores.superficieSuave,
       filled: true,
       border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
       contentPadding: padding ?? const EdgeInsets.symmetric(horizontal: 16),
@@ -618,7 +613,7 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
 
   Widget _rotuloCampo(String texto) {
     return Text(texto,
-        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87));
+        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: TemasCores.textoPrimario));
   }
 
   Widget _buildCampoCliente() {
@@ -684,7 +679,7 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
                 onTap: () => _selecionarData(context),
                 decoration: _decoracaoCampo(
                   hintText: 'aaaa-mm-dd',
-                  suffixIcon: const Icon(Icons.calendar_month_outlined, color: Colors.black54),
+                  suffixIcon: const Icon(Icons.calendar_month_outlined, color: TemasCores.textoSecundario),
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                 ),
                 validator: (val) => (val == null || val.isEmpty) ? 'Indique o prazo' : null,
@@ -723,9 +718,9 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
   /// Ícone e cor de cada nível de prioridade.
   ({IconData icone, Color cor}) _estiloPrioridade(String prio) {
     return switch (prio) {
-      'Urgente' => (icone: Icons.warning_amber_rounded, cor: Colors.orange.shade800),
-      'Crítica' => (icone: Icons.local_fire_department_rounded, cor: Colors.red.shade800),
-      _ => (icone: Icons.circle_outlined, cor: Colors.grey.shade700),
+      'Urgente' => (icone: Icons.warning_amber_rounded, cor: TemasCores.alertaTexto),
+      'Crítica' => (icone: Icons.local_fire_department_rounded, cor: TemasCores.erroTextoForte),
+      _ => (icone: Icons.circle_outlined, cor: TemasCores.textoApoioForte),
     };
   }
 
@@ -790,15 +785,15 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
       child: ElevatedButton.icon(
         onPressed: _isSaving ? null : _lancarEncomenda,
         style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF111625),
-          foregroundColor: Colors.white,
+          backgroundColor: TemasCores.marcaEscura,
+          foregroundColor: TemasCores.textoInverso,
           padding: const EdgeInsets.symmetric(vertical: 20),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           elevation: 0,
         ),
         icon: _isSaving
             ? const SizedBox(
-                width: 18, height: 18, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                width: 18, height: 18, child: CircularProgressIndicator(color: TemasCores.textoInverso, strokeWidth: 2))
             : const Icon(Icons.rocket_launch_outlined, size: 18),
         label: Text(
           _pedidoSelecionadoId != null
@@ -821,9 +816,9 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
       margin: const EdgeInsets.only(bottom: 16),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.blueGrey.shade50,
+        color: TemasCores.resumoFundo,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.blueGrey.shade100),
+        border: Border.all(color: TemasCores.resumoBorda),
       ),
       child: Column(
         children: [
@@ -832,19 +827,19 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
             children: [
               Row(
                 children: [
-                  Icon(Icons.timer_outlined, size: 18, color: Colors.blueGrey.shade800),
+                  const Icon(Icons.timer_outlined, size: 18, color: TemasCores.resumoTexto),
                   const SizedBox(width: 8),
                   Text(
                     'Carga Total Estimada:',
                     style: TextStyle(
-                        fontSize: 12, fontWeight: FontWeight.w600, color: Colors.blueGrey.shade800),
+                        fontSize: 12, fontWeight: FontWeight.w600, color: TemasCores.resumoTexto),
                   ),
                 ],
               ),
               Text(
                 '${_formatarTempo(tempoTotalMins)} (${_formatarTempo(tempoUnitarioMins)}/unid)',
                 style: TextStyle(
-                    fontSize: 12, fontWeight: FontWeight.bold, color: Colors.blueGrey.shade900),
+                    fontSize: 12, fontWeight: FontWeight.bold, color: TemasCores.resumoTextoForte),
               ),
             ],
           ),
@@ -854,13 +849,13 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
             const Divider(height: 14),
             Row(
               children: [
-                Icon(Icons.warning_amber_rounded, size: 15, color: Colors.amber.shade900),
+                const Icon(Icons.warning_amber_rounded, size: 15, color: TemasCores.avisoTextoForte),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
                     'Gargalo: ${gargalo['nome_fase_padrao']} (${gargalo['tempo_estimado']} min no ${gargalo['posto_trabalho'] ?? 'Posto'})',
                     style: TextStyle(
-                        fontSize: 11, fontWeight: FontWeight.bold, color: Colors.amber.shade900),
+                        fontSize: 11, fontWeight: FontWeight.bold, color: TemasCores.avisoTextoForte),
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
@@ -875,11 +870,11 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration:
-                  BoxDecoration(color: Colors.orange.shade100, borderRadius: BorderRadius.circular(4)),
+                  BoxDecoration(color: TemasCores.alertaFundoForte, borderRadius: BorderRadius.circular(4)),
               child: Text(
                 '⚡ Esta encomenda representa uma carga de fabrico elevada (+8 horas).',
                 style: TextStyle(
-                    fontSize: 10, color: Colors.orange.shade900, fontWeight: FontWeight.w600),
+                    fontSize: 10, color: TemasCores.alertaTextoForte, fontWeight: FontWeight.w600),
               ),
             ),
           ]
@@ -898,7 +893,7 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
       conteudo = const Center(
         child: Text(
           'Selecione um tipo de produto para ver o fluxo',
-          style: TextStyle(color: Colors.grey, fontSize: 13),
+          style: TextStyle(color: TemasCores.textoTerciario, fontSize: 13),
         ),
       );
     } else {
@@ -931,18 +926,18 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
                     margin: const EdgeInsets.only(bottom: 12),
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: Colors.grey.shade50,
+                      color: TemasCores.superficieTenue,
                       borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.grey.shade200),
+                      border: Border.all(color: TemasCores.borda),
                     ),
                     child: Row(
                       children: [
                         Container(
                           padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(6)),
+                          decoration: BoxDecoration(color: TemasCores.superficieEscura, borderRadius: BorderRadius.circular(6)),
                           child: Text(
                             '${f['ordem']}',
-                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+                            style: const TextStyle(color: TemasCores.textoInverso, fontWeight: FontWeight.bold, fontSize: 12),
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -957,14 +952,14 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
                               if (f['posto_trabalho'] != null && f['posto_trabalho'].toString().isNotEmpty)
                                 Text(
                                   'Posto: ${f['posto_trabalho']}',
-                                  style: TextStyle(color: Colors.grey.shade600, fontSize: 11),
+                                  style: const TextStyle(color: TemasCores.textoApoio, fontSize: 11),
                                 ),
                             ],
                           ),
                         ),
                         Text(
                           '⏱️ ${f['tempo_estimado']} min',
-                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey.shade600),
+                          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: TemasCores.textoApoio),
                         ),
                       ],
                     ),
@@ -978,11 +973,11 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
     }
 
     return Card(
-      color: Colors.white,
+      color: TemasCores.superficie,
       elevation: 1,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: Colors.grey.shade200),
+        side: const BorderSide(color: TemasCores.borda),
       ),
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -991,12 +986,12 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
           children: [
             const Text(
               'Pré-visualização do Fluxo',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: TemasCores.textoPrimario),
             ),
             const SizedBox(height: 4),
             Text(
               'Fases que a encomenda irá seguir automaticamente',
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+              style: const TextStyle(fontSize: 12, color: TemasCores.textoTerciario),
             ),
             const SizedBox(height: 16),
             eDesktop ? Expanded(child: conteudo) : SizedBox(height: 320, child: conteudo),
@@ -1009,9 +1004,9 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
   /// Cores do badge de prioridade. `Normal` não mostra badge.
   ({Color texto, Color fundo}) _coresPrioridade(String prioridade) {
     return switch (prioridade) {
-      'Urgente' => (texto: Colors.orange.shade900, fundo: Colors.orange.shade50),
-      'Crítica' => (texto: Colors.red.shade900, fundo: Colors.red.shade50),
-      _ => (texto: Colors.grey.shade700, fundo: Colors.grey.shade100),
+      'Urgente' => (texto: TemasCores.alertaTextoForte, fundo: TemasCores.alertaFundo),
+      'Crítica' => (texto: TemasCores.erroTextoIntenso, fundo: TemasCores.erroFundo),
+      _ => (texto: TemasCores.textoApoioForte, fundo: TemasCores.superficieSuave),
     };
   }
 
@@ -1027,9 +1022,9 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: TemasCores.superficie,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.grey.shade200),
+        border: Border.all(color: TemasCores.borda),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1046,16 +1041,16 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
                     Text(
                       idFormated,
                       style: const TextStyle(
-                          fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87),
+                          fontWeight: FontWeight.bold, fontSize: 13, color: TemasCores.textoPrimario),
                     ),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
-                          color: Colors.grey.shade100, borderRadius: BorderRadius.circular(4)),
+                          color: TemasCores.superficieSuave, borderRadius: BorderRadius.circular(4)),
                       child: Text(
                         enc.codigoRastreio ?? '',
                         style: TextStyle(
-                            fontSize: 9, fontWeight: FontWeight.bold, color: Colors.grey.shade700),
+                            fontSize: 9, fontWeight: FontWeight.bold, color: TemasCores.textoApoioForte),
                       ),
                     ),
                     if (enc.prioridade != 'Normal')
@@ -1073,9 +1068,9 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
                 ),
                 const SizedBox(height: 6),
                 Text(enc.nomeCliente ?? 'Desconhecido',
-                    style: TextStyle(color: Colors.grey.shade700, fontSize: 12)),
+                    style: const TextStyle(color: TemasCores.textoApoioForte, fontSize: 12)),
                 Text(enc.nomeProduto ?? 'N/A',
-                    style: TextStyle(color: Colors.grey.shade500, fontSize: 11)),
+                    style: const TextStyle(color: TemasCores.textoTerciario, fontSize: 11)),
               ],
             ),
           ),
@@ -1084,16 +1079,16 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
             children: [
               Text(
                 enc.dataEntregaIso ?? '',
-                style: TextStyle(fontSize: 11, color: Colors.grey.shade400, fontWeight: FontWeight.w500),
+                style: const TextStyle(fontSize: 11, color: TemasCores.textoDesativado, fontWeight: FontWeight.w500),
               ),
               const SizedBox(height: 6),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 decoration:
-                    BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(12)),
+                    BoxDecoration(color: TemasCores.infoFundo, borderRadius: BorderRadius.circular(12)),
                 child: Text(
                   'Qtd: ${enc.quantidade}',
-                  style: TextStyle(fontSize: 10, color: Colors.blue.shade700, fontWeight: FontWeight.bold),
+                  style: const TextStyle(fontSize: 10, color: TemasCores.infoTexto, fontWeight: FontWeight.bold),
                 ),
               ),
             ],
@@ -1111,7 +1106,7 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
       conteudo = const Center(
         child: Text(
           'Nenhuma encomenda registada recentemente.',
-          style: TextStyle(color: Colors.grey, fontSize: 13),
+          style: TextStyle(color: TemasCores.textoTerciario, fontSize: 13),
         ),
       );
     } else {
@@ -1128,11 +1123,11 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
     }
 
     return Card(
-      color: Colors.white,
+      color: TemasCores.superficie,
       elevation: 1,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: Colors.grey.shade200),
+        side: const BorderSide(color: TemasCores.borda),
       ),
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -1141,7 +1136,7 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
           children: [
             const Text(
               'Últimas Encomendas Lançadas',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: TemasCores.textoPrimario),
             ),
             const SizedBox(height: 16),
             eDesktop ? Expanded(child: conteudo) : SizedBox(height: 400, child: conteudo),

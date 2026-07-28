@@ -1,5 +1,7 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../core/paginacao.dart';
 import '../models/encomenda_model.dart';
+import '../models/estado_ordem.dart';
 import '../models/historico_model.dart';
 import '../models/incidencia_model.dart';
 import 'base_repository.dart';
@@ -50,15 +52,106 @@ class EncomendasRepository extends BaseRepository {
 
   // --- LEITURAS ---
 
-  /// Ordens para o painel de controlo, mais recentes primeiro.
-  Future<List<EncomendaModel>> obterParaPainel() {
+  /// Uma fatia das ordens do painel de controlo, mais recentes primeiro.
+  ///
+  /// O filtro de estado e a pesquisa são aplicados **no servidor**: de outro modo
+  /// a paginação faria a pesquisa mentir, encontrando apenas o que já estivesse
+  /// carregado em memória.
+  ///
+  /// [deslocamento] é o número de linhas já carregadas — não um índice de página —
+  /// para que o recarregamento após um evento realtime possa repor exatamente o
+  /// que o utilizador tinha à frente, sem o atirar de volta ao topo.
+  Future<PaginaResultado<EncomendaModel>> obterParaPainel({
+    int deslocamento = 0,
+    int tamanho = tamanhoPaginaPadrao,
+    FiltroEstadoOrdem filtro = FiltroEstadoOrdem.todos,
+    String pesquisa = '',
+  }) {
     return guarda('carregar as ordens de produção', () async {
-      final dados = await client
-          .from('encomendas')
-          .select(_selectPainel)
-          .order('id', ascending: false);
-      return comoLista(dados).map(EncomendaModel.fromJson).toList();
+      var query = _aplicarFiltroEstado(
+        client.from('encomendas').select(_selectPainel),
+        filtro,
+      );
+
+      final termo = _termoPesquisa(pesquisa);
+      if (termo != null) {
+        // A pesquisa cobre o código de rastreio e o nome do cliente, mas o nome
+        // vive noutra tabela. O PostgREST não permite juntar num único `or` uma
+        // coluna própria e uma coluna de um recurso embebido, por isso os
+        // clientes são resolvidos primeiro (tabela pequena) e entram como lista
+        // de chaves estrangeiras.
+        final clientes = comoLista(
+          await client.from('clientes').select('id').ilike('nome_cliente', '%$termo%'),
+        );
+        final ids = clientes.map((c) => c['id']).whereType<Object>().toList();
+
+        query = ids.isEmpty
+            ? query.ilike('codigo_rastreio', '%$termo%')
+            : query.or('codigo_rastreio.ilike.%$termo%,cliente_id.in.(${ids.join(',')})');
+      }
+
+      // Pede-se uma linha a mais do que o pedido: é a sonda que diz se ainda há
+      // mais alguma coisa depois desta fatia.
+      final dados = await query
+          .order('id', ascending: false)
+          .range(deslocamento, deslocamento + tamanho);
+
+      return PaginaResultado.aPartirDeSondagem(
+        comoLista(dados).map(EncomendaModel.fromJson).toList(),
+        tamanho,
+      );
     });
+  }
+
+  /// Uma única ordem, com a mesma projeção do painel.
+  ///
+  /// Existe para o realtime: quando um evento traz uma ordem que ainda não está
+  /// carregada, ou cuja fase não se consegue resolver com os roteiros já em
+  /// memória, custa uma linha ir buscá-la — contra as 50 ou mais que um
+  /// recarregamento da lista traria.
+  ///
+  /// Devolve `null` se a linha já não existir (apagada entretanto) ou se o RLS
+  /// a esconder do utilizador.
+  Future<EncomendaModel?> obterUmaParaPainel(int id) {
+    return guarda('carregar a ordem', () async {
+      final dados =
+          await client.from('encomendas').select(_selectPainel).eq('id', id).maybeSingle();
+      if (dados == null) return null;
+      return EncomendaModel.fromJson(Map<String, dynamic>.from(dados));
+    });
+  }
+
+  /// Traduz [FiltroEstadoOrdem] para condições sobre as três colunas de estado.
+  ///
+  /// Segue a mesma precedência de [EstadoOrdem.derivar] — cancelada → em hold →
+  /// concluída → em produção. As canceladas só aparecem no seu próprio filtro,
+  /// tal como acontecia quando a filtragem era feita em memória.
+  PostgrestFilterBuilder<T> _aplicarFiltroEstado<T>(
+    PostgrestFilterBuilder<T> query,
+    FiltroEstadoOrdem filtro,
+  ) {
+    if (filtro == FiltroEstadoOrdem.cancelada) {
+      return query.eq('cancelada', true);
+    }
+    final base = query.eq('cancelada', false);
+    return switch (filtro) {
+      FiltroEstadoOrdem.todos => base,
+      FiltroEstadoOrdem.emHold => base.eq('em_suspenso', true),
+      FiltroEstadoOrdem.emProducao =>
+        base.eq('em_suspenso', false).not('fase_atual_id', 'is', null),
+      FiltroEstadoOrdem.concluida =>
+        base.eq('em_suspenso', false).isFilter('fase_atual_id', null),
+      FiltroEstadoOrdem.cancelada => base, // já tratado acima
+    };
+  }
+
+  /// Normaliza o termo de pesquisa, ou devolve `null` se não houver pesquisa.
+  ///
+  /// Vírgulas, parênteses e aspas são removidos porque são a sintaxe do `or()`
+  /// do PostgREST — deixá-los passar partiria a query em vez de procurar por eles.
+  static String? _termoPesquisa(String pesquisa) {
+    final termo = pesquisa.trim().replaceAll(RegExp(r'[,()"]'), '');
+    return termo.isEmpty ? null : termo;
   }
 
   /// Ordens ativas com a fase atual, para o dashboard.
@@ -332,20 +425,29 @@ class EncomendasRepository extends BaseRepository {
   // --- REALTIME ---
 
   /// Escuta alterações em `encomendas` e `incidencias`.
-  RealtimeChannel escutarProducao(String canal, void Function() aoAlterar) {
+  ///
+  /// O payload é entregue a quem escuta em vez de ser descartado: traz as
+  /// colunas em bruto da linha alterada, o que chega para o painel decidir
+  /// localmente se a ordem sai da lista, entra, ou apenas muda de estado — sem
+  /// ir ao servidor. Não traz os recursos embebidos (cliente, produto, fase),
+  /// pelo que quem precise deles ainda tem de os pedir.
+  RealtimeChannel escutarProducao(
+    String canal,
+    void Function(PostgresChangePayload) aoAlterar,
+  ) {
     return client
         .channel(canal)
         .onPostgresChanges(
           event: PostgresChangeEvent.all,
           schema: 'public',
           table: 'encomendas',
-          callback: (_) => aoAlterar(),
+          callback: aoAlterar,
         )
         .onPostgresChanges(
           event: PostgresChangeEvent.all,
           schema: 'public',
           table: 'incidencias',
-          callback: (_) => aoAlterar(),
+          callback: aoAlterar,
         )
       ..subscribe();
   }
