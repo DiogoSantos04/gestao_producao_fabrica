@@ -4,6 +4,7 @@ import '../../core/mensagens.dart';
 import '../../core/temas_cores.dart';
 import '../../models/pedido_model.dart';
 import '../../repositories/clientes_repository.dart';
+import '../../widgets/estado_erro.dart';
 import 'widgets/etiqueta_estado.dart';
 
 class PedidosClientesAdminScreen extends StatefulWidget {
@@ -17,6 +18,12 @@ class _PedidosClientesAdminScreenState extends State<PedidosClientesAdminScreen>
   final _clientesRepo = ClientesRepository();
   List<PedidoModel> _pedidos = [];
   bool _isLoading = true;
+
+  /// Motivo da última falha, ou `null` se correu bem. Um pedido de cliente por
+  /// decidir que não aparece porque a leitura falhou fica por decidir sem que
+  /// ninguém saiba — "nenhum pedido registado" não podia continuar a ser o que
+  /// se vê nesse caso.
+  String? _erroCarregamento;
 
   @override
   void initState() {
@@ -32,11 +39,17 @@ class _PedidosClientesAdminScreenState extends State<PedidosClientesAdminScreen>
         setState(() {
           _pedidos = data;
           _isLoading = false;
+          _erroCarregamento = null;
         });
       }
     } catch (e) {
       debugPrint('Erro ao carregar pedidos: $e');
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _erroCarregamento = descreverErro(e);
+        });
+      }
     }
   }
 
@@ -244,9 +257,25 @@ class _PedidosClientesAdminScreenState extends State<PedidosClientesAdminScreen>
                   ),
                   const SizedBox(height: 32),
 
+                  if (_erroCarregamento != null && _pedidos.isNotEmpty)
+                    EstadoErro.compacto(
+                      titulo: 'A lista pode estar desatualizada — falhou a última atualização.',
+                      detalhe: _erroCarregamento,
+                      aoRepetir: _carregarPedidos,
+                    ),
+
                   Expanded(
                     child: _pedidos.isEmpty
-                        ? const Center(child: Text('Nenhum pedido de encomenda registado.'))
+                        ? (_erroCarregamento != null
+                            ? EstadoErro(
+                                titulo: 'Não foi possível carregar os pedidos de encomenda',
+                                detalhe: _erroCarregamento,
+                                aoRepetir: () {
+                                  setState(() => _isLoading = true);
+                                  _carregarPedidos();
+                                },
+                              )
+                            : const Center(child: Text('Nenhum pedido de encomenda registado.')))
                         : ListView.builder(
                             itemCount: _pedidos.length,
                             itemBuilder: (context, index) => _buildPedidoCard(_pedidos[index]),

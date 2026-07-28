@@ -3,6 +3,7 @@ import '../../core/mensagens.dart';
 import '../../core/temas_cores.dart';
 import '../../models/fase_model.dart';
 import '../../repositories/fluxos_repository.dart';
+import '../../widgets/estado_erro.dart';
 
 class GestaoFluxosScreen extends StatefulWidget {
   const GestaoFluxosScreen({super.key});
@@ -20,6 +21,13 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
   Map<String, dynamic>? _tipoProdutoSelecionado;
   bool _isLoadingTipologias = true;
   bool _isLoadingFases = false;
+
+  /// As duas listas deste ecrã carregam de forma independente — a coluna das
+  /// tipologias e o roteiro da tipologia escolhida — pelo que cada uma tem o
+  /// seu estado de erro. Uma falha a ler o roteiro não deve apagar a coluna da
+  /// esquerda, que continua boa.
+  String? _erroTipologias;
+  String? _erroFases;
 
   // Catálogo oficial e padronizado de Postos de Trabalho da Fábrica
   final List<String> _postosTrabalhoDisponiveis = [
@@ -49,13 +57,20 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
       setState(() {
         _tipologias = data;
         _isLoadingTipologias = false;
-        
+        _erroTipologias = null;
+
         if (_tipologias.isNotEmpty && _tipoProdutoSelecionado == null) {
           _selecionarTipologia(_tipologias.first);
         }
       });
     } catch (e) {
-      _mostrarErro('Erro ao carregar tipologias: $e');
+      // O `_isLoadingTipologias` ficava a `true` para sempre neste caminho: a
+      // coluna passava o resto da sessão com o indicador a rodar.
+      if (!mounted) return;
+      setState(() {
+        _isLoadingTipologias = false;
+        _erroTipologias = descreverErro(e);
+      });
     }
   }
 
@@ -69,9 +84,16 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
       setState(() {
         _fases = data;
         _isLoadingFases = false;
+        _erroFases = null;
       });
     } catch (e) {
-      _mostrarErro('Erro ao carregar fases: $e');
+      // Mesmo problema do carregamento das tipologias: sem isto o painel do
+      // roteiro ficava com o indicador a rodar indefinidamente.
+      if (!mounted) return;
+      setState(() {
+        _isLoadingFases = false;
+        _erroFases = descreverErro(e);
+      });
     }
   }
 
@@ -265,6 +287,18 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
               style: TextStyle(fontSize: 12, color: TemasCores.textoTerciario),
             ),
             const SizedBox(height: 16),
+            if (_erroTipologias != null && _tipologias.isEmpty)
+              EstadoErro(
+                titulo: 'Não foi possível carregar as tipologias',
+                detalhe: _erroTipologias,
+                aoRepetir: _carregarTipologias,
+              )
+            else if (_erroTipologias != null)
+              EstadoErro.compacto(
+                titulo: 'A lista de tipologias pode estar desatualizada.',
+                detalhe: _erroTipologias,
+                aoRepetir: _carregarTipologias,
+              ),
             _isLoadingTipologias
                 ? const Center(child: CircularProgressIndicator())
                 : ListView.builder(
@@ -416,6 +450,22 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
     if (_isLoadingFases) {
       return const Center(child: CircularProgressIndicator());
     }
+    // "Nenhuma fase definida" convida a desenhar o roteiro de raiz; se o que
+    // falhou foi a leitura, o roteiro pode já existir e seria duplicado.
+    if (_erroFases != null && _fases.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 20),
+        child: EstadoErro(
+          titulo: 'Não foi possível carregar as fases deste fluxo',
+          detalhe: _erroFases,
+          aoRepetir: () {
+            final id = _tipoProdutoSelecionado?['id'];
+            if (id != null) _carregarFases(id as int);
+          },
+        ),
+      );
+    }
+
     if (_fases.isEmpty) {
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: 40),

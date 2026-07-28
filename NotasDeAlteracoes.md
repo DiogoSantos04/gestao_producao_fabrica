@@ -496,6 +496,163 @@ confirma com vários operadores em simultâneo.
 
 ---
 
+# Notas de Alterações — Estado de erro na UI (`dashboard_admin`)
+
+## O problema
+
+Uma falha de carregamento não chegava ao utilizador de forma que ele a pudesse
+usar. O tratamento era um de dois:
+
+- um **SnackBar** que desaparece ao fim de 4 segundos;
+- um **`debugPrint`**, que ninguém vê fora do modo de depuração.
+
+Em qualquer dos casos, o que ficava no ecrã era **uma lista vazia** com a
+mensagem de "não há dados" por baixo. E essas mensagens são afirmações sobre a
+fábrica, não sobre a ligação:
+
+| Ecrã | O que se lia depois de uma falha de rede |
+|:---|:---|
+| Painel de Controlo | "Não existem ordens de produção ativas correspondentes à pesquisa." |
+| Postos de Trabalho | "Nenhum posto de trabalho encontrado." |
+| Gestão de Utilizadores | "Nenhum utilizador encontrado." |
+| Carteira de Clientes | "Nenhum cliente registado na base de dados." |
+| Pedidos de Clientes | "Nenhum pedido de encomenda registado." |
+| Fluxos Produtivos | "Nenhuma fase definida para este fluxo." |
+| Dashboard Principal | todos os KPIs a **zero** |
+| Relatórios | indicadores a **zero** e taxa de entrega a **0%** |
+
+Nenhuma destas dizia a verdade, e **nenhuma tinha forma de tentar outra vez** a
+não ser sair do ecrã e voltar a entrar. As duas últimas são as mais perigosas: um
+zero parece um resultado. "Nenhuma fase definida para este fluxo" chega a ser um
+convite a desenhar de raiz um roteiro que já existe.
+
+## Peça nova — `lib/widgets/estado_erro.dart`
+
+Primeiro ficheiro em `lib/widgets/` (a pasta não existia).
+
+### `EstadoErro` — ocupa o lugar dos dados
+
+Ícone, o que falhou em linguagem do utilizador, o motivo técnico em segundo
+plano, e um botão **"Tentar novamente"**. Usa-se onde os dados deviam estar: o
+corpo do ecrã, um painel, uma coluna.
+
+### `EstadoErro.compacto` — barra fina
+
+Para quando **já há dados no ecrã** e o que falhou foi um pedido posterior: a
+atualização em tempo real, ou a página seguinte de uma lista. As linhas antigas
+ficam — são a última leitura boa — mas deixam de se apresentar como atuais.
+
+### `descreverErro(Object)`
+
+Tira o prefixo `…Exception:` e corta aos 160 caracteres. O ruído do PostgREST não
+diz nada a quem está a usar o ecrã, e uma linha de stack rebenta o espaço. O
+painel de controlo já tinha o seu `_limparErro`, que foi mantido.
+
+## O princípio que decidiu o desenho
+
+**Vazio por falha e vazio por ausência de dados são estados diferentes e passam a
+ter ecrãs diferentes.** Daí a distinção entre as duas formas do widget:
+
+| Situação | O que se mostra |
+|:---|:---|
+| Falhou e **não há nada** carregado | `EstadoErro` no lugar dos dados |
+| Falhou mas **há dados** de uma leitura anterior | `EstadoErro.compacto` por cima, dados mantidos |
+| Correu bem e não há dados | a mensagem de lista vazia que já existia, **inalterada** |
+
+Nunca se esconde o que já foi lido por causa de uma atualização falhada: num
+painel de fábrica, dados de há um minuto valem mais do que um ecrã em branco —
+desde que se saiba que são de há um minuto.
+
+## Scroll infinito depois de uma falha
+
+Nos três ecrãs paginados, `_erroPaginacao` é um campo **separado** do erro
+principal: o que já está carregado continua válido, só o rodapé muda.
+
+E o scroll **deixa de pedir sozinho** enquanto esse erro estiver ativo. Sem isso,
+cada gesto relançaria o mesmo pedido a falhar, dezenas de vezes por segundo,
+contra um servidor que já se sabe não estar a responder. A retoma passa a ser
+deliberada, pelo botão de repetir. O campo é limpo em cada nova tentativa e em
+cada recarregamento com sucesso.
+
+## Ficheiros alterados
+
+| Ficheiro | O que passou a distinguir |
+|:---|:---|
+| `widgets/estado_erro.dart` | **novo** |
+| `painel_controlo_screen.dart` | lista, atualização e paginação (três estados) |
+| `informacoes_clientes_screen.dart` | carteira, atualização e paginação |
+| `relatorios_admin_screen.dart` | ecrã inteiro (todos os números vêm do mesmo carregamento) + paginação das avaliações |
+| `dashboard_principal_screen.dart` | ecrã inteiro à primeira leitura; barra sobre os KPIs nas seguintes |
+| `criar_encomenda_screen.dart` | ecrã inteiro à primeira leitura; barra nas seguintes |
+| `gestao_utilizadores_screen.dart` | tabela e atualização |
+| `postos_trabalho_screen.dart` | grelha de postos e atualização |
+| `gestao_fluxos_screen.dart` | tipologias e fases, em separado |
+| `pedidos_clientes_admin_screen.dart` | lista e atualização |
+
+**A lógica de carregamento não mudou em ecrã nenhum.** As queries, a paginação, o
+debounce de realtime e a ordem das chamadas são exatamente os mesmos. O que mudou
+foi só o que se faz com a exceção depois de apanhada.
+
+## Dois bugs corrigidos pelo caminho
+
+Em `gestao_fluxos_screen.dart`, os blocos `catch` de `_carregarTipologias` e
+`_carregarFases` **nunca punham `_isLoading…` a `false`**. Uma falha deixava o
+indicador de progresso a rodar para o resto da sessão — e como o SnackBar já
+tinha desaparecido, sem nada que explicasse porquê. Ambos os caminhos passam a
+terminar o estado de carregamento.
+
+## Decisões concretas
+
+- **Dashboard Principal e Criar Encomenda** usam um `_carregouUmaVez` em vez de
+  olhar para uma lista: um deles mostra números agregados (zero é um valor
+  legítimo) e o outro é um formulário. Não há lista cuja vacuidade sirva de sinal.
+- **Relatórios substitui o ecrã inteiro.** Aqui não há meio-termo: todos os
+  números saem do mesmo carregamento, e mostrar parte deles seria apresentá-los
+  como o resultado do período escolhido.
+- **`_carregarAuxiliares` do painel de controlo mantém o SnackBar.** Não alimenta
+  a lista — traz roteiros, motivos de paragem e técnicos para os diálogos de ação.
+  Falhar aí não produz nenhum ecrã vazio enganador; o aviso passageiro chega.
+- **`dashboard_admin_shell.dart` ficou de fora.** O único carregamento que faz é
+  o nome e o email do administrador para a barra lateral, e já tem valores de
+  recurso ("Administrador"). Não é uma lista e não pode ser confundido com
+  ausência de dados.
+- **Os SnackBars de escrita ficam todos.** Criar, atualizar, cancelar, avançar
+  fase — são ações pontuais do utilizador, com resultado imediato e sem estado
+  persistente a contradizer. O problema era exclusivamente de leitura.
+
+## Verificação
+
+`flutter analyze lib`:
+
+```
+Antes:   67 issues found   (29 em dashboard_admin)
+Depois:  67 issues found   (29 em dashboard_admin)
+```
+
+**Zero erros.** Os 67 avisos são os mesmos de sempre (`withOpacity` e
+`DropdownButtonFormField.value` deprecados, `avoid_print` nos serviços) — nenhum
+introduzido nem removido.
+
+## Validação manual necessária
+
+O caminho a testar é o da falha, e o analisador não lá chega. A forma mais
+simples é desligar a rede com o ecrã aberto.
+
+1. **Entrar em cada ecrã sem rede** — tem de aparecer o estado de erro com botão,
+   e nunca uma mensagem de "não há dados".
+2. **Repetir com a rede de volta** — o botão tem de carregar os dados e o estado
+   de erro desaparecer, sem sair do ecrã.
+3. **Cortar a rede com o ecrã já carregado** e provocar um evento realtime — as
+   linhas têm de **ficar**, com a barra fina por cima.
+4. **Scroll até ao fim sem rede** — o rodapé mostra a falha, e continuar a
+   arrastar **não** dispara mais pedidos.
+5. **Lista genuinamente vazia** (pesquisa sem resultados, com rede) — tem de
+   continuar a mostrar a mensagem de vazio de sempre, não o estado de erro.
+6. **Fluxos Produtivos sem rede** — confirmar que o indicador de progresso *para*
+   (era o bug), tanto na coluna das tipologias como no painel das fases.
+
+---
+
 # O que fica por fazer
 
 Por ordem de retorno:
@@ -511,7 +668,12 @@ Por ordem de retorno:
    e cortar em Dart.
 4. **`escutarCarteira` a aproveitar o payload**, se o ecrã de clientes vier a
    sofrer com o volume de eventos. Hoje não sofre.
-5. **Avisos deprecados** (`withOpacity` → `withValues`,
+5. **Estender o `EstadoErro` aos outros módulos.** `portal_cliente` e
+   `terminal_operador` continuam com o padrão antigo. O widget é agnóstico do
+   módulo — está em `lib/widgets/`, não em `dashboard_admin` — e o
+   `terminal_operador` é o caso com mais a ganhar: quem está no chão de fábrica
+   não tem como saber que a fila de trabalho vazia é uma falha de rede.
+6. **Avisos deprecados** (`withOpacity` → `withValues`,
    `DropdownButtonFormField.value` → `initialValue`) e os `avoid_print` nos
    serviços. São os 67 avisos que atravessam todo este trabalho sem nunca terem
    sido tocados — limpeza mecânica, sem risco, mas também sem urgência.

@@ -18,6 +18,7 @@ import '../../repositories/base_repository.dart';
 import '../../repositories/encomendas_repository.dart';
 import '../../repositories/fluxos_repository.dart';
 import '../../repositories/utilizadores_repository.dart';
+import '../../widgets/estado_erro.dart';
 
 class PainelControloScreen extends StatefulWidget {
   const PainelControloScreen({super.key});
@@ -48,6 +49,18 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
   bool _isLoading = true;
   bool _aCarregarMais = false;
   bool _temMais = false;
+
+  /// Motivo da última falha a carregar a lista, ou `null` se correu bem.
+  ///
+  /// Sem isto, uma falha de rede deixava a lista vazia com a mensagem "não
+  /// existem ordens correspondentes à pesquisa" — que é uma afirmação sobre a
+  /// fábrica, não sobre a ligação. É a diferença entre "não há trabalho" e "não
+  /// sabemos".
+  String? _erroCarregamento;
+
+  /// Falha a acrescentar a página seguinte. Vive à parte porque o que já está
+  /// carregado continua válido: só o rodapé muda.
+  String? _erroPaginacao;
 
   /// Adia a ida ao servidor enquanto o utilizador ainda está a escrever.
   Timer? _debouncePesquisa;
@@ -114,17 +127,26 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
         _encomendas = pagina.itens;
         _temMais = pagina.temMais;
         _isLoading = false;
+        _erroCarregamento = null;
+        _erroPaginacao = null;
       });
     } catch (e) {
-      _mostrarMensagem('Erro ao carregar ordens: ${_limparErro(e)}', eErro: true);
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _erroCarregamento = _limparErro(e);
+        });
+      }
     }
   }
 
   /// Acrescenta a página seguinte ao fim da lista.
   Future<void> _carregarMais() async {
     if (_aCarregarMais || !_temMais) return;
-    setState(() => _aCarregarMais = true);
+    setState(() {
+      _aCarregarMais = true;
+      _erroPaginacao = null;
+    });
     try {
       final pagina = await _encomendasRepo.obterParaPainel(
         deslocamento: _encomendas.length,
@@ -138,8 +160,12 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
         _aCarregarMais = false;
       });
     } catch (e) {
-      _mostrarMensagem('Erro ao carregar mais ordens: ${_limparErro(e)}', eErro: true);
-      if (mounted) setState(() => _aCarregarMais = false);
+      if (mounted) {
+        setState(() {
+          _aCarregarMais = false;
+          _erroPaginacao = _limparErro(e);
+        });
+      }
     }
   }
 
@@ -161,9 +187,10 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
       setState(() {
         _encomendas = pagina.itens;
         _temMais = pagina.temMais;
+        _erroCarregamento = null;
       });
     } catch (e) {
-      _mostrarMensagem('Erro ao atualizar ordens: ${_limparErro(e)}', eErro: true);
+      if (mounted) setState(() => _erroCarregamento = _limparErro(e));
     }
   }
 
@@ -385,6 +412,10 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
 
   void _aoDeslizar() {
     if (!_scrollController.hasClients) return;
+    // Depois de uma falha, o scroll deixa de pedir sozinho: senão cada gesto
+    // relançaria o mesmo pedido a falhar. A retoma passa a ser do utilizador,
+    // pelo botão de repetir no rodapé.
+    if (_erroPaginacao != null) return;
     final posicao = _scrollController.position;
     // Antecipa o carregamento antes de se chegar ao fim, para o scroll não parar.
     if (posicao.pixels >= posicao.maxScrollExtent - 400) {
@@ -1244,15 +1275,34 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
                       ),
                       const SizedBox(height: 20),
 
+                      // A atualização falhou mas há linhas no ecrã: elas ficam,
+                      // devidamente marcadas como podendo já não refletir a
+                      // fábrica.
+                      if (_erroCarregamento != null && _encomendas.isNotEmpty)
+                        EstadoErro.compacto(
+                          titulo: 'A lista pode estar desatualizada — falhou a última atualização.',
+                          detalhe: _erroCarregamento,
+                          aoRepetir: _recarregarMantendoPosicao,
+                        ),
+
                       // LISTA DE ORDENS COM SCROLL INTERNO RESTRITO
                       Expanded(
                         child: _encomendas.isEmpty
-                            ? const Center(
-                                child: Text(
-                                  'Não existem ordens de produção ativas correspondentes à pesquisa.',
-                                  style: TextStyle(color: TemasCores.textoTerciario, fontSize: 13),
-                                ),
-                              )
+                            // Lista vazia por falha é uma coisa; lista vazia
+                            // porque não há ordens é outra. Antes eram o mesmo
+                            // ecrã.
+                            ? (_erroCarregamento != null
+                                ? EstadoErro(
+                                    titulo: 'Não foi possível carregar as ordens de produção',
+                                    detalhe: _erroCarregamento,
+                                    aoRepetir: () => _carregarEncomendas(mostrarLoader: true),
+                                  )
+                                : const Center(
+                                    child: Text(
+                                      'Não existem ordens de produção ativas correspondentes à pesquisa.',
+                                      style: TextStyle(color: TemasCores.textoTerciario, fontSize: 13),
+                                    ),
+                                  ))
                             : ListView.builder(
                                 controller: _scrollController,
                                 // A última posição é o rodapé de paginação, não uma ordem.
@@ -1279,6 +1329,16 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
   /// existe como saída manual para o caso de a janela ser alta o suficiente para
   /// a página caber sem haver scroll nenhum.
   Widget _buildRodapePaginacao() {
+    // Se a página seguinte falhou, o rodapé deixa de convidar ao scroll infinito
+    // (que voltaria a falhar em silêncio) e passa a dizer o que aconteceu.
+    if (_erroPaginacao != null && !_aCarregarMais) {
+      return EstadoErro.compacto(
+        titulo: 'Não foi possível carregar mais ordens.',
+        detalhe: _erroPaginacao,
+        aoRepetir: _carregarMais,
+      );
+    }
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 16),
       child: Center(

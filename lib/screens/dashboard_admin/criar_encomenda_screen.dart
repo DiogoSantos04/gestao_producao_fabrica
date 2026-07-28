@@ -11,6 +11,7 @@ import '../../models/pedido_model.dart';
 import '../../repositories/clientes_repository.dart';
 import '../../repositories/encomendas_repository.dart';
 import '../../repositories/fluxos_repository.dart';
+import '../../widgets/estado_erro.dart';
 import 'widgets/mouse_drag_scroll_behavior.dart';
 
 class CriarEncomendaScreen extends StatefulWidget {
@@ -52,6 +53,14 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
   final _requisitosQualidadeController = TextEditingController(); // 📋 Novo: Campo para SOP e FAI (Requisitos de Qualidade)
 
   bool _isLoadingData = true;
+
+  /// Motivo da última falha, ou `null` se correu bem. Este ecrã é um
+  /// formulário: sem clientes nem tipologias carregados, os dropdowns ficam
+  /// vazios e quem está a lançar produção não tem como perceber porquê.
+  String? _erroCarregamento;
+
+  /// Distingue "nunca carregou" de "falhou a atualizar o que já está no ecrã".
+  bool _carregouUmaVez = false;
   bool _isLoadingPreview = false;
   bool _isSaving = false;
 
@@ -157,11 +166,17 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
           _pedidosAprovados = pedidosData;
           _ultimasEncomendas = encomendasData;
           _isLoadingData = false;
+          _erroCarregamento = null;
+          _carregouUmaVez = true;
         });
       }
     } catch (e) {
-      _mostrarMensagem('Erro ao carregar dados: $e', eErro: true);
-      if (mounted) setState(() => _isLoadingData = false);
+      if (mounted) {
+        setState(() {
+          _isLoadingData = false;
+          _erroCarregamento = descreverErro(e);
+        });
+      }
     }
   }
 
@@ -318,6 +333,22 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
+    // Sem clientes nem tipologias, o formulário não é utilizável: mais vale
+    // dizê-lo e oferecer o botão de repetir do que mostrar dropdowns vazios.
+    if (_erroCarregamento != null && !_carregouUmaVez) {
+      return Scaffold(
+        backgroundColor: TemasCores.fundoEcra,
+        body: EstadoErro(
+          titulo: 'Não foi possível carregar os dados de planeamento',
+          detalhe: _erroCarregamento,
+          aoRepetir: () {
+            setState(() => _isLoadingData = true);
+            _carregarDados();
+          },
+        ),
+      );
+    }
+
     return ScrollConfiguration(
       behavior: MouseDragScrollBehavior(),
       child: Scaffold(
@@ -331,6 +362,12 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
                 'Planeamento & Lançamento de Produção',
                 style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold),
               ),
+              if (_erroCarregamento != null)
+                EstadoErro.compacto(
+                  titulo: 'Os dados podem estar desatualizados — falhou a última atualização.',
+                  detalhe: _erroCarregamento,
+                  aoRepetir: _carregarDados,
+                ),
               const SizedBox(height: 20),
               Expanded(
                 child: eDesktop

@@ -12,6 +12,7 @@ import '../../models/cliente_model.dart';
 import '../../models/encomenda_model.dart';
 import '../../models/pedido_model.dart';
 import '../../repositories/clientes_repository.dart';
+import '../../widgets/estado_erro.dart';
 
 /// Formata o número à medida que é escrito, usando a mesma regra que o
 /// `ClienteModel` aplica ao apresentá-lo. Antes existiam duas implementações
@@ -49,6 +50,14 @@ class _ClientesScreenState extends State<ClientesScreen> {
   bool _isLoading = true;
   bool _aCarregarMais = false;
   bool _temMais = false;
+
+  /// Motivo da última falha a ler a carteira, ou `null` se correu bem. A
+  /// mensagem "nenhum cliente registado" é uma afirmação sobre o negócio: não
+  /// pode ser o que se vê quando o que falhou foi a ligação.
+  String? _erroCarregamento;
+
+  /// Falha a acrescentar a página seguinte — só o rodapé muda.
+  String? _erroPaginacao;
 
   // 🔍 CONTROLADORES E ESTADOS DE FILTRAGEM
   final TextEditingController _searchController = TextEditingController();
@@ -119,18 +128,27 @@ class _ClientesScreenState extends State<ClientesScreen> {
         _clientes = pagina.itens;
         _temMais = pagina.temMais;
         _isLoading = false;
+        _erroCarregamento = null;
+        _erroPaginacao = null;
         _sincronizarDetalhe();
       });
     } catch (e) {
-      _mostrarMensagem('Erro ao carregar base de dados de clientes: $e', eErro: true);
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _erroCarregamento = descreverErro(e);
+        });
+      }
     }
   }
 
   /// Acrescenta a página seguinte ao fim da lista.
   Future<void> _carregarMais() async {
     if (_aCarregarMais || !_temMais) return;
-    setState(() => _aCarregarMais = true);
+    setState(() {
+      _aCarregarMais = true;
+      _erroPaginacao = null;
+    });
     try {
       final pagina = await _clientesRepo.obterComHistorico(
         deslocamento: _clientes.length,
@@ -144,8 +162,12 @@ class _ClientesScreenState extends State<ClientesScreen> {
         _aCarregarMais = false;
       });
     } catch (e) {
-      _mostrarMensagem('Erro ao carregar mais clientes: $e', eErro: true);
-      if (mounted) setState(() => _aCarregarMais = false);
+      if (mounted) {
+        setState(() {
+          _aCarregarMais = false;
+          _erroPaginacao = descreverErro(e);
+        });
+      }
     }
   }
 
@@ -164,10 +186,11 @@ class _ClientesScreenState extends State<ClientesScreen> {
         _clientes = pagina.itens;
         _temMais = pagina.temMais;
         _isLoading = false;
+        _erroCarregamento = null;
         _sincronizarDetalhe();
       });
     } catch (e) {
-      _mostrarMensagem('Erro ao atualizar a carteira de clientes: $e', eErro: true);
+      if (mounted) setState(() => _erroCarregamento = descreverErro(e));
     }
   }
 
@@ -208,6 +231,9 @@ class _ClientesScreenState extends State<ClientesScreen> {
 
   void _aoDeslizar() {
     if (!_scrollController.hasClients) return;
+    // Depois de uma falha o scroll deixa de pedir sozinho: a retoma é do
+    // utilizador, pelo botão de repetir no rodapé.
+    if (_erroPaginacao != null) return;
     final posicao = _scrollController.position;
     if (posicao.pixels >= posicao.maxScrollExtent - 400) {
       _carregarMais();
@@ -364,7 +390,22 @@ class _ClientesScreenState extends State<ClientesScreen> {
                               // filtrada. A mensagem distingue "carteira vazia" de
                               // "os filtros não deram resultados" pelo que está
                               // pedido, e não por comparar duas listas em memória.
-                              if (_clientes.isEmpty && _semFiltrosAtivos)
+                              // A falha vem primeiro: sem ela, uma carteira que
+                              // não se conseguiu ler passava por uma carteira
+                              // vazia.
+                              if (_clientes.isEmpty && _erroCarregamento != null)
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(vertical: 20),
+                                  child: EstadoErro(
+                                    titulo: 'Não foi possível carregar a base de dados de clientes',
+                                    detalhe: _erroCarregamento,
+                                    aoRepetir: () {
+                                      setState(() => _isLoading = true);
+                                      _carregarClientes();
+                                    },
+                                  ),
+                                )
+                              else if (_clientes.isEmpty && _semFiltrosAtivos)
                                 const Padding(
                                   padding: EdgeInsets.symmetric(vertical: 40),
                                   child: Center(
@@ -390,6 +431,12 @@ class _ClientesScreenState extends State<ClientesScreen> {
                               else
                                 Column(
                                   children: [
+                                    if (_erroCarregamento != null)
+                                      EstadoErro.compacto(
+                                        titulo: 'A carteira pode estar desatualizada — falhou a última atualização.',
+                                        detalhe: _erroCarregamento,
+                                        aoRepetir: _carregarClientes,
+                                      ),
                                     _buildTableHeader(),
                                     const Divider(height: 1, thickness: 1),
                                     ListView.separated(
@@ -513,6 +560,14 @@ class _ClientesScreenState extends State<ClientesScreen> {
   /// O scroll da página já carrega a fatia seguinte ao aproximar-se do fim; o
   /// botão cobre o caso de a janela ser alta o bastante para não haver scroll.
   Widget _buildRodapePaginacao() {
+    if (_erroPaginacao != null && !_aCarregarMais) {
+      return EstadoErro.compacto(
+        titulo: 'Não foi possível carregar mais clientes.',
+        detalhe: _erroPaginacao,
+        aoRepetir: _carregarMais,
+      );
+    }
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 16),
       child: Center(

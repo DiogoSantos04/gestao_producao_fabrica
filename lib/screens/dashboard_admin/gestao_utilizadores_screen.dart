@@ -9,6 +9,7 @@ import 'widgets/etiqueta_estado.dart';
 import '../../models/utilizador_model.dart';
 import '../../repositories/postos_repository.dart';
 import '../../repositories/utilizadores_repository.dart';
+import '../../widgets/estado_erro.dart';
 
 class GestaoUtilizadoresScreen extends StatefulWidget {
   const GestaoUtilizadoresScreen({super.key});
@@ -25,6 +26,11 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
   List<UtilizadorModel> _todosUtilizadores = [];
   List<UtilizadorModel> _utilizadoresFiltrados = [];
   bool _isLoading = true;
+
+  /// Motivo da última falha a ler os utilizadores, ou `null` se correu bem.
+  /// "Nenhum utilizador encontrado" numa tabela que nunca chegou a ser lida é
+  /// uma afirmação falsa — e numa gestão de acessos é uma afirmação perigosa.
+  String? _erroCarregamento;
 
   String _filtroCargo = 'Todos os cargos';
 
@@ -90,11 +96,15 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
         _todosUtilizadores = data;
         _postoPorOperador = mapaPostos;
         _isLoading = false;
+        _erroCarregamento = null;
       });
       _filtrarUtilizadores();
     } catch (e) {
-      _mostrarMensagem('Erro ao carregar utilizadores: $e', eErro: true);
-      setState(() => _isLoading = false);
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _erroCarregamento = descreverErro(e);
+      });
     }
   }
 
@@ -389,6 +399,19 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
   }
 
   Widget _buildTabela() {
+    // A falha vem antes da lista vazia: sem esta distinção, não conseguir ler a
+    // tabela era indistinguível de não haver utilizadores.
+    if (_erroCarregamento != null && _todosUtilizadores.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 20),
+        child: EstadoErro(
+          titulo: 'Não foi possível carregar os utilizadores',
+          detalhe: _erroCarregamento,
+          aoRepetir: _carregarUtilizadores,
+        ),
+      );
+    }
+
     if (_utilizadoresFiltrados.isEmpty) {
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: 40),
@@ -400,6 +423,12 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
 
     return Column(
       children: [
+        if (_erroCarregamento != null)
+          EstadoErro.compacto(
+            titulo: 'A lista pode estar desatualizada — falhou a última atualização.',
+            detalhe: _erroCarregamento,
+            aoRepetir: _carregarUtilizadores,
+          ),
         _buildTableHeader(),
         const Divider(height: 1, thickness: 1),
         ListView.separated(

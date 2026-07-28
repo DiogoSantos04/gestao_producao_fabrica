@@ -6,6 +6,7 @@ import '../../core/temas_cores.dart';
 import '../../models/encomenda_model.dart';
 import '../../repositories/encomendas_repository.dart';
 import '../../repositories/fluxos_repository.dart';
+import '../../widgets/estado_erro.dart';
 import 'widgets/cartao_kpi.dart';
 
 class DashboardPrincipalScreen extends StatefulWidget {
@@ -23,6 +24,16 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
   Timer? _everySecondTimer;
 
   bool _isLoading = true;
+
+  /// Motivo da última falha de carregamento, ou `null` se a última leitura
+  /// correu bem. Enquanto não for `null`, o ecrã diz-lo — antes, a falha
+  /// passava por um `debugPrint` e o utilizador via zeros que pareciam reais.
+  String? _erroCarregamento;
+
+  /// Distingue "ainda não conseguimos carregar nada" de "falhou a atualização
+  /// do que já está no ecrã": o primeiro caso substitui o ecrã pelo estado de
+  /// erro, o segundo mostra só uma barra por cima dos dados antigos.
+  bool _carregouUmaVez = false;
 
   // KPIs de Produção & OEE
   int _encomendasAtivas = 0;
@@ -182,12 +193,17 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
         _fasesDistribuicao = tempFases;
         _alertasIncidencias = List<Map<String, dynamic>>.from(incidenciasRaw);
         _isLoading = false;
+        _erroCarregamento = null;
+        _carregouUmaVez = true;
       });
 
     } catch (e) {
       debugPrint('❌ Erro ao processar dados do dashboard: $e');
       if (mounted) {
-        setState(() => _isLoading = false);
+        setState(() {
+          _isLoading = false;
+          _erroCarregamento = descreverErro(e);
+        });
       }
     }
   }
@@ -214,6 +230,22 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
     final double larguraEcra = MediaQuery.of(context).size.width;
     final bool eDesktop = larguraEcra > 950;
 
+    // Sem nada carregado, os KPIs a zero seriam indistinguíveis de uma fábrica
+    // parada: o ecrã inteiro passa a ser o estado de erro.
+    if (!_isLoading && _erroCarregamento != null && !_carregouUmaVez) {
+      return Scaffold(
+        backgroundColor: TemasCores.fundoEcra,
+        body: EstadoErro(
+          titulo: 'Não foi possível carregar os indicadores de produção',
+          detalhe: _erroCarregamento,
+          aoRepetir: () {
+            setState(() => _isLoading = true);
+            _carregarDadosDashboard();
+          },
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: TemasCores.fundoEcra,
       body: _isLoading
@@ -224,6 +256,14 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _buildHeader(),
+                  // Os números continuam visíveis, mas ficam marcados como
+                  // possivelmente desatualizados em vez de mentirem em silêncio.
+                  if (_erroCarregamento != null)
+                    EstadoErro.compacto(
+                      titulo: 'Os indicadores podem estar desatualizados — falhou a última atualização.',
+                      detalhe: _erroCarregamento,
+                      aoRepetir: _carregarDadosDashboard,
+                    ),
                   const SizedBox(height: 24),
                   LayoutBuilder(
                     builder: (context, constraints) {

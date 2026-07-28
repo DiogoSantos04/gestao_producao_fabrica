@@ -10,6 +10,7 @@ import '../../repositories/encomendas_repository.dart';
 import '../../repositories/fluxos_repository.dart';
 import '../../repositories/relatorios_repository.dart';
 import '../../services/pdf_service.dart';
+import '../../widgets/estado_erro.dart';
 import 'widgets/mouse_drag_scroll_behavior.dart';
 
 class RelatoriosAdminScreen extends StatefulWidget {
@@ -49,6 +50,14 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
   bool _aCarregarMaisFeedbacks = false;
   bool _temMaisFeedbacks = false;
 
+  /// Motivo da última falha a apurar os indicadores, ou `null` se correu bem.
+  /// Um relatório com zeros por falha de leitura é pior do que um relatório que
+  /// não abre: parece um resultado.
+  String? _erroCarregamento;
+
+  /// Falha a acrescentar a página seguinte de avaliações.
+  String? _erroPaginacaoFeedbacks;
+
   List<EncomendaModel> _encomendasGeral = [];
   List<Map<String, dynamic>> _dadosHistorico = [];
   List<Map<String, dynamic>> _historicoRelatorios = []; // Guarda os relatórios gerados da BD
@@ -63,6 +72,8 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
 
   void _aoDeslizarFeedbacks() {
     if (!_feedbackScrollController.hasClients) return;
+    // Depois de uma falha, a retoma é do utilizador — pelo botão de repetir.
+    if (_erroPaginacaoFeedbacks != null) return;
     final posicao = _feedbackScrollController.position;
     if (posicao.pixels >= posicao.maxScrollExtent - 200) {
       _carregarMaisFeedbacks();
@@ -75,7 +86,10 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
   /// inteira e não depende do que está carregado.
   Future<void> _carregarMaisFeedbacks() async {
     if (_aCarregarMaisFeedbacks || !_temMaisFeedbacks) return;
-    setState(() => _aCarregarMaisFeedbacks = true);
+    setState(() {
+      _aCarregarMaisFeedbacks = true;
+      _erroPaginacaoFeedbacks = null;
+    });
     try {
       final pagina = await _relatoriosRepo.obterAvaliacoes(deslocamento: _feedbacks.length);
       if (!mounted) return;
@@ -86,7 +100,12 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
       });
     } catch (e) {
       debugPrint('Erro ao carregar mais avaliações: $e');
-      if (mounted) setState(() => _aCarregarMaisFeedbacks = false);
+      if (mounted) {
+        setState(() {
+          _aCarregarMaisFeedbacks = false;
+          _erroPaginacaoFeedbacks = descreverErro(e);
+        });
+      }
     }
   }
 
@@ -218,11 +237,18 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
           _encomendasConcluidas = concluidas;
           _taxaEntregaNoPrazo = concluidas > 0 ? (noPrazo / concluidas) : 0.0;
           _isLoading = false;
+          _erroCarregamento = null;
+          _erroPaginacaoFeedbacks = null;
         });
       }
     } catch (e) {
       debugPrint('Erro crítico ao calcular indicadores: $e');
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _erroCarregamento = descreverErro(e);
+        });
+      }
     }
   }
 
@@ -398,6 +424,20 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
 
     if (_isLoading) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
+    // Todos os números deste ecrã saem do mesmo carregamento. Se ele falhou, não
+    // há relatório nenhum a mostrar — mostrar zeros seria apresentá-los como
+    // resultado do período escolhido.
+    if (_erroCarregamento != null) {
+      return Scaffold(
+        backgroundColor: TemasCores.fundoEcra,
+        body: EstadoErro(
+          titulo: 'Não foi possível calcular os indicadores',
+          detalhe: _erroCarregamento,
+          aoRepetir: _carregarDadosReais,
+        ),
+      );
     }
 
     return ScrollConfiguration(
@@ -728,6 +768,13 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
           padding: const EdgeInsets.only(right: 12),
           itemBuilder: (context, index) {
             if (index == _feedbacks.length) {
+              if (_erroPaginacaoFeedbacks != null && !_aCarregarMaisFeedbacks) {
+                return EstadoErro.compacto(
+                  titulo: 'Não foi possível carregar mais avaliações.',
+                  detalhe: _erroPaginacaoFeedbacks,
+                  aoRepetir: _carregarMaisFeedbacks,
+                );
+              }
               return Padding(
                 padding: const EdgeInsets.only(bottom: 20),
                 child: Center(

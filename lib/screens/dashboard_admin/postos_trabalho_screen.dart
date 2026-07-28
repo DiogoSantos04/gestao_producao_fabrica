@@ -7,6 +7,7 @@ import '../../models/incidencia_model.dart';
 import '../../repositories/encomendas_repository.dart';
 import '../../repositories/postos_repository.dart';
 import '../../repositories/utilizadores_repository.dart';
+import '../../widgets/estado_erro.dart';
 import 'widgets/cartao_kpi.dart';
 import 'widgets/etiqueta_estado.dart';
 
@@ -22,6 +23,11 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
   final _encomendasRepo = EncomendasRepository();
   final _utilizadoresRepo = UtilizadoresRepository();
   bool _isLoading = true;
+
+  /// Motivo da última falha, ou `null` se o carregamento correu bem. Sem isto,
+  /// uma falha de rede punha o ecrã a dizer "nenhum posto de trabalho
+  /// encontrado" — o que num painel de supervisão se lê como fábrica parada.
+  String? _erroCarregamento;
 
   List<Map<String, dynamic>> _postos = [];
   List<Map<String, dynamic>> _operadores = [];
@@ -51,16 +57,14 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
         _encomendasAtivas = ordens;
         _incidenciasAtivas = incidencias;
         _isLoading = false;
+        _erroCarregamento = null;
       });
     } catch (e) {
-      if (mounted) {
-        context.mostrarSnack(
-          'Erro ao carregar dados: $e',
-          cor: TemasCores.erroTextoForte,
-          duracao: const Duration(seconds: 5),
-        );
-      }
-      setState(() => _isLoading = false);
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _erroCarregamento = descreverErro(e);
+      });
     }
   }
 
@@ -226,10 +230,26 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
           : Padding(
               padding: const EdgeInsets.all(16.0),
               child: _postos.isEmpty
-                  ? const Center(child: Text('Nenhum posto de trabalho encontrado.'))
+                  ? (_erroCarregamento != null
+                      ? EstadoErro(
+                          titulo: 'Não foi possível carregar os postos de trabalho',
+                          detalhe: _erroCarregamento,
+                          aoRepetir: _carregarDados,
+                        )
+                      : const Center(child: Text('Nenhum posto de trabalho encontrado.')))
                   : Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        // O ecrã continua a mostrar a última leitura boa, mas
+                        // marcada — num painel de supervisão, dados velhos sem
+                        // aviso são pior do que nenhuns.
+                        if (_erroCarregamento != null)
+                          EstadoErro.compacto(
+                            titulo: 'O estado dos postos pode estar desatualizado.',
+                            detalhe: _erroCarregamento,
+                            aoRepetir: _carregarDados,
+                          ),
+
                         // Barra de KPIs de Supervisão
                         _construirBarraResumo(),
 
