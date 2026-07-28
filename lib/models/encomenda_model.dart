@@ -108,6 +108,39 @@ class EncomendaModel {
         '${d.day.toString().padLeft(2, '0')}';
   }
 
+  /// Fração do roteiro já percorrida, entre 0.0 e 1.0.
+  ///
+  /// [totalFases] é o número de fases do roteiro do tipo de produto desta ordem
+  /// (0 quando o roteiro não está carregado ou não existe).
+  ///
+  /// Vivia como método privado do `painel_controlo_screen`, onde ia buscar as
+  /// fases a um campo de estado — o que a tornava impossível de testar sem
+  /// construir o ecrã. Recebe agora o total como parâmetro e é pura.
+  ///
+  /// Uma ordem sem fase atual percorreu o roteiro todo: 1.0. Sem informação
+  /// suficiente para calcular (produto desconhecido, ordem da fase desconhecida,
+  /// roteiro por carregar) devolve 0.0 — a barra fica vazia em vez de mentir.
+  double progressoNoRoteiro(int totalFases) {
+    if (faseAtualId == null) return 1.0;
+    if (tipoProdutoId == null || ordemFaseAtual == null) return 0.0;
+    if (totalFases <= 0) return 0.0;
+
+    return ((ordemFaseAtual! - 1) / totalFases).clamp(0.0, 1.0);
+  }
+
+  /// A ordem foi concluída dentro do prazo prometido.
+  ///
+  /// Compara **ao dia**: entregar no próprio dia do prazo conta como estando no
+  /// prazo. Sem prazo prometido devolve `false` — a taxa de entrega no prazo só
+  /// pode contar ordens que tinham prazo a cumprir.
+  static bool cumpriuPrazo(DateTime? prometida, DateTime dataConclusao) {
+    if (prometida == null) return false;
+
+    final pDia = DateTime(prometida.year, prometida.month, prometida.day);
+    final cDia = DateTime(dataConclusao.year, dataConclusao.month, dataConclusao.day);
+    return !cDia.isAfter(pDia);
+  }
+
   /// Incidência que ainda não recebeu line clearance, se existir.
   Map<String, dynamic>? get incidenciaAtiva {
     for (final i in incidencias) {

@@ -429,17 +429,11 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
 
   // --- HELPER METHODS ---
 
+  /// A regra vive em [EncomendaModel.progressoNoRoteiro]; aqui só se resolve o
+  /// roteiro do produto a partir do que está carregado em memória.
   double _calcularProgresso(EncomendaModel enc) {
-    if (enc.faseAtualId == null) return 1.0;
-
-    final prodId = enc.tipoProdutoId;
-    final ordemAtual = enc.ordemFaseAtual;
-    if (prodId == null || ordemAtual == null) return 0.0;
-
-    final fases = _fasesPorProduto[prodId];
-    if (fases == null || fases.isEmpty) return 0.0;
-
-    return ((ordemAtual - 1) / fases.length).clamp(0.0, 1.0);
+    final fases = _fasesPorProduto[enc.tipoProdutoId];
+    return enc.progressoNoRoteiro(fases?.length ?? 0);
   }
 
   bool _verificarSeAtrasada(DateTime? dataEntrega) {

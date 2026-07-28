@@ -653,6 +653,185 @@ simples é desligar a rede com o ecrã aberto.
 
 ---
 
+# Notas de Alterações — Testes (`dashboard_admin`)
+
+## O problema
+
+Existia **um** ficheiro de teste: `test/widget_test.dart`, o template gerado pelo
+`flutter create`. Testava um contador que nunca existiu nesta aplicação —
+`MyApp`, um `Icons.add`, um texto `'0'` que passa a `'1'`. Ou seja: ou falhava,
+ou nunca tinha sido corrido. Depois de quatro rondas de alterações
+(cores, paginação, realtime, estados de erro), a única rede de segurança era o
+`flutter analyze`, que não executa uma linha de código.
+
+Entretanto o refactor tinha criado a condição que faltava: **as regras de negócio
+saíram dos `State` dos ecrãs e passaram para modelos**. `EstadoOrdem.derivar` e
+os seis `fromJson` são funções puras — não precisam de base de dados, de rede
+nem de árvore de widgets para serem testadas.
+
+## Duas funções tiveram de sair dos ecrãs primeiro
+
+`EstadoOrdem.derivar` e os `fromJson` já eram testáveis. As outras duas
+mencionadas não eram: viviam como métodos privados de classes `State` e liam
+campos de estado do ecrã. Chamá-las obrigava a construir o ecrã inteiro — com o
+Supabase por trás.
+
+Ambas passaram para `EncomendaModel`, sem alteração de comportamento:
+
+| Antes | Agora |
+|:---|:---|
+| `_calcularProgresso(EncomendaModel)` em `painel_controlo_screen`, que ia buscar as fases a `_fasesPorProduto` | `EncomendaModel.progressoNoRoteiro(int totalFases)` — recebe o total como parâmetro |
+| `_cumpriuPrazo(DateTime?, DateTime)` em `relatorios_admin_screen` | `EncomendaModel.cumpriuPrazo(DateTime?, DateTime)`, estática |
+
+Nos ecrãs sobra só a resolução do que é local: no painel,
+`enc.progressoNoRoteiro(_fasesPorProduto[enc.tipoProdutoId]?.length ?? 0)`. O
+caso `fases == null || fases.isEmpty` do código anterior corresponde exatamente
+a `totalFases <= 0`, que a função trata da mesma maneira — devolvendo `0.0`.
+
+`_cumpriuPrazo` foi mantido como uma linha que delega, para não tocar nos dois
+sítios que o chamam.
+
+## O que se testa, e porquê
+
+**146 testes**, em 7 ficheiros. A ênfase está onde estiveram os bugs.
+
+### Campos nulos nos `fromJson` — o motivo de tudo
+
+Os modelos existiam antes do refactor mas **nunca chegaram a ser usados**, porque
+declaravam tudo obrigatório e faziam `as int` / `as String` diretos: rebentavam
+em qualquer ordem concluída, onde `fase_atual_id` é nulo. Cada `fromJson` tem por
+isso um teste que o alimenta **só com o `id`** e verifica campo a campo que o
+resultado é o valor por omissão certo — e não uma exceção.
+
+Os valores por omissão não são inocentes. Três deles são decisões de segurança, e
+cada um tem o seu teste:
+
+| Campo | Omissão | Porquê importa |
+|:---|:---|:---|
+| `EstadoConta.desdeTexto(null)` | `pendente` | É o travão de acesso do `AuthService`. Tem de falhar fechado — nunca cair em `ativo`. |
+| `IncidenciaModel.estado` | `EM_ABERTO` | Um nulo deixa a linha bloqueada, não livre. |
+| `ClienteModel.ativo` | `false` | Um nulo não dá acesso ao portal. |
+
+Testa-se ainda que os booleanos só são verdadeiros com `true` **explícito** (a
+string `'true'` não conta), que datas inválidas ficam nulas em vez de rebentar, e
+que as junções sobrevivem às três formas em que o PostgREST as devolve: objeto,
+lista de um elemento, e lista vazia.
+
+### `EstadoOrdem.derivar`
+
+A regra está escrita em três sítios — aqui em Dart, em SQL no
+`EncomendasRepository._aplicarFiltroEstado`, e no tratamento de eventos realtime
+do painel. Um teste percorre as **8 combinações** das três colunas e fixa o
+resultado de cada uma, incluindo os dois casos de precedência que uma
+reimplementação em SQL erraria com facilidade:
+
+- cancelada **prevalece** sobre suspensa e sobre a ausência de fase atual;
+- suspensa **prevalece** sobre a ausência de fase atual (uma ordem suspensa sem
+  fase é ON HOLD, não concluída).
+
+### `progressoNoRoteiro`
+
+Fronteiras: sem fase atual → `1.0`; primeira fase de 4 → `0.0`; **última fase de
+4 → `0.75`**, porque estar *na* última fase não é ter concluído — foi exatamente
+essa confusão que inflacionou os KPIs no bug (b). Dois testes cobrem o `clamp`:
+roteiro encurtado depois da ordem ter avançado (daria mais de 100%) e `ordem = 0`
+(daria negativo). E um cobre `totalFases = 0`, que sem a guarda seria uma divisão
+por zero.
+
+### `cumpriuPrazo`
+
+Compara **ao dia**, e é isso que se testa: entregar às 23:59 do dia do prazo está
+no prazo; às 00:01 do dia seguinte não está. Mais o caso do prazo nulo (não conta
+como cumprido — a taxa de entrega só pode contar ordens que tinham prazo) e as
+fronteiras de mês e de ano.
+
+### Ida e volta dos enums
+
+`EstadoPedido`, `PerfilUtilizador` e `EstadoConta` convertem texto livre da base
+de dados. Para cada um, `desdeTexto(e.valorBd) == e` para todos os valores —
+o que impede que uma alteração à etiqueta parta silenciosamente a leitura.
+`EstadoPedido` tem ainda o teste dos sufixos (`'Aprovado em 12/03'`), que é a
+tolerância que o `.ilike('Aprovado%')` da query fazia à mão.
+
+## `test/widget_test.dart` — substituído
+
+Removido e trocado por `test/widgets/estado_erro_test.dart`. O `EstadoErro` é o
+único widget da aplicação sem dependências de rede ou de estado de ecrã, e é o
+que carrega a regra que motivou a ronda anterior: **uma falha tem de ser visível
+e tem de ter saída**. Testa-se que ambas as formas mostram o título e chamam o
+`aoRepetir`, que a compacta usa a etiqueta curta e **nunca mostra o detalhe
+técnico**, e que `descreverErro` tira o prefixo `…Exception:` e corta aos 160
+caracteres.
+
+Os ecrãs em si não são testados: precisam do Supabase inicializado, e isso é
+teste de integração — outro âmbito.
+
+## Ficheiros
+
+| Ficheiro | O quê |
+|:---|:---|
+| `test/models/encomenda_model_test.dart` | **novo** — `fromJson`, `estado`, `dataEntregaIso`, `progressoNoRoteiro`, `cumpriuPrazo` |
+| `test/models/estado_ordem_test.dart` | **novo** — `derivar` (8 combinações), propriedades, `FiltroEstadoOrdem` |
+| `test/models/cliente_model_test.dart` | **novo** — `fromJson`, junções, `formatarTelefone`, `corresponde` |
+| `test/models/pedido_model_test.dart` | **novo** — `EstadoPedido.desdeTexto`, `fromJson`, `temObservacoes` |
+| `test/models/utilizador_model_test.dart` | **novo** — perfis, `EstadoConta`, `iniciais`, `copyWith` |
+| `test/models/fase_model_test.dart` | **novo** — `fromJson`, `checklist` |
+| `test/models/historico_model_test.dart` | **novo** — `fromJson`, junções, `momento` |
+| `test/widgets/estado_erro_test.dart` | **novo** — substitui o `widget_test.dart` |
+| `test/models/incidencia_model_test.dart` | **novo** — `fromJson`, ciclo de vida, campos derivados |
+| `test/widget_test.dart` | **removido** — template do Flutter |
+| `models/encomenda_model.dart` | `progressoNoRoteiro` e `cumpriuPrazo` (vindas dos ecrãs) |
+| `painel_controlo_screen.dart` | `_calcularProgresso` reduzido a resolver o roteiro local |
+| `relatorios_admin_screen.dart` | `_cumpriuPrazo` delega no modelo |
+
+## Verificação
+
+```
+flutter test
+  00:02 +146: All tests passed!
+```
+
+`flutter test --coverage`, nas funções em causa:
+
+| Ficheiro | Linhas cobertas |
+|:---|:---|
+| `models/encomenda_model.dart` | 62/62 — **100%** |
+| `models/estado_ordem.dart` | 15/15 — **100%** |
+| `models/cliente_model.dart` | 50/50 — **100%** |
+| `models/pedido_model.dart` | 32/32 — **100%** |
+| `models/utilizador_model.dart` | 46/46 — **100%** |
+| `models/fase_model.dart` | 15/15 — **100%** |
+| `models/historico_model.dart` | 17/17 — **100%** |
+| `models/incidencia_model.dart` | 35/35 — **100%** |
+| `widgets/estado_erro.dart` | 40/40 — **100%** |
+
+Inclui `EstadoOrdem.derivar`, `EncomendaModel.progressoNoRoteiro`,
+`EncomendaModel.cumpriuPrazo` e os seis `fromJson`, todos a 100%.
+
+`flutter analyze` (que agora também analisa `test/`):
+
+```
+Antes:   67 issues found
+Depois:  67 issues found
+```
+
+**Zero erros, zero avisos novos.** Os 67 são os mesmos de sempre
+(`withOpacity` e `DropdownButtonFormField.value` deprecados, `avoid_print` nos
+serviços).
+
+## O que estes testes não cobrem
+
+- **As queries.** Um repositório é uma chamada ao PostgREST; testá-lo obriga a um
+  duplo do Supabase ou a uma base de dados real.
+- **A tradução da regra de estado para SQL** em `_aplicarFiltroEstado`. Os testes
+  fixam a versão Dart; que o SQL lhe corresponda continua a exigir a validação
+  manual descrita na secção da paginação. **É o ponto de risco que permanece.**
+- **A lógica de rajada** do `RecarregadorDebounced` e o caminho otimista do
+  realtime — dependem de tempo e de eventos do servidor.
+- **Os ecrãs**, pelo motivo acima.
+
+---
+
 # O que fica por fazer
 
 Por ordem de retorno:
@@ -677,3 +856,7 @@ Por ordem de retorno:
    `DropdownButtonFormField.value` → `initialValue`) e os `avoid_print` nos
    serviços. São os 67 avisos que atravessam todo este trabalho sem nunca terem
    sido tocados — limpeza mecânica, sem risco, mas também sem urgência.
+7. **Testes aos repositórios**, com um duplo do Supabase. O que os testes atuais
+   não alcançam é precisamente o ponto de risco assinalado desde a paginação: que
+   o SQL do `_aplicarFiltroEstado` corresponda a `EstadoOrdem.derivar`. Hoje isso
+   só se confirma à mão.

@@ -153,13 +153,9 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
   }
 
   /// Compara ao dia: entregar no próprio dia do prazo conta como estando no prazo.
-  bool _cumpriuPrazo(DateTime? prometida, DateTime dataConclusao) {
-    if (prometida == null) return false;
-
-    final pDia = DateTime(prometida.year, prometida.month, prometida.day);
-    final cDia = DateTime(dataConclusao.year, dataConclusao.month, dataConclusao.day);
-    return !cDia.isAfter(pDia);
-  }
+  /// A regra vive em [EncomendaModel.cumpriuPrazo], onde é testável.
+  bool _cumpriuPrazo(DateTime? prometida, DateTime dataConclusao) =>
+      EncomendaModel.cumpriuPrazo(prometida, dataConclusao);
 
   // --- PROCESSAMENTO DE DADOS REAIS DA BD ---
 
