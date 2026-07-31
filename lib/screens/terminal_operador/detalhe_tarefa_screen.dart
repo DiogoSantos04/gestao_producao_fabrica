@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../repositories/base_repository.dart';
+import '../../repositories/encomendas_repository.dart';
 import 'popups/bloquear_tarefa_screen.dart';
 
 class DetalheTarefaScreen extends StatefulWidget {
@@ -20,6 +22,7 @@ class DetalheTarefaScreen extends StatefulWidget {
 
 class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
   final _supabase = Supabase.instance.client;
+  final EncomendasRepository _encomendasRepo = EncomendasRepository();
   bool _isLoading = true;
   String? _errorMessage;
 
@@ -28,8 +31,9 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
   int? _faseAtualId;
   bool _isBloqueada = false;
 
-  // --- REGISTO ESTÁTICO EM MEMÓRIA (PERSISTE ENTRE PÁGINAS E NAVEGAÇÃO) ---
-  static final Map<String, DateTime> _temposInicioFase = {};
+  /// Início da fase atual, tal como registado pelo servidor
+  /// (`encomendas.data_inicio_fase`). O cronómetro conta a partir daqui.
+  DateTime? _inicioFase;
 
   // --- MÓDULO ANDON & CRONÓMETRO ---
   Timer? _timerAndon;
@@ -51,11 +55,19 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
   void _iniciarCronometroAndon() {
     _timerAndon?.cancel();
     _timerAndon = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (mounted) {
-        setState(() {
+      if (!mounted) return;
+      setState(() {
+        // Recalcula a partir do início real da fase em vez de somar 1 por
+        // tique: um timer suspenso (ecrã bloqueado, app em segundo plano)
+        // deixava o cronómetro a marcar menos tempo do que o decorrido.
+        final inicio = _inicioFase;
+        if (inicio == null) {
           _segundosDecorridos++;
-        });
-      }
+        } else {
+          final decorrido = DateTime.now().difference(inicio).inSeconds;
+          _segundosDecorridos = decorrido > 0 ? decorrido : 0;
+        }
+      });
     });
   }
 
@@ -77,9 +89,15 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
       _faseAtualId = _encomenda!['fase_atual_id'];
       final bool emSuspenso = _encomenda!['em_suspenso'] == true;
 
-      // Extrai ID do tipo de produto
-      dynamic rawTipoId = _encomenda!['tipos_produtos_id'] ?? _encomenda!['tipos_produto_id'] ?? _encomenda!['tipo_produto_id'];
-      int? tipoProdutoId = rawTipoId is int ? rawTipoId : int.tryParse(rawTipoId?.toString() ?? '');
+      // Extrai ID do tipo de produto.
+      //
+      // O schema é conhecido: `encomendas.tipos_produtos_id`. As três
+      // alternativas que aqui estavam (`tipos_produto_id`, `tipo_produto_id`)
+      // não existem em coluna nenhuma — adivinhavam o nome e escondiam o erro
+      // real quando o campo vinha nulo.
+      final dynamic rawTipoId = _encomenda!['tipos_produtos_id'];
+      final int? tipoProdutoId =
+          rawTipoId is int ? rawTipoId : int.tryParse(rawTipoId?.toString() ?? '');
 
       // 2. Busca o Nome Real do Produto
       String nomeProduto = 'Artigo';
@@ -100,56 +118,19 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
       }
       _encomenda!['nome_tipo_produto'] = nomeProduto;
 
-      // 3. Busca as Fases de Produção do Produto
+      // 3. Busca as Fases de Produção do Produto.
+      //
+      // Uma só query, por `fases_padrao.tipos_produto_id`. Havia aqui três
+      // tentativas encadeadas com nomes de coluna diferentes, cada uma com o
+      // seu `try/catch` silencioso: até três round-trips por abertura de ordem
+      // e qualquer falha de rede indistinguível de "produto sem fases".
       List<dynamic> fases = [];
       if (tipoProdutoId != null) {
-        try {
-          fases = await _supabase
-              .from('fases_padrao')
-              .select('*')
-              .eq('tipos_produto_id', tipoProdutoId)
-              .order('ordem', ascending: true);
-        } catch (e) {
-          debugPrint('Aviso na busca de fases por tipos_produto_id: $e');
-        }
-
-        if (fases.isEmpty) {
-          try {
-            fases = await _supabase
-                .from('fases_padrao')
-                .select('*')
-                .eq('tipos_produtos_id', tipoProdutoId)
-                .order('ordem', ascending: true);
-          } catch (e) {
-            debugPrint('Aviso no fallback de fases: $e');
-          }
-        }
-      }
-
-      // Fallback: Se a encomenda tem fase_atual_id, descobre a sequência
-      if (fases.isEmpty && _faseAtualId != null) {
-        try {
-          final faseAtualBD = await _supabase
-              .from('fases_padrao')
-              .select('*')
-              .eq('id', _faseAtualId!)
-              .maybeSingle();
-
-          if (faseAtualBD != null) {
-            final dynamic realTipoIdRaw = faseAtualBD['tipos_produto_id'] ?? faseAtualBD['tipos_produtos_id'];
-            final int? realTipoId = realTipoIdRaw is int ? realTipoIdRaw : int.tryParse(realTipoIdRaw?.toString() ?? '');
-
-            if (realTipoId != null) {
-              fases = await _supabase
-                  .from('fases_padrao')
-                  .select('*')
-                  .eq('tipos_produto_id', realTipoId)
-                  .order('ordem', ascending: true);
-            }
-          }
-        } catch (e) {
-          debugPrint('Aviso na busca por fase_atual_id: $e');
-        }
+        fases = await _supabase
+            .from('fases_padrao')
+            .select('*')
+            .eq('tipos_produto_id', tipoProdutoId)
+            .order('ordem', ascending: true);
       }
 
       _fasesDoProduto = fases;
@@ -175,60 +156,43 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
       }
 
       // =======================================================================
-      // 5. CÁLCULO CONTINUO DO TEMPO (IMUNE A NAVEGAÇÕES ENTRE PÁGINAS)
+      // 5. TEMPO DECORRIDO NA FASE — lido do servidor
       // =======================================================================
+      //
+      // O início da fase é agora um facto da ordem
+      // (`encomendas.data_inicio_fase`), escrito por `avancar_fase_encomenda`
+      // dentro da mesma transação da transição. Antes vivia num `static Map`
+      // em memória: era partilhado por todos os utilizadores do processo,
+      // crescia durante toda a sessão sem nunca ser limpo, e um reinício da
+      // app punha o cronómetro a zero mesmo com a fase a decorrer há horas.
+      _inicioFase = null;
+      _segundosDecorridos = 0;
+
       if (_faseAtualId != null) {
-        final String chaveFase = '${widget.encomendaId}_$_faseAtualId';
+        final inicio =
+            DateTime.tryParse(_encomenda!['data_inicio_fase']?.toString() ?? '')
+                ?.toLocal();
 
-        if (_temposInicioFase.containsKey(chaveFase)) {
-          // Já foi iniciada anteriormente durante a sessão
-          final inicio = _temposInicioFase[chaveFase]!;
-          _segundosDecorridos = DateTime.now().difference(inicio).inSeconds;
-          if (_segundosDecorridos < 0) _segundosDecorridos = 0;
-        } else {
-          // Primeira vez que entra nesta fase nesta sessão
-          DateTime? inicioBD;
-          try {
-            final historicoAnterior = await _supabase
-                .from('historico_producao')
-                .select('data_conclusao')
-                .eq('encomenda_id', widget.encomendaId)
-                .order('data_conclusao', ascending: false)
-                .limit(1)
-                .maybeSingle();
-
-            if (historicoAnterior != null && historicoAnterior['data_conclusao'] != null) {
-              inicioBD = DateTime.tryParse(historicoAnterior['data_conclusao'].toString())?.toLocal();
-            }
-          } catch (e) {
-            debugPrint('Aviso ao ler histórico: $e');
-          }
-
-          final agora = DateTime.now();
-          if (inicioBD != null && agora.difference(inicioBD).inSeconds >= 0 && agora.difference(inicioBD).inHours < 12) {
-            _temposInicioFase[chaveFase] = inicioBD;
-            _segundosDecorridos = agora.difference(inicioBD).inSeconds;
-          } else {
-            _temposInicioFase[chaveFase] = agora;
-            _segundosDecorridos = 0;
-          }
+        if (inicio != null) {
+          _inicioFase = inicio;
+          final decorrido = DateTime.now().difference(inicio).inSeconds;
+          // Relógios do terminal e do servidor podem divergir; um valor
+          // negativo mostraria um cronómetro a contar para trás.
+          _segundosDecorridos = decorrido > 0 ? decorrido : 0;
         }
       }
 
       // 6. Verifica se há incidências pendentes
-      bool temIncidenciaAtiva = false;
-      try {
-        final incidenciasData = await _supabase
-            .from('incidencias')
-            .select('id, line_clearance_validado')
-            .eq('encomenda_id', widget.encomendaId);
+      final incidenciasData = await _supabase
+          .from('incidencias')
+          .select('id, line_clearance_validado')
+          .eq('encomenda_id', widget.encomendaId);
 
-        if (incidenciasData is List) {
-          temIncidenciaAtiva = incidenciasData.any((inc) => inc['line_clearance_validado'] != true);
-        }
-      } catch (e) {
-        debugPrint('Aviso em incidências: $e');
-      }
+      // Sem `try/catch` a engolir o erro: se esta leitura falhar, a ordem
+      // apareceria como desbloqueada e o operador podia retomar trabalho numa
+      // ordem que está em hold. Falhar em voz alta é o comportamento correto.
+      final bool temIncidenciaAtiva = incidenciasData
+          .any((inc) => inc['line_clearance_validado'] != true);
 
       _isBloqueada = emSuspenso || temIncidenciaAtiva;
 
@@ -378,7 +342,18 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
     _concluirFase();
   }
 
-  // Transição de Fase no Supabase
+  /// Transição de fase pela RPC transacional `avancar_fase_encomenda`.
+  ///
+  /// Antes, o ecrã fazia duas escritas separadas — `insert` em
+  /// `historico_producao` seguido de `update` em `encomendas` — e decidia em
+  /// Dart qual era a fase seguinte ("índice + 1"). Uma falha entre as duas
+  /// deixava um registo de histórico órfão com a ordem parada na mesma fase, e
+  /// a regra duplicada podia divergir da do servidor. Ver bug (A) em
+  /// AlteracoesNoOperador.md.
+  ///
+  /// A RPC decide a fase seguinte, escreve o histórico e atualiza a ordem numa
+  /// só transação, e recusa o avanço se a ordem estiver em WIP Hold ou
+  /// cancelada — validações que o cliente não pode garantir sozinho.
   Future<void> _concluirFase() async {
     if (_faseAtualId == null || _encomenda == null) return;
 
@@ -386,36 +361,26 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
     _timerAndon?.cancel();
 
     try {
-      final indexFaseAtual = _fasesDoProduto.indexWhere((f) => f['id'] == _faseAtualId);
+      final resultado = await _encomendasRepo.avancarFase(widget.encomendaId);
 
-      int? proximaFaseId;
-      if (indexFaseAtual != -1 && indexFaseAtual + 1 < _fasesDoProduto.length) {
-        proximaFaseId = _fasesDoProduto[indexFaseAtual + 1]['id'];
-      }
+      // O cronómetro reinicia-se sozinho: a RPC escreve `data_inicio_fase` na
+      // mesma transação e o ecrã volta a lê-la ao recarregar. Deixa de ser
+      // preciso limpar estado em memória à mão.
+      _inicioFase = null;
 
-      final utilizadorId = _supabase.auth.currentUser?.id;
-
-      // Limpa a fase antiga da memória
-      _temposInicioFase.remove('${widget.encomendaId}_$_faseAtualId');
-
-      // 1. Regista no Histórico de Produção
-      await _supabase.from('historico_producao').insert({
-        'encomenda_id': widget.encomendaId,
-        'fase_concluida_id': _faseAtualId,
-        'utilizador_id': utilizadorId,
-        'data_conclusao': DateTime.now().toIso8601String(),
-      });
-
-      // 2. Atualiza a encomenda com o ID da próxima fase
-      await _supabase
-          .from('encomendas')
-          .update({'fase_atual_id': proximaFaseId})
-          .eq('id', widget.encomendaId);
+      final bool ordemConcluida = resultado['concluida'] == true;
+      final String? proximaFase = resultado['proxima_fase_nome']?.toString();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Etapa concluída com sucesso! Encomenda avançada. 🚀'),
+          SnackBar(
+            content: Text(
+              ordemConcluida
+                  ? 'Etapa concluída — ordem finalizada! 🚀'
+                  : proximaFase != null
+                      ? 'Etapa concluída! Ordem avançou para: $proximaFase 🚀'
+                      : 'Etapa concluída com sucesso! Encomenda avançada. 🚀',
+            ),
             backgroundColor: Colors.green,
           ),
         );
@@ -424,12 +389,27 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
     } catch (e) {
       debugPrint('Erro ao concluir fase: $e');
       if (mounted) {
+        // As RPCs de produção lançam mensagens de negócio já escritas em
+        // português (ex: "Encomenda em WIP Hold: aprove o Line Clearance antes
+        // de avançar."). São mostradas tal e qual ao operador.
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro ao atualizar fase: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('Erro ao atualizar fase: ${_limparErro(e)}'),
+            backgroundColor: Colors.red,
+          ),
         );
-        setState(() => _isLoading = false);
+        // O estado no servidor pode ter mudado (hold aplicado por outra via,
+        // ordem cancelada): recarregar evita que o operador continue a olhar
+        // para uma fase que já não é a atual. `_carregarDetalhesTarefa` repõe
+        // `_isLoading` e reinicia o cronómetro se a fase continuar aberta.
+        _carregarDetalhesTarefa();
       }
     }
+  }
+
+  String _limparErro(Object e) {
+    if (e is RepositoryException) return e.mensagem;
+    return e.toString().replaceAll('Exception: ', '');
   }
 
   void _abrirPopupIncidencia() async {
@@ -533,11 +513,38 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
                                         style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
                                       ),
                                       const SizedBox(height: 16),
-                                      _construirLinhaEspecificacao('Dimensões:', '500mm x 300mm x 150mm'),
+                                      // "Dimensões: 500mm x 300mm x 150mm" e
+                                      // "Material: Aço Inoxidável 304" estavam
+                                      // escritos no código: dados falsos
+                                      // mostrados ao operador no posto. O
+                                      // schema não guarda dimensões nem
+                                      // material, pelo que passam a mostrar-se
+                                      // os campos que existem mesmo na ordem.
+                                      _construirLinhaEspecificacao(
+                                        'Quantidade:',
+                                        _encomenda?['quantidade']?.toString() ?? '—',
+                                      ),
                                       const Divider(height: 24),
-                                      _construirLinhaEspecificacao('Material:', 'Aço Inoxidável 304'),
+                                      _construirLinhaEspecificacao(
+                                        'Prioridade:',
+                                        (_encomenda?['prioridade'] as String?)?.trim().isNotEmpty == true
+                                            ? _encomenda!['prioridade'].toString()
+                                            : 'Normal',
+                                      ),
+                                      const Divider(height: 24),
+                                      _construirLinhaEspecificacao(
+                                        'Data de Entrega:',
+                                        _encomenda?['data_entrega']?.toString() ?? '—',
+                                      ),
                                       const Divider(height: 24),
                                       _construirLinhaEspecificacao('Tempo Estimado da Fase:', '$_tempoEstimadoMinutos min'),
+                                      if ((_encomenda?['observacoes'] as String?)?.trim().isNotEmpty == true) ...[
+                                        const Divider(height: 24),
+                                        _construirLinhaEspecificacao(
+                                          'Observações:',
+                                          _encomenda!['observacoes'].toString(),
+                                        ),
+                                      ],
                                     ],
                                   ),
                                 ),
@@ -634,10 +641,10 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
 
     return Card(
       elevation: 0,
-      color: corAndon.withOpacity(0.08),
+      color: corAndon.withValues(alpha: 0.08),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: corAndon.withOpacity(0.3), width: 1.5),
+        side: BorderSide(color: corAndon.withValues(alpha: 0.3), width: 1.5),
       ),
       child: Padding(
         padding: const EdgeInsets.all(20.0),

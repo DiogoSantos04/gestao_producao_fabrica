@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../models/estado_ordem.dart';
 import 'detalhe_tarefa_screen.dart';
 
 class FilaTrabalhoScreen extends StatefulWidget {
@@ -73,7 +74,14 @@ class _FilaTrabalhoScreenState extends State<FilaTrabalhoScreen> {
         return;
       }
 
-      // 3. Busca APENAS as encomendas cuja fase_atual_id pertence a este posto de trabalho
+      // 3. Busca APENAS as encomendas cuja fase_atual_id pertence a este posto
+      // de trabalho.
+      //
+      // O filtro `cancelada = false` é aplicado no servidor: sem ele, uma ordem
+      // cancelada continuava a aparecer na fila e o operador podia iniciá-la.
+      // As ordens em WIP Hold continuam visíveis — escondê-las deixaria o
+      // operador sem saber para onde foi o trabalho —, mas entram marcadas e com
+      // o botão desativado. Ver bug (E) em AlteracoesNoOperador.md.
       final encomendasData = await _supabase
           .from('encomendas')
           .select('''
@@ -82,62 +90,102 @@ class _FilaTrabalhoScreenState extends State<FilaTrabalhoScreen> {
             data_entrega,
             tipos_produtos_id,
             fase_atual_id,
+            cancelada,
+            em_suspenso,
             tipos_produto ( nome_tipo_produto ),
             clientes ( nome_cliente )
           ''')
+          .eq('cancelada', false)
           .inFilter('fase_atual_id', faseIdsDoPosto);
 
-      // 4. Busca todas as fases padrão dos produtos para calcular o progresso global
-      final todasFasesData = await _supabase
-          .from('fases_padrao')
-          .select('id, ordem, tipos_produto_id')
-          .order('ordem', ascending: true);
+      // 4. Busca as fases padrão necessárias para calcular o progresso global.
+      //
+      // Só se procuram as fases dos tipos de produto que aparecem mesmo na
+      // fila: antes carregava-se a tabela `fases_padrao` inteira, sem filtro,
+      // para depois a filtrar em memória.
+      final Set<int> tiposProdutoNaFila = encomendasData
+          .map((e) => e['tipos_produtos_id'])
+          .whereType<int>()
+          .toSet();
+
+      final List<dynamic> todasFasesData = tiposProdutoNaFila.isEmpty
+          ? const []
+          : await _supabase
+              .from('fases_padrao')
+              .select('id, ordem, tipos_produto_id')
+              .inFilter('tipos_produto_id', tiposProdutoNaFila.toList())
+              .order('ordem', ascending: true);
 
       List<Map<String, dynamic>> listaFinal = [];
 
       for (var enc in encomendasData) {
-        final int tipoProdutoId = enc['tipos_produtos_id'];
+        // Sem verificação de nulo, uma encomenda sem tipo de produto atribuído
+        // rebentava aqui com `TypeError` e derrubava a fila inteira.
+        final int? tipoProdutoId = enc['tipos_produtos_id'] as int?;
         final int? faseAtualId = enc['fase_atual_id'];
 
         // Filtrar todas as fases associadas a este produto específico
-        final fasesDoProduto = (todasFasesData as List)
-            .where((f) => f['tipos_produto_id'] == tipoProdutoId)
-            .toList();
+        final fasesDoProduto = tipoProdutoId == null
+            ? const []
+            : todasFasesData
+                .where((f) => f['tipos_produto_id'] == tipoProdutoId)
+                .toList();
 
         final totalFases = fasesDoProduto.length;
-        int ordemAtual = 0;
 
-        if (faseAtualId != null) {
-          final indexFase = fasesDoProduto.indexWhere((f) => f['id'] == faseAtualId);
+        // Progresso = fases já concluídas / total de fases.
+        //
+        // Usa-se a posição da fase na lista ordenada, não o valor da coluna
+        // `ordem`: o cálculo anterior — `(ordem - 1) / total` — assumia que
+        // `ordem` era contígua e começava em 1. Numerações com saltos (uma fase
+        // removida do plano) davam percentagens erradas, incluindo acima de
+        // 100%.
+        double progresso = 0.0;
+        if (totalFases > 0 && faseAtualId != null) {
+          final indexFase =
+              fasesDoProduto.indexWhere((f) => f['id'] == faseAtualId);
           if (indexFase != -1) {
-            ordemAtual = fasesDoProduto[indexFase]['ordem'];
+            progresso = indexFase / totalFases;
           }
         }
 
-        // Progresso = Fases anteriores concluídas / Total de Fases
-        double progresso = 0.0;
-        if (totalFases > 0 && ordemAtual > 0) {
-          progresso = (ordemAtual - 1) / totalFases;
-        }
+        // Determinação do Estado Visual.
+        //
+        // O estado de negócio é derivado por `EstadoOrdem`, a definição única
+        // partilhada com o admin — antes este ecrã tinha regras próprias e
+        // etiquetas que não coincidiam com nenhuma das do painel de controlo.
+        // "Atrasado" e "Em Progresso" continuam a existir como leitura
+        // operacional, mas só se aplicam a uma ordem que esteja mesmo em
+        // produção.
+        final EstadoOrdem estadoOrdem = EstadoOrdem.derivar(
+          cancelada: enc['cancelada'] == true,
+          emSuspenso: enc['em_suspenso'] == true,
+          temFaseAtual: faseAtualId != null,
+        );
 
-        // Determinação do Estado Visual
         String estado = 'Pronto a Iniciar';
         Color corEstado = const Color(0xFF2563EB); // Azul
 
-        final dataEntrega = DateTime.tryParse(enc['data_entrega'] ?? '');
-        final hoje = DateTime.now();
+        if (estadoOrdem == EstadoOrdem.emHold) {
+          estado = estadoOrdem.etiqueta; // 'ON HOLD'
+          corEstado = const Color(0xFF9333EA); // Roxo — bloqueio, não atraso
+        } else {
+          final dataEntrega = DateTime.tryParse(enc['data_entrega'] ?? '');
+          final hoje = DateTime.now();
 
-        if (dataEntrega != null && dataEntrega.isBefore(DateTime(hoje.year, hoje.month, hoje.day))) {
-          estado = 'Atrasado';
-          corEstado = const Color(0xFFDC2626); // Vermelho
-        } else if (progresso > 0) {
-          estado = 'Em Progresso';
-          corEstado = const Color(0xFFD97706); // Laranja
+          if (dataEntrega != null &&
+              dataEntrega.isBefore(DateTime(hoje.year, hoje.month, hoje.day))) {
+            estado = 'Atrasado';
+            corEstado = const Color(0xFFDC2626); // Vermelho
+          } else if (progresso > 0) {
+            estado = 'Em Progresso';
+            corEstado = const Color(0xFFD97706); // Laranja
+          }
         }
 
         listaFinal.add({
           'id': enc['id'],
-          'codigo_rastreio': enc['codigo_rastreio'],
+          'codigo_rastreio': enc['codigo_rastreio'] ?? 'Sem Referência',
           'data_entrega': enc['data_entrega'],
           'produto': enc['tipos_produto']?['nome_tipo_produto'] ?? 'Sem Produto',
           'cliente': enc['clientes']?['nome_cliente'] ?? 'Sem Cliente',
@@ -145,6 +193,9 @@ class _FilaTrabalhoScreenState extends State<FilaTrabalhoScreen> {
           'estado': estado,
           'corEstado': corEstado,
           'fase_atual_id': faseAtualId,
+          // Uma ordem em hold não é trabalhável: o botão fica desativado até o
+          // Line Clearance ser aprovado no painel do admin.
+          'bloqueada': estadoOrdem == EstadoOrdem.emHold,
         });
       }
 
@@ -257,6 +308,7 @@ class _FilaTrabalhoScreenState extends State<FilaTrabalhoScreen> {
                             itemBuilder: (context, index) {
                               final enc = _encomendasProcessadas[index];
                               final percentagem = (enc['progresso'] * 100).toInt();
+                              final bool bloqueada = enc['bloqueada'] == true;
 
                               return Card(
                                 elevation: 0,
@@ -298,7 +350,8 @@ class _FilaTrabalhoScreenState extends State<FilaTrabalhoScreen> {
                                       Container(
                                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                                         decoration: BoxDecoration(
-                                          color: (enc['corEstado'] as Color).withOpacity(0.1),
+                                          color: (enc['corEstado'] as Color)
+                                              .withValues(alpha: 0.1),
                                           borderRadius: BorderRadius.circular(20),
                                         ),
                                         child: Text(
@@ -342,37 +395,48 @@ class _FilaTrabalhoScreenState extends State<FilaTrabalhoScreen> {
                                       ),
                                       const SizedBox(height: 16),
 
-                                      // Botão "Iniciar"
+                                      // Botão "Iniciar" — desativado enquanto a
+                                      // ordem estiver em WIP Hold.
                                       ElevatedButton.icon(
-                                        onPressed: () async {
-                                          final result = await Navigator.of(context).push(
-                                            MaterialPageRoute(
-                                              builder: (context) => DetalheTarefaScreen(
-                                                encomendaId: enc['id'],
-                                                codigoRastreio: enc['codigo_rastreio'],
-                                              ),
-                                            ),
-                                          );
+                                        onPressed: bloqueada
+                                            ? null
+                                            : () async {
+                                                final result = await Navigator.of(context).push(
+                                                  MaterialPageRoute(
+                                                    builder: (context) => DetalheTarefaScreen(
+                                                      encomendaId: enc['id'],
+                                                      codigoRastreio: enc['codigo_rastreio'],
+                                                    ),
+                                                  ),
+                                                );
 
-                                          // Recarrega a fila quando o operador conclui a fase ou reporta incidência
-                                          if (result == true) {
-                                            setState(() => _isLoading = true);
-                                            _carregarFilaDeTrabalho();
-                                          }
-                                        },
+                                                // Recarrega a fila quando o operador conclui a fase ou reporta incidência
+                                                if (result == true) {
+                                                  setState(() => _isLoading = true);
+                                                  _carregarFilaDeTrabalho();
+                                                }
+                                              },
                                         style: ElevatedButton.styleFrom(
                                           backgroundColor: const Color(0xFF111827),
                                           foregroundColor: Colors.white,
+                                          disabledBackgroundColor: const Color(0xFFE2E8F0),
+                                          disabledForegroundColor: const Color(0xFF94A3B8),
                                           minimumSize: const Size.fromHeight(40),
                                           elevation: 0,
                                           shape: RoundedRectangleBorder(
                                             borderRadius: BorderRadius.circular(8),
                                           ),
                                         ),
-                                        icon: const Icon(Icons.play_arrow, size: 16),
-                                        label: const Text(
-                                          'Iniciar',
-                                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                                        icon: Icon(
+                                          bloqueada ? Icons.lock_outline : Icons.play_arrow,
+                                          size: 16,
+                                        ),
+                                        label: Text(
+                                          bloqueada ? 'Aguarda Line Clearance' : 'Iniciar',
+                                          style: const TextStyle(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.bold,
+                                          ),
                                         ),
                                       ),
                                     ],

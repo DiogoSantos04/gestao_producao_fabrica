@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../../core/temas_cores.dart';
+import '../../core/iniciais.dart';
 import '../../services/auth_service.dart';
 import '../../services/pdf_service.dart';
 import '../login_screen.dart';
@@ -29,6 +29,9 @@ class _OperadorShellScreenState extends State<OperadorShellScreen> {
   String _nomeUtilizador = 'Operador';
   String _emailUtilizador = 'carregando...';
   bool _carregandoPerfil = true;
+
+  /// `utilizador_id` da sessão — a identidade real do operador.
+  String? _utilizadorId;
 
   // Subscrição em tempo real via WebSocket
   StreamSubscription<List<Map<String, dynamic>>>? _utilizadorStreamSubscription;
@@ -61,6 +64,8 @@ class _OperadorShellScreenState extends State<OperadorShellScreen> {
         if (mounted) setState(() => _carregandoPerfil = false);
         return;
       }
+
+      _utilizadorId = userId;
 
       _utilizadorStreamSubscription = _supabase
           .from('utilizadores')
@@ -95,15 +100,23 @@ class _OperadorShellScreenState extends State<OperadorShellScreen> {
     }
   }
 
-  /// Converte o nome do utilizador em iniciais (ex: "Martim Carvalho" -> "MC")
-  String _obterIniciais(String? nome) {
-    if (nome == null || nome.toString().trim().isEmpty) return 'OP';
-    final String limpo = nome.toString().trim();
-    final partes = limpo.split(' ');
-    if (partes.length >= 2 && partes[0].isNotEmpty && partes[1].isNotEmpty) {
-      return '${partes[0][0]}${partes[1][0]}'.toUpperCase();
-    }
-    return limpo.substring(0, limpo.length >= 2 ? 2 : 1).toUpperCase();
+  /// Converte o nome do utilizador em iniciais (ex: "Martim Carvalho" -> "MC").
+  ///
+  /// Delega em `core/iniciais.dart`, a mesma implementação que o painel do
+  /// admin usa — antes este ecrã tinha uma cópia própria, que dividia por um
+  /// espaço único e falhava com espaços repetidos.
+  String _obterIniciais(String? nome) => obterIniciais(nome, omissao: 'OP');
+
+  /// Identificador do operador apresentado na interface.
+  ///
+  /// Deriva do `utilizador_id` da sessão, que é estável. O valor anterior —
+  /// `'EMP-2026-' + nome.hashCode` — tinha o ano fixo no código e mudava
+  /// sempre que o nome do utilizador fosse corrigido, pelo que não identificava
+  /// ninguém de forma fiável.
+  String get _idFuncionario {
+    final id = _utilizadorId;
+    if (id == null || id.isEmpty) return 'ID indisponível';
+    return 'OP-${id.replaceAll('-', '').substring(0, 8).toUpperCase()}';
   }
 
   /// Diálogo interativo para alterar a palavra-passe no Auth e na tabela utilizadores
@@ -231,6 +244,37 @@ class _OperadorShellScreenState extends State<OperadorShellScreen> {
 
   /// Processa o fecho de turno, descarregando automaticamente o relatório PDF com as métricas do turno
   Future<void> _processarFechoSessaoComRelatorio() async {
+    // Fechar o turno é irreversível a meio do trabalho e o botão está sempre
+    // visível na barra lateral: um toque acidental com luvas terminava a
+    // sessão sem aviso.
+    final bool confirmado = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Terminar sessão?'),
+            content: const Text(
+              'O turno é fechado e o relatório de atividade é gerado. '
+              'Terá de voltar a autenticar-se para retomar o trabalho.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Continuar a trabalhar'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red.shade600,
+                  foregroundColor: Colors.white,
+                ),
+                child: const Text('Terminar sessão'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+
+    if (!confirmado || !mounted) return;
+
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -275,7 +319,10 @@ class _OperadorShellScreenState extends State<OperadorShellScreen> {
             .from('historico_producao')
             .select('id, data_conclusao, incidencias(id)')
             .eq('utilizador_id', authUserId)
-            .gte('data_conclusao', _inicioSessao.toIso8601String());
+            // `toUtc()`: `data_conclusao` é `timestamptz`; enviar a hora local
+            // sem offset fazia o servidor lê-la como UTC e deslocava o início
+            // do turno.
+            .gte('data_conclusao', _inicioSessao.toUtc().toIso8601String());
 
         avancosSessao = (historicoData as List).length;
 
@@ -397,7 +444,7 @@ class _OperadorShellScreenState extends State<OperadorShellScreen> {
                   child: ListTile(
                     selected: estaSelecionado,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    selectedTileColor: Colors.white.withOpacity(0.08),
+                    selectedTileColor: Colors.white.withValues(alpha: 0.08),
                     leading: Icon(
                       item['icone'],
                       color: estaSelecionado ? Colors.blue : Colors.grey.shade500,
@@ -435,7 +482,7 @@ class _OperadorShellScreenState extends State<OperadorShellScreen> {
   Widget _buildRodapeSidebar(bool dentroDrawer) {
     final bool estaNoPerfil = _indiceSelecionado == 3;
     final String iniciais = _obterIniciais(_nomeUtilizador);
-    final String idDisplay = 'EMP-2026-${_nomeUtilizador.hashCode.abs().toString().padLeft(4, '0').substring(0, 4)}';
+    final String idDisplay = _idFuncionario;
 
     return Padding(
       padding: const EdgeInsets.all(16),
@@ -454,7 +501,7 @@ class _OperadorShellScreenState extends State<OperadorShellScreen> {
             child: Container(
               padding: const EdgeInsets.all(8.0),
               decoration: BoxDecoration(
-                color: estaNoPerfil ? Colors.white.withOpacity(0.08) : Colors.transparent,
+                color: estaNoPerfil ? Colors.white.withValues(alpha: 0.08) : Colors.transparent,
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Row(
@@ -493,7 +540,7 @@ class _OperadorShellScreenState extends State<OperadorShellScreen> {
           ElevatedButton.icon(
             onPressed: _processarFechoSessaoComRelatorio,
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red.withOpacity(0.15),
+              backgroundColor: Colors.red.withValues(alpha: 0.15),
               foregroundColor: Colors.redAccent,
               elevation: 0,
               minimumSize: const Size.fromHeight(38),
@@ -509,7 +556,7 @@ class _OperadorShellScreenState extends State<OperadorShellScreen> {
 
   Widget _construirEcraPerfil() {
     final String iniciais = _obterIniciais(_nomeUtilizador);
-    final String idDisplay = 'EMP-2026-${_nomeUtilizador.hashCode.abs().toString().padLeft(4, '0').substring(0, 4)}';
+    final String idDisplay = _idFuncionario;
 
     return Padding(
       padding: const EdgeInsets.all(40.0),

@@ -37,7 +37,12 @@ class _HistoricoOperadorScreenState extends State<HistoricoOperadorScreen> {
   Future<void> _carregarHistorico() async {
     try {
       final user = _supabase.auth.currentUser;
-      if (user == null) return;
+      if (user == null) {
+        // Mesmo defeito que existia nos relatórios: o `return` seco deixava
+        // `_isLoading = true` e o ecrã num spinner infinito.
+        if (mounted) setState(() => _isLoading = false);
+        return;
+      }
 
       final data = await _supabase
           .from('historico_producao')
@@ -64,7 +69,9 @@ class _HistoricoOperadorScreenState extends State<HistoricoOperadorScreen> {
       if (mounted) {
         setState(() {
           _historicoCompleto = data;
-          _filtrarEReordenarResultados();
+          // `_calcular...` é puro: chamar aqui `_filtrarEReordenarResultados()`
+          // — que faz `setState` — punha um `setState` dentro de outro.
+          _historicoFiltrado = _calcularResultadoFiltrado();
           _isLoading = false;
         });
       }
@@ -99,7 +106,7 @@ class _HistoricoOperadorScreenState extends State<HistoricoOperadorScreen> {
     if (dataPick != null) {
       setState(() {
         _dataSelecionada = dataPick;
-        _filtrarEReordenarResultados();
+        _historicoFiltrado = _calcularResultadoFiltrado();
       });
     }
   }
@@ -107,7 +114,7 @@ class _HistoricoOperadorScreenState extends State<HistoricoOperadorScreen> {
   void _limparFiltroData() {
     setState(() {
       _dataSelecionada = null;
-      _filtrarEReordenarResultados();
+      _historicoFiltrado = _calcularResultadoFiltrado();
     });
   }
 
@@ -119,11 +126,23 @@ class _HistoricoOperadorScreenState extends State<HistoricoOperadorScreen> {
         _colunaOrdenacao = coluna;
         _ordenacaoAscendente = true;
       }
-      _filtrarEReordenarResultados();
+      _historicoFiltrado = _calcularResultadoFiltrado();
     });
   }
 
+  /// Ouvinte do campo de pesquisa: aplica o resultado ao estado.
+  ///
+  /// O cálculo vive em [_calcularResultadoFiltrado], que é puro, para que os
+  /// callers que já estão dentro de um `setState` (carregamento, filtro de
+  /// data, ordenação) o possam usar sem aninhar um segundo `setState`.
   void _filtrarEReordenarResultados() {
+    if (!mounted) return;
+    setState(() {
+      _historicoFiltrado = _calcularResultadoFiltrado();
+    });
+  }
+
+  List<dynamic> _calcularResultadoFiltrado() {
     final query = _searchController.text.trim().toLowerCase();
     
     // 1. Filtragem por Texto e por Data Específica
@@ -137,7 +156,10 @@ class _HistoricoOperadorScreenState extends State<HistoricoOperadorScreen> {
       if (_dataSelecionada != null) {
         final String? dtStr = registo['data_conclusao'];
         if (dtStr != null) {
-          final dt = DateTime.tryParse(dtStr);
+          // `toLocal()`: o registo vem em UTC e `_dataSelecionada` é uma data
+          // local escolhida no calendário. Sem conversão, o trabalho de fim de
+          // turno era atribuído ao dia seguinte.
+          final dt = DateTime.tryParse(dtStr)?.toLocal();
           if (dt != null) {
             bateData = dt.year == _dataSelecionada!.year &&
                        dt.month == _dataSelecionada!.month &&
@@ -192,14 +214,14 @@ class _HistoricoOperadorScreenState extends State<HistoricoOperadorScreen> {
       return _ordenacaoAscendente ? comparacao : -comparacao;
     });
 
-    setState(() {
-      _historicoFiltrado = resultado;
-    });
+    return resultado;
   }
 
   String _formatarData(String? isoString) {
     if (isoString == null) return '-';
-    final dt = DateTime.tryParse(isoString);
+    // `timestamptz` chega em UTC; sem `toLocal()` a hora mostrada ao operador
+    // não é a hora do turno.
+    final dt = DateTime.tryParse(isoString)?.toLocal();
     if (dt == null) return '-';
     final dia = dt.day.toString().padLeft(2, '0');
     final mes = dt.month.toString().padLeft(2, '0');
@@ -439,7 +461,21 @@ class _HistoricoOperadorScreenState extends State<HistoricoOperadorScreen> {
 
                                         final List<dynamic> incidencias = item['incidencias'] ?? [];
                                         final bool isBloqueado = incidencias.isNotEmpty;
-                                        final String? motivoBloqueio = isBloqueado ? incidencias.first['motivo'] : null;
+
+                                        // Uma fase pode ter sido bloqueada mais
+                                        // do que uma vez. `incidencias.first`
+                                        // mostrava só a primeira e escondia as
+                                        // restantes sem qualquer indicação.
+                                        final List<String> motivosBloqueio = incidencias
+                                            .map((i) => (i['motivo'] as String?)?.trim())
+                                            .whereType<String>()
+                                            .where((m) => m.isNotEmpty)
+                                            .toList();
+                                        final String? motivoBloqueio = motivosBloqueio.isEmpty
+                                            ? null
+                                            : (motivosBloqueio.length == 1
+                                                ? motivosBloqueio.first
+                                                : '${motivosBloqueio.first} (+${motivosBloqueio.length - 1})');
 
                                         return Container(
                                           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
@@ -479,14 +515,21 @@ class _HistoricoOperadorScreenState extends State<HistoricoOperadorScreen> {
                                                           const Icon(Icons.warning_amber_rounded, size: 12, color: Colors.red),
                                                           const SizedBox(width: 4),
                                                           Expanded(
-                                                            child: Text(
-                                                              motivoBloqueio,
-                                                              maxLines: 1,
-                                                              overflow: TextOverflow.ellipsis,
-                                                              style: const TextStyle(
-                                                                fontSize: 11, 
-                                                                color: Colors.red, 
-                                                                fontWeight: FontWeight.w500,
+                                                            // A linha só tem
+                                                            // espaço para um
+                                                            // motivo; o tooltip
+                                                            // dá acesso a todos.
+                                                            child: Tooltip(
+                                                              message: motivosBloqueio.join('\n'),
+                                                              child: Text(
+                                                                motivoBloqueio,
+                                                                maxLines: 1,
+                                                                overflow: TextOverflow.ellipsis,
+                                                                style: const TextStyle(
+                                                                  fontSize: 11,
+                                                                  color: Colors.red,
+                                                                  fontWeight: FontWeight.w500,
+                                                                ),
                                                               ),
                                                             ),
                                                           ),

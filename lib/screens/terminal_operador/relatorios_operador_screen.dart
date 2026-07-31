@@ -28,7 +28,12 @@ class _RelatoriosOperadorScreenState extends State<RelatoriosOperadorScreen> {
   Future<void> _processarRelatoriosReais() async {
     try {
       final user = _supabase.auth.currentUser;
-      if (user == null) return;
+      if (user == null) {
+        // Sem sessão não há nada a carregar, mas o `return` seco deixava
+        // `_isLoading = true` para sempre: o ecrã ficava num spinner infinito.
+        if (mounted) setState(() => _isLoading = false);
+        return;
+      }
 
       final inicioMes = DateTime(DateTime.now().year, DateTime.now().month, 1);
       
@@ -49,15 +54,21 @@ class _RelatoriosOperadorScreenState extends State<RelatoriosOperadorScreen> {
         final String? dataStr = row['data_conclusao'];
         if (dataStr == null) continue;
         
-        final DateTime data = DateTime.parse(dataStr);
+        // `data_conclusao` é `timestamptz` e chega em UTC. Sem `toLocal()` o
+        // agrupamento por dia de turno e a comparação com `inicioMes` (que é
+        // hora local) misturavam fusos, deslocando registos de fim de turno
+        // para o dia seguinte.
+        final DateTime data = DateTime.parse(dataStr).toLocal();
         final String chaveDia = '${data.year}-${data.month.toString().padLeft(2, '0')}-${data.day.toString().padLeft(2, '0')}';
         final String dataFormatada = '${data.day.toString().padLeft(2, '0')}/${data.month.toString().padLeft(2, '0')}/${data.year}';
         
         final List<dynamic> listaIncidencias = row['incidencias'] ?? [];
         final bool temIncidencia = listaIncidencias.isNotEmpty;
 
-        // Filtra métricas específicas acumuladas do mês corrente
-        if (data.isAfter(inicioMes)) {
+        // Filtra métricas específicas acumuladas do mês corrente.
+        // `!isBefore` e não `isAfter`: `inicioMes` é o dia 1 às 00:00, pelo que
+        // `isAfter` excluía o trabalho registado exatamente nesse instante.
+        if (!data.isBefore(inicioMes)) {
           fasesMes++;
           if (temIncidencia) incsMes++;
         }
@@ -78,6 +89,7 @@ class _RelatoriosOperadorScreenState extends State<RelatoriosOperadorScreen> {
         }
       }
 
+      if (!mounted) return;
       setState(() {
         _totalFasesMes = fasesMes;
         _totalIncidenciasMes = incsMes;
