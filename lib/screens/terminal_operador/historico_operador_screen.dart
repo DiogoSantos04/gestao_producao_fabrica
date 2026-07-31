@@ -1,276 +1,347 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+
+import '../../core/ecra_recarregavel.dart';
+import '../../core/formatos.dart';
+import '../../core/paginacao.dart';
+import '../../core/temas_cores.dart';
+import '../../repositories/operador_repository.dart';
+import '../../widgets/estado_erro.dart';
 
 class HistoricoOperadorScreen extends StatefulWidget {
   const HistoricoOperadorScreen({super.key});
 
   @override
-  State<HistoricoOperadorScreen> createState() => _HistoricoOperadorScreenState();
+  State<HistoricoOperadorScreen> createState() =>
+      _HistoricoOperadorScreenState();
 }
 
-class _HistoricoOperadorScreenState extends State<HistoricoOperadorScreen> {
-  final _supabase = Supabase.instance.client;
-  final _searchController = TextEditingController();
-  
-  List<dynamic> _historicoCompleto = [];
-  List<dynamic> _historicoFiltrado = [];
-  bool _isLoading = true;
+class _HistoricoOperadorScreenState extends State<HistoricoOperadorScreen>
+    implements EcraRecarregavel {
+  final OperadorRepository _repo = OperadorRepository();
+  final TextEditingController _pesquisaController = TextEditingController();
 
-  // Variáveis de controlo para ordenação e filtro por data
-  String _colunaOrdenacao = 'data'; // 'codigo', 'produto', 'fase', 'data', 'estado'
-  bool _ordenacaoAscendente = false; // Padrão: mais recentes primeiro
-  DateTime? _dataSelecionada; // Filtro de data específica
+  List<RegistoDeTurno> _registos = [];
+  bool _aCarregar = true;
+  bool _aCarregarMais = false;
+  bool _temMais = false;
+  String? _erro;
+
+  /// Número de páginas já pedidas ao servidor.
+  ///
+  /// O deslocamento não pode sair de `_registos.length`: o filtro "apenas
+  /// bloqueados" é aplicado depois de o servidor responder, pelo que a lista
+  /// visível é mais curta do que o que já foi lido e a página seguinte saltaria
+  /// registos.
+  int _paginas = 0;
+
+  Timer? _debouncePesquisa;
+
+  DateTime? _dia;
+  OrdenacaoHistorico _ordenacao = OrdenacaoHistorico.data;
+  bool _ascendente = false; // mais recentes primeiro
+  bool _apenasBloqueados = false;
 
   @override
   void initState() {
     super.initState();
-    _carregarHistorico();
-    _searchController.addListener(_filtrarEReordenarResultados);
+    _carregar();
+    _pesquisaController.addListener(_aoEscreverPesquisa);
   }
 
   @override
   void dispose() {
-    _searchController.dispose();
+    _debouncePesquisa?.cancel();
+    _pesquisaController.dispose();
     super.dispose();
   }
 
-  Future<void> _carregarHistorico() async {
-    try {
-      final user = _supabase.auth.currentUser;
-      if (user == null) {
-        // Mesmo defeito que existia nos relatórios: o `return` seco deixava
-        // `_isLoading = true` e o ecrã num spinner infinito.
-        if (mounted) setState(() => _isLoading = false);
-        return;
-      }
-
-      final data = await _supabase
-          .from('historico_producao')
-          .select('''
-            id,
-            data_conclusao,
-            encomendas!encomenda_id (
-              codigo_rastreio,
-              tipos_produto!tipos_produtos_id (
-                nome_tipo_produto
-              )
-            ),
-            fases_padrao!fase_concluida_id (
-              nome_fase_padrao
-            ),
-            incidencias (
-              id,
-              motivo
-            )
-          ''')
-          .eq('utilizador_id', user.id)
-          .order('data_conclusao', ascending: false);
-
-      if (mounted) {
-        setState(() {
-          _historicoCompleto = data;
-          // `_calcular...` é puro: chamar aqui `_filtrarEReordenarResultados()`
-          // — que faz `setState` — punha um `setState` dentro de outro.
-          _historicoFiltrado = _calcularResultadoFiltrado();
-          _isLoading = false;
-        });
-      }
-    } catch (e) {
-      debugPrint('Erro ao carregar histórico de produção: $e');
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
-    }
+  /// A pesquisa vai ao servidor, por isso não pode disparar a cada tecla.
+  void _aoEscreverPesquisa() {
+    _debouncePesquisa?.cancel();
+    _debouncePesquisa = Timer(esperaPesquisa, _carregar);
   }
 
-  Future<void> _selecionarData(BuildContext context) async {
-    final DateTime? dataPick = await showDatePicker(
-      context: context,
-      initialDate: _dataSelecionada ?? DateTime.now(),
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2100),
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: const ColorScheme.light(
-              primary: Color(0xFF2563EB),
-              onPrimary: Colors.white,
-              onSurface: Color(0xFF0F172A),
-            ),
-          ),
-          child: child!,
-        );
-      },
-    );
+  /// Recarregamento pedido pelo shell ao voltar a este separador.
+  ///
+  /// Recomeça na primeira página com os filtros que estiverem postos: o que
+  /// interessa a quem volta ao separador é ver o topo atualizado, não repetir
+  /// as páginas que já tinha percorrido.
+  @override
+  Future<void> recarregar() => _carregar();
 
-    if (dataPick != null) {
+  Future<void> _carregar() async {
+    if (!mounted) return;
+    setState(() {
+      _aCarregar = true;
+      _erro = null;
+    });
+
+    try {
+      final pagina = await _pedirPagina(0);
+      if (!mounted) return;
       setState(() {
-        _dataSelecionada = dataPick;
-        _historicoFiltrado = _calcularResultadoFiltrado();
+        _registos = pagina.itens;
+        _temMais = pagina.temMais;
+        _paginas = 1;
+        _aCarregar = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _erro = descreverErro(e);
+        _aCarregar = false;
       });
     }
   }
 
-  void _limparFiltroData() {
-    setState(() {
-      _dataSelecionada = null;
-      _historicoFiltrado = _calcularResultadoFiltrado();
-    });
+  Future<void> _carregarMais() async {
+    if (_aCarregarMais || !_temMais) return;
+    setState(() => _aCarregarMais = true);
+
+    try {
+      final pagina = await _pedirPagina(_paginas * tamanhoPaginaPadrao);
+      if (!mounted) return;
+      setState(() {
+        _registos = [..._registos, ...pagina.itens];
+        _temMais = pagina.temMais;
+        _paginas++;
+        _aCarregarMais = false;
+        // Sem isto, a barra de erro de uma tentativa falhada ficava no ecrã
+        // para sempre, mesmo depois de o "Repetir" ter corrido bem.
+        _erro = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _erro = descreverErro(e);
+        _aCarregarMais = false;
+      });
+    }
   }
 
-  void _alternarOrdenacao(String coluna) {
-    setState(() {
-      if (_colunaOrdenacao == coluna) {
-        _ordenacaoAscendente = !_ordenacaoAscendente;
+  Future<PaginaResultado<RegistoDeTurno>> _pedirPagina(int deslocamento) {
+    return _repo.obterHistorico(
+      deslocamento: deslocamento,
+      pesquisa: _pesquisaController.text,
+      dia: _dia,
+      ordenacao: _ordenacao,
+      ascendente: _ascendente,
+      apenasBloqueados: _apenasBloqueados,
+    );
+  }
+
+  /// Qualquer mudança de filtro ou de ordenação recomeça na primeira página:
+  /// o critério mudou, e as páginas já lidas foram lidas com o critério antigo.
+  void _aplicar(VoidCallback alteracao) {
+    setState(alteracao);
+    _carregar();
+  }
+
+  Future<void> _selecionarData() async {
+    final escolhida = await showDatePicker(
+      context: context,
+      initialDate: _dia ?? DateTime.now(),
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+      builder: (context, child) => Theme(
+        data: Theme.of(context).copyWith(
+          colorScheme: const ColorScheme.light(
+            primary: TemasCores.infoForte,
+            onPrimary: TemasCores.textoInverso,
+            onSurface: TemasCores.textoPrimarioFrio,
+          ),
+        ),
+        child: child!,
+      ),
+    );
+
+    if (escolhida != null) _aplicar(() => _dia = escolhida);
+  }
+
+  void _alternarOrdenacao(OrdenacaoHistorico coluna) {
+    _aplicar(() {
+      if (_ordenacao == coluna) {
+        _ascendente = !_ascendente;
       } else {
-        _colunaOrdenacao = coluna;
-        _ordenacaoAscendente = true;
+        _ordenacao = coluna;
+        _ascendente = true;
       }
-      _historicoFiltrado = _calcularResultadoFiltrado();
     });
   }
 
-  /// Ouvinte do campo de pesquisa: aplica o resultado ao estado.
-  ///
-  /// O cálculo vive em [_calcularResultadoFiltrado], que é puro, para que os
-  /// callers que já estão dentro de um `setState` (carregamento, filtro de
-  /// data, ordenação) o possam usar sem aninhar um segundo `setState`.
-  void _filtrarEReordenarResultados() {
-    if (!mounted) return;
-    setState(() {
-      _historicoFiltrado = _calcularResultadoFiltrado();
-    });
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: TemasCores.fundoEcraFrio,
+      body: Padding(
+        padding: const EdgeInsets.all(40.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Histórico de Produção',
+              style: TextStyle(
+                fontSize: 28,
+                fontWeight: FontWeight.bold,
+                color: TemasCores.textoPrimarioFrio,
+              ),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Consulte as suas tarefas concluídas ou bloqueios registados',
+              style: TextStyle(
+                fontSize: 14,
+                color: TemasCores.textoSecundarioFrio,
+              ),
+            ),
+            const SizedBox(height: 32),
+            _construirFiltros(),
+            const SizedBox(height: 24),
+            Expanded(child: _construirTabela()),
+          ],
+        ),
+      ),
+    );
   }
 
-  List<dynamic> _calcularResultadoFiltrado() {
-    final query = _searchController.text.trim().toLowerCase();
-    
-    // 1. Filtragem por Texto e por Data Específica
-    List<dynamic> resultado = _historicoCompleto.where((registo) {
-      // Filtro por Texto (Código de Rastreio)
-      bool bateTexto = query.isEmpty ||
-          (registo['encomendas']?['codigo_rastreio']?.toString().toLowerCase().contains(query) ?? false);
+  Widget _construirFiltros() {
+    final rotuloData = _dia == null
+        ? 'Filtrar por Data'
+        : '${_dia!.day.toString().padLeft(2, '0')}/'
+            '${_dia!.month.toString().padLeft(2, '0')}/${_dia!.year}';
 
-      // Filtro por Data
-      bool bateData = true;
-      if (_dataSelecionada != null) {
-        final String? dtStr = registo['data_conclusao'];
-        if (dtStr != null) {
-          // `toLocal()`: o registo vem em UTC e `_dataSelecionada` é uma data
-          // local escolhida no calendário. Sem conversão, o trabalho de fim de
-          // turno era atribuído ao dia seguinte.
-          final dt = DateTime.tryParse(dtStr)?.toLocal();
-          if (dt != null) {
-            bateData = dt.year == _dataSelecionada!.year &&
-                       dt.month == _dataSelecionada!.month &&
-                       dt.day == _dataSelecionada!.day;
-          } else {
-            bateData = false;
-          }
-        } else {
-          bateData = false;
-        }
-      }
-
-      return bateTexto && bateData;
-    }).toList();
-
-    // 2. Ordenação Dinâmica por Coluna
-    resultado.sort((a, b) {
-      int comparacao = 0;
-
-      switch (_colunaOrdenacao) {
-        case 'codigo':
-          final codA = a['encomendas']?['codigo_rastreio']?.toString().toLowerCase() ?? '';
-          final codB = b['encomendas']?['codigo_rastreio']?.toString().toLowerCase() ?? '';
-          comparacao = codA.compareTo(codB);
-          break;
-
-        case 'produto':
-          final prodA = a['encomendas']?['tipos_produto']?['nome_tipo_produto']?.toString().toLowerCase() ?? '';
-          final prodB = b['encomendas']?['tipos_produto']?['nome_tipo_produto']?.toString().toLowerCase() ?? '';
-          comparacao = prodA.compareTo(prodB);
-          break;
-
-        case 'fase':
-          final faseA = a['fases_padrao']?['nome_fase_padrao']?.toString().toLowerCase() ?? '';
-          final faseB = b['fases_padrao']?['nome_fase_padrao']?.toString().toLowerCase() ?? '';
-          comparacao = faseA.compareTo(faseB);
-          break;
-
-        case 'data':
-          final dtA = DateTime.tryParse(a['data_conclusao'] ?? '') ?? DateTime(1970);
-          final dtB = DateTime.tryParse(b['data_conclusao'] ?? '') ?? DateTime(1970);
-          comparacao = dtA.compareTo(dtB);
-          break;
-
-        case 'estado':
-          final isBloqA = (a['incidencias'] as List? ?? []).isNotEmpty ? 1 : 0;
-          final isBloqB = (b['incidencias'] as List? ?? []).isNotEmpty ? 1 : 0;
-          comparacao = isBloqA.compareTo(isBloqB);
-          break;
-      }
-
-      return _ordenacaoAscendente ? comparacao : -comparacao;
-    });
-
-    return resultado;
+    return Row(
+      children: [
+        Expanded(
+          child: Card(
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: const BorderSide(color: TemasCores.borda),
+            ),
+            color: TemasCores.superficie,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              child: TextField(
+                controller: _pesquisaController,
+                decoration: const InputDecoration(
+                  hintText: 'Pesquisar por ID...',
+                  hintStyle: TextStyle(
+                    color: TemasCores.textoDesativado,
+                    fontSize: 14,
+                  ),
+                  border: InputBorder.none,
+                  icon: Icon(Icons.search, color: TemasCores.textoTerciario),
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 16),
+        // O estado deixou de ser um cabeçalho ordenável: vem de uma relação
+        // um-para-muitos (as paragens da ordem) e não é ordenável no servidor.
+        // Como filtro é exato, e com paginação isso é o que interessa.
+        _Alternador(
+          ativo: _apenasBloqueados,
+          icone: Icons.warning_amber_rounded,
+          rotulo: 'Apenas bloqueados',
+          aoTocar: () => _aplicar(() => _apenasBloqueados = !_apenasBloqueados),
+        ),
+        const SizedBox(width: 16),
+        _Alternador(
+          ativo: _dia != null,
+          icone: Icons.calendar_today_outlined,
+          rotulo: rotuloData,
+          aoTocar: _selecionarData,
+          aoLimpar: _dia == null ? null : () => _aplicar(() => _dia = null),
+        ),
+      ],
+    );
   }
 
-  String _formatarData(String? isoString) {
-    if (isoString == null) return '-';
-    // `timestamptz` chega em UTC; sem `toLocal()` a hora mostrada ao operador
-    // não é a hora do turno.
-    final dt = DateTime.tryParse(isoString)?.toLocal();
-    if (dt == null) return '-';
-    final dia = dt.day.toString().padLeft(2, '0');
-    final mes = dt.month.toString().padLeft(2, '0');
-    final ano = dt.year;
-    final hora = dt.hour.toString().padLeft(2, '0');
-    final minuto = dt.minute.toString().padLeft(2, '0');
-    return '$dia/$mes/$ano $hora:$minuto';
+  Widget _construirTabela() {
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: const BorderSide(color: TemasCores.borda),
+      ),
+      color: TemasCores.superficie,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: Column(
+          children: [
+            _construirCabecalho(),
+            Expanded(child: _construirLinhas()),
+          ],
+        ),
+      ),
+    );
   }
 
-  Widget _construirCabecalhoOrdenavel({
-    required String titulo,
-    required String chaveColuna,
-    required int flex,
-    TextAlign alignment = TextAlign.start,
-  }) {
-    final bool estaAtiva = _colunaOrdenacao == chaveColuna;
+  Widget _construirCabecalho() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+      decoration: const BoxDecoration(
+        color: TemasCores.fundoEcraFrio,
+        border: Border(bottom: BorderSide(color: TemasCores.borda)),
+      ),
+      child: Row(
+        children: [
+          _cabecalhoOrdenavel('ID da Encomenda', OrdenacaoHistorico.codigo, 2),
+          const _CabecalhoSimples(titulo: 'Produto', flex: 3),
+          _cabecalhoOrdenavel('Ação / Fase', OrdenacaoHistorico.fase, 3),
+          _cabecalhoOrdenavel('Data/Hora', OrdenacaoHistorico.data, 2),
+          const _CabecalhoSimples(
+            titulo: 'Estado',
+            flex: 1,
+            alinhamento: TextAlign.center,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _cabecalhoOrdenavel(
+    String titulo,
+    OrdenacaoHistorico coluna,
+    int flex,
+  ) {
+    final ativa = _ordenacao == coluna;
 
     return Expanded(
       flex: flex,
       child: InkWell(
-        onTap: () => _alternarOrdenacao(chaveColuna),
+        onTap: () => _alternarOrdenacao(coluna),
         borderRadius: BorderRadius.circular(4),
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 2.0),
           child: Row(
-            mainAxisAlignment: alignment == TextAlign.center
-                ? MainAxisAlignment.center
-                : MainAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
               Flexible(
                 child: Text(
                   titulo,
-                  textAlign: alignment,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 12,
-                    color: estaAtiva ? const Color(0xFF2563EB) : const Color(0xFF64748B),
+                    color: ativa
+                        ? TemasCores.infoForte
+                        : TemasCores.textoSecundarioFrio,
                   ),
                 ),
               ),
               const SizedBox(width: 4),
               Icon(
-                estaAtiva
-                    ? (_ordenacaoAscendente ? Icons.arrow_upward : Icons.arrow_downward)
+                ativa
+                    ? (_ascendente ? Icons.arrow_upward : Icons.arrow_downward)
                     : Icons.swap_vert,
                 size: 14,
-                color: estaAtiva ? const Color(0xFF2563EB) : const Color(0xFF94A3B8),
+                color:
+                    ativa ? TemasCores.infoForte : TemasCores.textoTerciario,
               ),
             ],
           ),
@@ -279,311 +350,303 @@ class _HistoricoOperadorScreenState extends State<HistoricoOperadorScreen> {
     );
   }
 
+  Widget _construirLinhas() {
+    if (_aCarregar) return const Center(child: CircularProgressIndicator());
+
+    if (_erro != null && _registos.isEmpty) {
+      return EstadoErro(
+        titulo: 'Não foi possível carregar o histórico',
+        detalhe: _erro,
+        aoRepetir: _carregar,
+      );
+    }
+
+    // Uma página pode não trazer nenhuma linha visível e haver mais para ler:
+    // "Apenas bloqueados" é aplicado depois de o servidor responder, e podem
+    // sair 50 fases sem paragem nenhuma. Sem o botão, o ecrã dizia "não há
+    // registos" com páginas por percorrer — um beco sem saída.
+    if (_registos.isEmpty && !_temMais) {
+      return const Center(
+        child: Text(
+          'Nenhum registo de produção encontrado para os filtros selecionados.',
+          style: TextStyle(color: TemasCores.textoTerciario),
+        ),
+      );
+    }
+
+    return Column(
+      children: [
+        // A falha de uma página adicional não pode apagar o que já está no
+        // ecrã: mostra-se uma barra fina por cima da lista carregada.
+        if (_erro != null)
+          EstadoErro.compacto(
+            titulo: 'Não foi possível carregar mais registos',
+            detalhe: _erro,
+            aoRepetir: _carregarMais,
+          ),
+        if (_registos.isEmpty)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+            child: Text(
+              'Nenhum registo nas linhas percorridas até agora. '
+              'Continue a carregar para procurar mais atrás.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: TemasCores.textoTerciario),
+            ),
+          ),
+        Expanded(
+          child: ListView.builder(
+            itemCount: _registos.length + (_temMais ? 1 : 0),
+            itemBuilder: (context, index) {
+              if (index >= _registos.length) return _construirCarregarMais();
+              return _LinhaHistorico(registo: _registos[index]);
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _construirCarregarMais() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 16),
+      child: Center(
+        child: _aCarregarMais
+            ? const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : TextButton.icon(
+                onPressed: _carregarMais,
+                icon: const Icon(Icons.expand_more_rounded, size: 18),
+                label: const Text('Carregar mais'),
+              ),
+      ),
+    );
+  }
+}
+
+/// Cabeçalho de coluna sem ordenação.
+class _CabecalhoSimples extends StatelessWidget {
+  const _CabecalhoSimples({
+    required this.titulo,
+    required this.flex,
+    this.alinhamento = TextAlign.start,
+  });
+
+  final String titulo;
+  final int flex;
+  final TextAlign alinhamento;
+
   @override
   Widget build(BuildContext context) {
-    final String labelData = _dataSelecionada != null
-        ? '${_dataSelecionada!.day.toString().padLeft(2, '0')}/${_dataSelecionada!.month.toString().padLeft(2, '0')}/${_dataSelecionada!.year}'
-        : 'Filtrar por Data';
+    return Expanded(
+      flex: flex,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 2.0),
+        child: Text(
+          titulo,
+          textAlign: alinhamento,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 12,
+            color: TemasCores.textoSecundarioFrio,
+          ),
+        ),
+      ),
+    );
+  }
+}
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : Padding(
-              padding: const EdgeInsets.all(40.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Histórico de Produção',
-                    style: TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF0F172A),
-                    ),
+/// Botão de filtro que alterna entre ligado e desligado.
+class _Alternador extends StatelessWidget {
+  const _Alternador({
+    required this.ativo,
+    required this.icone,
+    required this.rotulo,
+    required this.aoTocar,
+    this.aoLimpar,
+  });
+
+  final bool ativo;
+  final IconData icone;
+  final String rotulo;
+  final VoidCallback aoTocar;
+  final VoidCallback? aoLimpar;
+
+  @override
+  Widget build(BuildContext context) {
+    final cor = ativo ? TemasCores.infoForte : TemasCores.textoSecundarioFrio;
+
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: ativo ? TemasCores.infoForte : TemasCores.borda),
+      ),
+      color: ativo ? TemasCores.infoFundo : TemasCores.superficie,
+      child: InkWell(
+        onTap: aoTocar,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding:
+              const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+          child: Row(
+            children: [
+              Icon(icone, size: 18, color: cor),
+              const SizedBox(width: 8),
+              Text(
+                rotulo,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: ativo ? FontWeight.bold : FontWeight.normal,
+                  color: cor,
+                ),
+              ),
+              if (aoLimpar != null) ...[
+                const SizedBox(width: 8),
+                GestureDetector(
+                  onTap: aoLimpar,
+                  child: Icon(Icons.close, size: 16, color: cor),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Uma fase concluída, com as paragens que a interromperam.
+class _LinhaHistorico extends StatelessWidget {
+  const _LinhaHistorico({required this.registo});
+
+  final RegistoDeTurno registo;
+
+  @override
+  Widget build(BuildContext context) {
+    final motivos = registo.motivos;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: TemasCores.superficieSuave)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            flex: 2,
+            child: Text(
+              registo.codigoRastreio ?? 'N/A',
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 14,
+                color: TemasCores.textoPrimario,
+              ),
+            ),
+          ),
+          Expanded(
+            flex: 3,
+            child: Text(
+              registo.nomeProduto ?? 'N/A',
+              style: const TextStyle(
+                fontSize: 14,
+                color: TemasCores.textoApoioForte,
+              ),
+            ),
+          ),
+          Expanded(
+            flex: 3,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  registo.registo.nomeFase ?? 'N/A',
+                  style: const TextStyle(
+                    fontSize: 14,
+                    color: TemasCores.textoPrimario,
+                    fontWeight: FontWeight.w500,
                   ),
+                ),
+                if (motivos.isNotEmpty) ...[
                   const SizedBox(height: 4),
-                  const Text(
-                    'Consulte suas tarefas concluídas ou bloqueios registados',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Color(0xFF64748B),
-                    ),
-                  ),
-                  const SizedBox(height: 32),
-
-                  // Barra de Filtros (Pesquisa por Texto + Filtro por Data)
                   Row(
                     children: [
-                      Expanded(
-                        child: Card(
-                          elevation: 0,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            side: BorderSide(color: Colors.grey.shade200),
-                          ),
-                          color: Colors.white,
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                            child: TextField(
-                              controller: _searchController,
-                              decoration: InputDecoration(
-                                hintText: 'Pesquisar por ID...',
-                                hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 14),
-                                border: InputBorder.none,
-                                icon: const Icon(Icons.search, color: Color(0xFF94A3B8)),
-                              ),
-                            ),
-                          ),
-                        ),
+                      const Icon(
+                        Icons.warning_amber_rounded,
+                        size: 12,
+                        color: TemasCores.erro,
                       ),
-                      const SizedBox(width: 16),
-                      // Botão de Seleção de Data
-                      Card(
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          side: BorderSide(
-                            color: _dataSelecionada != null ? const Color(0xFF2563EB) : Colors.grey.shade200,
-                          ),
-                        ),
-                        color: _dataSelecionada != null ? const Color(0xFFEFF6FF) : Colors.white,
-                        child: InkWell(
-                          onTap: () => _selecionarData(context),
-                          borderRadius: BorderRadius.circular(12),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-                            child: Row(
-                              children: [
-                                Icon(
-                                  Icons.calendar_today_outlined,
-                                  size: 18,
-                                  color: _dataSelecionada != null ? const Color(0xFF2563EB) : const Color(0xFF64748B),
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  labelData,
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: _dataSelecionada != null ? FontWeight.bold : FontWeight.normal,
-                                    color: _dataSelecionada != null ? const Color(0xFF2563EB) : const Color(0xFF64748B),
-                                  ),
-                                ),
-                                if (_dataSelecionada != null) ...[
-                                  const SizedBox(width: 8),
-                                  GestureDetector(
-                                    onTap: _limparFiltroData,
-                                    child: const Icon(
-                                      Icons.close,
-                                      size: 16,
-                                      color: Color(0xFF2563EB),
-                                    ),
-                                  ),
-                                ],
-                              ],
+                      const SizedBox(width: 4),
+                      Expanded(
+                        // A linha só tem espaço para um motivo; o tooltip dá
+                        // acesso a todos, em vez de os esconder em silêncio.
+                        child: Tooltip(
+                          message: motivos.join('\n'),
+                          child: Text(
+                            motivos.length == 1
+                                ? motivos.first
+                                : '${motivos.first} (+${motivos.length - 1})',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: TemasCores.erro,
+                              fontWeight: FontWeight.w500,
                             ),
                           ),
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 24),
-
-                  Expanded(
-                    child: Card(
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        side: BorderSide(color: Colors.grey.shade200),
-                      ),
-                      color: Colors.white,
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: Column(
-                          children: [
-                            // Cabeçalho da Tabela com Botões de Ordenação
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFF8FAFC),
-                                border: Border(
-                                  bottom: BorderSide(color: Colors.grey.shade200),
-                                ),
-                              ),
-                              child: Row(
-                                children: [
-                                  _construirCabecalhoOrdenavel(
-                                    titulo: 'ID da Encomenda',
-                                    chaveColuna: 'codigo',
-                                    flex: 2,
-                                  ),
-                                  _construirCabecalhoOrdenavel(
-                                    titulo: 'Produto',
-                                    chaveColuna: 'produto',
-                                    flex: 3,
-                                  ),
-                                  _construirCabecalhoOrdenavel(
-                                    titulo: 'Ação / Fase',
-                                    chaveColuna: 'fase',
-                                    flex: 3,
-                                  ),
-                                  _construirCabecalhoOrdenavel(
-                                    titulo: 'Data/Hora',
-                                    chaveColuna: 'data',
-                                    flex: 2,
-                                  ),
-                                  _construirCabecalhoOrdenavel(
-                                    titulo: 'Estado',
-                                    chaveColuna: 'estado',
-                                    flex: 1,
-                                    alignment: TextAlign.center,
-                                  ),
-                                ],
-                              ),
-                            ),
-
-                            Expanded(
-                              child: _historicoFiltrado.isEmpty
-                                  ? const Center(
-                                      child: Text(
-                                        'Nenhum registo de produção encontrado para os filtros selecionados.',
-                                        style: TextStyle(color: Colors.grey),
-                                      ),
-                                    )
-                                  : ListView.builder(
-                                      itemCount: _historicoFiltrado.length,
-                                      itemBuilder: (context, index) {
-                                        final item = _historicoFiltrado[index];
-                                        final codigo = item['encomendas']?['codigo_rastreio'] ?? 'N/A';
-                                        final produto = item['encomendas']?['tipos_produto']?['nome_tipo_produto'] ?? 'N/A';
-                                        final fase = item['fases_padrao']?['nome_fase_padrao'] ?? 'N/A';
-                                        final dataConclusao = _formatarData(item['data_conclusao']);
-
-                                        final List<dynamic> incidencias = item['incidencias'] ?? [];
-                                        final bool isBloqueado = incidencias.isNotEmpty;
-
-                                        // Uma fase pode ter sido bloqueada mais
-                                        // do que uma vez. `incidencias.first`
-                                        // mostrava só a primeira e escondia as
-                                        // restantes sem qualquer indicação.
-                                        final List<String> motivosBloqueio = incidencias
-                                            .map((i) => (i['motivo'] as String?)?.trim())
-                                            .whereType<String>()
-                                            .where((m) => m.isNotEmpty)
-                                            .toList();
-                                        final String? motivoBloqueio = motivosBloqueio.isEmpty
-                                            ? null
-                                            : (motivosBloqueio.length == 1
-                                                ? motivosBloqueio.first
-                                                : '${motivosBloqueio.first} (+${motivosBloqueio.length - 1})');
-
-                                        return Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                                          decoration: BoxDecoration(
-                                            border: Border(bottom: BorderSide(color: Colors.grey.shade100)),
-                                          ),
-                                          child: Row(
-                                            children: [
-                                              Expanded(
-                                                flex: 2,
-                                                child: Text(
-                                                  codigo,
-                                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF1E293B)),
-                                                ),
-                                              ),
-                                              Expanded(
-                                                flex: 3,
-                                                child: Text(
-                                                  produto,
-                                                  style: const TextStyle(fontSize: 14, color: Color(0xFF475569)),
-                                                ),
-                                              ),
-                                              Expanded(
-                                                flex: 3,
-                                                child: Column(
-                                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                                  mainAxisAlignment: MainAxisAlignment.center,
-                                                  children: [
-                                                    Text(
-                                                      fase,
-                                                      style: const TextStyle(fontSize: 14, color: Color(0xFF1E293B), fontWeight: FontWeight.w500),
-                                                    ),
-                                                    if (isBloqueado && motivoBloqueio != null) ...[
-                                                      const SizedBox(height: 4),
-                                                      Row(
-                                                        children: [
-                                                          const Icon(Icons.warning_amber_rounded, size: 12, color: Colors.red),
-                                                          const SizedBox(width: 4),
-                                                          Expanded(
-                                                            // A linha só tem
-                                                            // espaço para um
-                                                            // motivo; o tooltip
-                                                            // dá acesso a todos.
-                                                            child: Tooltip(
-                                                              message: motivosBloqueio.join('\n'),
-                                                              child: Text(
-                                                                motivoBloqueio,
-                                                                maxLines: 1,
-                                                                overflow: TextOverflow.ellipsis,
-                                                                style: const TextStyle(
-                                                                  fontSize: 11,
-                                                                  color: Colors.red,
-                                                                  fontWeight: FontWeight.w500,
-                                                                ),
-                                                              ),
-                                                            ),
-                                                          ),
-                                                        ],
-                                                      ),
-                                                    ]
-                                                  ],
-                                                ),
-                                              ),
-                                              Expanded(
-                                                flex: 2,
-                                                child: Text(
-                                                  dataConclusao,
-                                                  style: const TextStyle(fontSize: 13, color: Color(0xFF64748B)),
-                                                ),
-                                              ),
-                                              Expanded(
-                                                flex: 1,
-                                                child: Center(
-                                                  child: Container(
-                                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                                    decoration: BoxDecoration(
-                                                      color: isBloqueado 
-                                                          ? const Color(0xFFFEE2E2)
-                                                          : const Color(0xFFD1FAE5),
-                                                      borderRadius: BorderRadius.circular(20),
-                                                    ),
-                                                    child: Text(
-                                                      isBloqueado ? 'Bloqueado' : 'Concluído',
-                                                      style: TextStyle(
-                                                        color: isBloqueado 
-                                                            ? const Color(0xFF991B1B)
-                                                            : const Color(0xFF065F46),
-                                                        fontWeight: FontWeight.bold,
-                                                        fontSize: 11,
-                                                      ),
-                                                    ),
-                                                  ),
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        );
-                                      },
-                                    ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
                 ],
+              ],
+            ),
+          ),
+          Expanded(
+            flex: 2,
+            child: Text(
+              Formatos.dataHora(
+                registo.registo.momento?.toIso8601String(),
+                vazio: '-',
+              ),
+              style: const TextStyle(
+                fontSize: 13,
+                color: TemasCores.textoSecundarioFrio,
               ),
             ),
+          ),
+          Expanded(
+            flex: 1,
+            child: Center(
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: registo.bloqueado
+                      ? TemasCores.erroFundoForte
+                      : TemasCores.sucessoFundoForte,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  registo.bloqueado ? 'Bloqueado' : 'Concluído',
+                  style: TextStyle(
+                    color: registo.bloqueado
+                        ? TemasCores.erroTextoIntenso
+                        : TemasCores.sucessoTextoIntenso,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 11,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

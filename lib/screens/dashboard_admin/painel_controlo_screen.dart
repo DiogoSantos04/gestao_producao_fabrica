@@ -14,6 +14,7 @@ import '../../models/estado_ordem.dart';
 import '../../models/fase_model.dart';
 import '../../models/historico_model.dart';
 import '../../models/incidencia_model.dart';
+import '../../models/reason_code_model.dart';
 import '../../repositories/base_repository.dart';
 import '../../repositories/encomendas_repository.dart';
 import '../../repositories/fluxos_repository.dart';
@@ -41,7 +42,7 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
   /// indiferente, mas com paginação filtrar em memória faria a pesquisa mentir —
   /// encontraria apenas o que já tivesse descido para o ecrã.
   List<EncomendaModel> _encomendas = [];
-  List<Map<String, dynamic>> _reasonCodes = [];
+  List<ReasonCodeModel> _reasonCodes = [];
   List<Map<String, dynamic>> _tecnicosUtilizadores = []; // Lista de técnicos/utilizadores da empresa
   Map<int, List<FaseModel>> _fasesPorProduto = {};
 
@@ -480,12 +481,9 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
     final notasController = TextEditingController();
     bool isSubmitting = false;
 
-    final Map<int, Map<String, dynamic>> reasonCodesMap = {};
-    for (var r in _reasonCodes) {
-      final int rId = int.parse(r['id'].toString());
-      reasonCodesMap[rId] = Map<String, dynamic>.from(r);
-    }
-    final listaReasonCodesUnicos = reasonCodesMap.values.toList();
+    // A deduplicação por `id` passou para o repositório: era feita aqui e outra
+    // vez no terminal do operador, com o mesmo motivo (o dropdown lança em
+    // runtime com dois itens de igual valor).
 
     showDialog(
       context: context,
@@ -518,13 +516,13 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
                         border: OutlineInputBorder(),
                         isDense: true,
                       ),
-                      items: listaReasonCodesUnicos.map((r) {
-                        final int rId = int.parse(r['id'].toString());
-                        final cat = r['categoria'] ?? 'Geral';
-                        final desc = r['descricao'] ?? '';
+                      items: _reasonCodes.map((r) {
                         return DropdownMenuItem<int>(
-                          value: rId,
-                          child: Text('[$cat] $desc', style: const TextStyle(fontSize: 12)),
+                          value: r.id,
+                          child: Text(
+                            r.rotulo,
+                            style: const TextStyle(fontSize: 12),
+                          ),
                         );
                       }).toList(),
                       onChanged: isSubmitting

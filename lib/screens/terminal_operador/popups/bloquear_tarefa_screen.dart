@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/mensagens.dart';
+import '../../../core/temas_cores.dart';
+import '../../../models/reason_code_model.dart';
 import '../../../repositories/base_repository.dart';
 import '../../../repositories/encomendas_repository.dart';
+import '../../../widgets/estado_erro.dart';
 
 /// Registo de uma paragem de linha pelo operador (WIP Hold).
 ///
@@ -42,7 +46,7 @@ class _BloquearTarefaPopupState extends State<BloquearTarefaPopup> {
   /// Substituem a lista de cinco strings que estava escrita em Dart e era
   /// concatenada no campo de texto (`'[Motivo] observações'`). Sem código
   /// estruturado, uma análise de Pareto das paragens era impossível.
-  List<Map<String, dynamic>> _reasonCodes = [];
+  List<ReasonCodeModel> _reasonCodes = [];
   int? _reasonCodeSelecionado;
 
   bool _aCarregarMotivos = true;
@@ -62,34 +66,34 @@ class _BloquearTarefaPopupState extends State<BloquearTarefaPopup> {
   }
 
   Future<void> _carregarMotivos() async {
+    if (mounted) {
+      setState(() {
+        _aCarregarMotivos = true;
+        _erroMotivos = null;
+      });
+    }
+
     try {
-      final dados = await _encomendasRepo.obterReasonCodes();
-
-      // A mesma deduplicação por `id` feita no painel de controlo: o dropdown
+      // O repositório já devolve a lista deduplicada por `id`: o dropdown
       // rebenta em runtime se receber dois itens com o mesmo valor.
-      final Map<int, Map<String, dynamic>> porId = {};
-      for (final r in dados) {
-        final int? id = int.tryParse(r['id'].toString());
-        if (id != null) porId[id] = Map<String, dynamic>.from(r);
-      }
-
+      final motivos = await _encomendasRepo.obterReasonCodes();
       if (!mounted) return;
       setState(() {
-        _reasonCodes = porId.values.toList();
+        _reasonCodes = motivos;
         _aCarregarMotivos = false;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _erroMotivos = _limparErro(e);
+        _erroMotivos = _mensagemDeErro(e);
         _aCarregarMotivos = false;
       });
     }
   }
 
-  String _limparErro(Object e) {
+  String _mensagemDeErro(Object e) {
     if (e is RepositoryException) return e.mensagem;
-    return e.toString().replaceAll('Exception: ', '');
+    return descreverErro(e);
   }
 
   Future<void> _submeterIncidencia() async {
@@ -112,11 +116,9 @@ class _BloquearTarefaPopupState extends State<BloquearTarefaPopup> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Erro ao bloquear: ${_limparErro(e)}'),
-            backgroundColor: Colors.red,
-          ),
+        context.mostrarMensagem(
+          'Não foi possível bloquear: ${_mensagemDeErro(e)}',
+          eErro: true,
         );
         setState(() => _isSaving = false);
       }
@@ -137,11 +139,15 @@ class _BloquearTarefaPopupState extends State<BloquearTarefaPopup> {
         children: [
           Container(
             padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: Colors.red.shade50,
+            decoration: const BoxDecoration(
+              color: TemasCores.erroFundo,
               shape: BoxShape.circle,
             ),
-            child: Icon(Icons.warning_amber_rounded, color: Colors.red.shade400, size: 24),
+            child: const Icon(
+              Icons.warning_amber_rounded,
+              color: TemasCores.erroMedio,
+              size: 24,
+            ),
           ),
           const SizedBox(width: 12),
           const Text(
@@ -159,7 +165,11 @@ class _BloquearTarefaPopupState extends State<BloquearTarefaPopup> {
             // Campo de Motivo (Reason Code oficial)
             const Text(
               'Motivo *',
-              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Colors.black87),
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+                color: TemasCores.textoPrimario,
+              ),
             ),
             const SizedBox(height: 6),
             _construirCampoMotivo(),
@@ -168,7 +178,11 @@ class _BloquearTarefaPopupState extends State<BloquearTarefaPopup> {
             // Campo de Observações (Multilinha)
             const Text(
               'Observações *',
-              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Colors.black87),
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+                color: TemasCores.textoPrimario,
+              ),
             ),
             const SizedBox(height: 6),
             TextFormField(
@@ -177,12 +191,15 @@ class _BloquearTarefaPopupState extends State<BloquearTarefaPopup> {
               enabled: !_isSaving,
               decoration: InputDecoration(
                 hintText: 'Descreva detalhadamente a incidência...',
-                hintStyle: TextStyle(fontSize: 13, color: Colors.grey.shade400),
+                hintStyle: const TextStyle(
+                  fontSize: 13,
+                  color: TemasCores.textoDesativado,
+                ),
                 contentPadding: const EdgeInsets.all(12),
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
-                  borderSide: BorderSide(color: Colors.grey.shade300),
+                  borderSide: const BorderSide(color: TemasCores.bordaForte),
                 ),
               ),
               validator: (val) =>
@@ -200,13 +217,17 @@ class _BloquearTarefaPopupState extends State<BloquearTarefaPopup> {
                 onPressed: _isSaving ? null : () => Navigator.of(context).pop(false),
                 style: OutlinedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 14),
-                  side: BorderSide(color: Colors.grey.shade200),
+                  side: const BorderSide(color: TemasCores.borda),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                  backgroundColor: Colors.grey.shade50,
+                  backgroundColor: TemasCores.superficieTenue,
                 ),
                 child: const Text(
                   'Cancelar',
-                  style: TextStyle(color: Colors.black54, fontWeight: FontWeight.bold, fontSize: 13),
+                  style: TextStyle(
+                    color: TemasCores.textoSecundario,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                  ),
                 ),
               ),
             ),
@@ -217,8 +238,10 @@ class _BloquearTarefaPopupState extends State<BloquearTarefaPopup> {
                 onPressed: podeSubmeter ? _submeterIncidencia : null,
                 style: ElevatedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 14),
-                  backgroundColor: const Color(0xFFFCA5A5),
-                  foregroundColor: Colors.red.shade900,
+                  backgroundColor: TemasCores.erroClaro,
+                  foregroundColor: TemasCores.erroTextoIntenso,
+                  disabledBackgroundColor: TemasCores.superficieInerte,
+                  disabledForegroundColor: TemasCores.textoTerciario,
                   elevation: 0,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                 ),
@@ -226,7 +249,10 @@ class _BloquearTarefaPopupState extends State<BloquearTarefaPopup> {
                     ? const SizedBox(
                         width: 18,
                         height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: TemasCores.erroTextoIntenso,
+                        ),
                       )
                     : const Text(
                         'Bloquear Produção',
@@ -249,19 +275,19 @@ class _BloquearTarefaPopupState extends State<BloquearTarefaPopup> {
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.grey.shade300),
+          border: Border.all(color: TemasCores.bordaForte),
         ),
-        child: Row(
+        child: const Row(
           children: [
-            const SizedBox(
+            SizedBox(
               width: 16,
               height: 16,
               child: CircularProgressIndicator(strokeWidth: 2),
             ),
-            const SizedBox(width: 12),
+            SizedBox(width: 12),
             Text(
-              'A carregar motivos de paragem...',
-              style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+              'A carregar motivos de paragem…',
+              style: TextStyle(fontSize: 13, color: TemasCores.textoApoio),
             ),
           ],
         ),
@@ -275,31 +301,35 @@ class _BloquearTarefaPopupState extends State<BloquearTarefaPopup> {
       return Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: Colors.red.shade50,
+          color: TemasCores.erroFundo,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.red.shade100),
+          border: Border.all(color: TemasCores.erroBorda),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(Icons.error_outline, size: 18, color: Colors.red.shade400),
+            const Icon(
+              Icons.error_outline,
+              size: 18,
+              color: TemasCores.erroMedio,
+            ),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
                 texto,
-                style: TextStyle(fontSize: 12, color: Colors.red.shade900),
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: TemasCores.erroTextoIntenso,
+                ),
               ),
             ),
             if (_erroMotivos != null)
               TextButton(
-                onPressed: () {
-                  setState(() {
-                    _aCarregarMotivos = true;
-                    _erroMotivos = null;
-                  });
-                  _carregarMotivos();
-                },
-                child: const Text('Tentar de novo', style: TextStyle(fontSize: 12)),
+                onPressed: _carregarMotivos,
+                child: const Text(
+                  'Tentar de novo',
+                  style: TextStyle(fontSize: 12),
+                ),
               ),
           ],
         ),
@@ -315,17 +345,14 @@ class _BloquearTarefaPopupState extends State<BloquearTarefaPopup> {
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
-          borderSide: BorderSide(color: Colors.grey.shade300),
+          borderSide: const BorderSide(color: TemasCores.bordaForte),
         ),
       ),
       items: _reasonCodes.map((r) {
-        final int id = int.parse(r['id'].toString());
-        final String categoria = r['categoria']?.toString() ?? 'Geral';
-        final String descricao = r['descricao']?.toString() ?? '';
         return DropdownMenuItem<int>(
-          value: id,
+          value: r.id,
           child: Text(
-            '[$categoria] $descricao',
+            r.rotulo,
             style: const TextStyle(fontSize: 14),
             overflow: TextOverflow.ellipsis,
           ),

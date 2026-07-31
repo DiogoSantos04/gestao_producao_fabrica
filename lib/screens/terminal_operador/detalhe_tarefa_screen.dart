@@ -1,9 +1,14 @@
 import 'dart:async';
-import 'dart:convert';
+
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+
+import '../../core/mensagens.dart';
+import '../../core/temas_cores.dart';
+import '../../models/fase_model.dart';
 import '../../repositories/base_repository.dart';
 import '../../repositories/encomendas_repository.dart';
+import '../../repositories/operador_repository.dart';
+import '../../widgets/estado_erro.dart';
 import 'popups/bloquear_tarefa_screen.dart';
 
 class DetalheTarefaScreen extends StatefulWidget {
@@ -21,29 +26,21 @@ class DetalheTarefaScreen extends StatefulWidget {
 }
 
 class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
-  final _supabase = Supabase.instance.client;
+  final OperadorRepository _repo = OperadorRepository();
   final EncomendasRepository _encomendasRepo = EncomendasRepository();
-  bool _isLoading = true;
-  String? _errorMessage;
 
-  Map<String, dynamic>? _encomenda;
-  List<dynamic> _fasesDoProduto = [];
-  int? _faseAtualId;
-  bool _isBloqueada = false;
+  DetalheTarefa? _tarefa;
+  bool _aCarregar = true;
+  String? _erro;
 
-  /// Início da fase atual, tal como registado pelo servidor
-  /// (`encomendas.data_inicio_fase`). O cronómetro conta a partir daqui.
-  DateTime? _inicioFase;
-
-  // --- MÓDULO ANDON & CRONÓMETRO ---
+  // --- Andon: cronómetro da fase em curso ---
   Timer? _timerAndon;
   int _segundosDecorridos = 0;
-  int _tempoEstimadoMinutos = 15;
 
   @override
   void initState() {
     super.initState();
-    _carregarDetalhesTarefa();
+    _carregar();
   }
 
   @override
@@ -52,294 +49,206 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
     super.dispose();
   }
 
-  void _iniciarCronometroAndon() {
+  /// Início da fase, tal como registado pelo servidor em
+  /// `encomendas.data_inicio_fase`.
+  DateTime? get _inicioFase => _tarefa?.encomenda.dataInicioFase?.toLocal();
+
+  /// Tempo estimado da fase em curso, em minutos, ou `null` se não estiver
+  /// definido no roteiro.
+  ///
+  /// `FaseModel.tempoEstimado` é 0 quando a coluna vem nula, e 0 não pode ser
+  /// tratado como "sem estimativa por omissão de 15 min": isso punha o Andon a
+  /// dizer "DENTRO DO PRAZO" para sempre, porque o rácio contra zero nunca
+  /// cresce. Sem estimativa, o cartão deixa de fingir que a tem.
+  int? get _tempoEstimadoMinutos {
+    final tempo = _tarefa?.faseAtual?.tempoEstimado;
+    if (tempo == null || tempo <= 0) return null;
+    return tempo;
+  }
+
+  void _iniciarCronometro() {
     _timerAndon?.cancel();
-    _timerAndon = Timer.periodic(const Duration(seconds: 1), (timer) {
+    _atualizarDecorrido();
+    _timerAndon = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
-      setState(() {
-        // Recalcula a partir do início real da fase em vez de somar 1 por
-        // tique: um timer suspenso (ecrã bloqueado, app em segundo plano)
-        // deixava o cronómetro a marcar menos tempo do que o decorrido.
-        final inicio = _inicioFase;
-        if (inicio == null) {
-          _segundosDecorridos++;
-        } else {
-          final decorrido = DateTime.now().difference(inicio).inSeconds;
-          _segundosDecorridos = decorrido > 0 ? decorrido : 0;
-        }
-      });
+      setState(_atualizarDecorrido);
     });
   }
 
-  Future<void> _carregarDetalhesTarefa() async {
+  /// Recalcula a partir do início real da fase em vez de somar 1 por tique: um
+  /// timer suspenso (ecrã bloqueado, app em segundo plano) deixava o cronómetro
+  /// a marcar menos tempo do que o efetivamente decorrido.
+  void _atualizarDecorrido() {
+    final inicio = _inicioFase;
+    if (inicio == null) {
+      _segundosDecorridos = 0;
+      return;
+    }
+    // Os relógios do terminal e do servidor podem divergir; um valor negativo
+    // mostraria um cronómetro a contar para trás.
+    final decorrido = DateTime.now().difference(inicio).inSeconds;
+    _segundosDecorridos = decorrido > 0 ? decorrido : 0;
+  }
+
+  Future<void> _carregar() async {
+    if (!mounted) return;
     setState(() {
-      _isLoading = true;
-      _errorMessage = null;
+      _aCarregar = true;
+      _erro = null;
     });
+
+    _timerAndon?.cancel();
 
     try {
-      // 1. Carrega a encomenda pelo ID
-      final encomendaRes = await _supabase
-          .from('encomendas')
-          .select('*')
-          .eq('id', widget.encomendaId)
-          .single();
+      final tarefa = await _repo.obterDetalheTarefa(widget.encomendaId);
+      if (!mounted) return;
+      setState(() {
+        _tarefa = tarefa;
+        _erro = null;
+        _aCarregar = false;
+      });
 
-      _encomenda = encomendaRes;
-      _faseAtualId = _encomenda!['fase_atual_id'];
-      final bool emSuspenso = _encomenda!['em_suspenso'] == true;
-
-      // Extrai ID do tipo de produto.
-      //
-      // O schema é conhecido: `encomendas.tipos_produtos_id`. As três
-      // alternativas que aqui estavam (`tipos_produto_id`, `tipo_produto_id`)
-      // não existem em coluna nenhuma — adivinhavam o nome e escondiam o erro
-      // real quando o campo vinha nulo.
-      final dynamic rawTipoId = _encomenda!['tipos_produtos_id'];
-      final int? tipoProdutoId =
-          rawTipoId is int ? rawTipoId : int.tryParse(rawTipoId?.toString() ?? '');
-
-      // 2. Busca o Nome Real do Produto
-      String nomeProduto = 'Artigo';
-      if (tipoProdutoId != null) {
-        try {
-          final tpRes = await _supabase
-              .from('tipos_produto')
-              .select('nome_tipo_produto')
-              .eq('id', tipoProdutoId)
-              .maybeSingle();
-
-          if (tpRes != null && tpRes['nome_tipo_produto'] != null) {
-            nomeProduto = tpRes['nome_tipo_produto'].toString();
-          }
-        } catch (e) {
-          debugPrint('Aviso ao carregar tipo_produto: $e');
-        }
+      if (!tarefa.bloqueada && tarefa.encomenda.faseAtualId != null) {
+        _iniciarCronometro();
       }
-      _encomenda!['nome_tipo_produto'] = nomeProduto;
-
-      // 3. Busca as Fases de Produção do Produto.
-      //
-      // Uma só query, por `fases_padrao.tipos_produto_id`. Havia aqui três
-      // tentativas encadeadas com nomes de coluna diferentes, cada uma com o
-      // seu `try/catch` silencioso: até três round-trips por abertura de ordem
-      // e qualquer falha de rede indistinguível de "produto sem fases".
-      List<dynamic> fases = [];
-      if (tipoProdutoId != null) {
-        fases = await _supabase
-            .from('fases_padrao')
-            .select('*')
-            .eq('tipos_produto_id', tipoProdutoId)
-            .order('ordem', ascending: true);
-      }
-
-      _fasesDoProduto = fases;
-
-      // Se a fase atual não estiver na lista, ajusta para a primeira
-      if (_fasesDoProduto.isNotEmpty) {
-        final existeFase = _fasesDoProduto.any((f) => f['id'] == _faseAtualId);
-        if (!existeFase) {
-          _faseAtualId = _fasesDoProduto.first['id'];
-        }
-      }
-
-      // 4. Ajusta o Tempo Estimado da Fase Atual
-      if (_faseAtualId != null && _fasesDoProduto.isNotEmpty) {
-        final fasesCorrespondentes = _fasesDoProduto.where((f) => f['id'] == _faseAtualId);
-        final dynamic faseAtual = fasesCorrespondentes.isNotEmpty ? fasesCorrespondentes.first : _fasesDoProduto.first;
-
-        if (faseAtual != null && faseAtual['tempo_estimado'] != null) {
-          _tempoEstimadoMinutos = faseAtual['tempo_estimado'] is int
-              ? faseAtual['tempo_estimado']
-              : int.tryParse(faseAtual['tempo_estimado'].toString()) ?? 15;
-        }
-      }
-
-      // =======================================================================
-      // 5. TEMPO DECORRIDO NA FASE — lido do servidor
-      // =======================================================================
-      //
-      // O início da fase é agora um facto da ordem
-      // (`encomendas.data_inicio_fase`), escrito por `avancar_fase_encomenda`
-      // dentro da mesma transação da transição. Antes vivia num `static Map`
-      // em memória: era partilhado por todos os utilizadores do processo,
-      // crescia durante toda a sessão sem nunca ser limpo, e um reinício da
-      // app punha o cronómetro a zero mesmo com a fase a decorrer há horas.
-      _inicioFase = null;
-      _segundosDecorridos = 0;
-
-      if (_faseAtualId != null) {
-        final inicio =
-            DateTime.tryParse(_encomenda!['data_inicio_fase']?.toString() ?? '')
-                ?.toLocal();
-
-        if (inicio != null) {
-          _inicioFase = inicio;
-          final decorrido = DateTime.now().difference(inicio).inSeconds;
-          // Relógios do terminal e do servidor podem divergir; um valor
-          // negativo mostraria um cronómetro a contar para trás.
-          _segundosDecorridos = decorrido > 0 ? decorrido : 0;
-        }
-      }
-
-      // 6. Verifica se há incidências pendentes
-      final incidenciasData = await _supabase
-          .from('incidencias')
-          .select('id, line_clearance_validado')
-          .eq('encomenda_id', widget.encomendaId);
-
-      // Sem `try/catch` a engolir o erro: se esta leitura falhar, a ordem
-      // apareceria como desbloqueada e o operador podia retomar trabalho numa
-      // ordem que está em hold. Falhar em voz alta é o comportamento correto.
-      final bool temIncidenciaAtiva = incidenciasData
-          .any((inc) => inc['line_clearance_validado'] != true);
-
-      _isBloqueada = emSuspenso || temIncidenciaAtiva;
-
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
-
-      if (!_isBloqueada && _faseAtualId != null) {
-        _iniciarCronometroAndon();
-      }
-    } catch (e, stack) {
-      debugPrint('Erro ao carregar detalhes: $e\n$stack');
-      if (mounted) {
-        setState(() {
-          _errorMessage = e.toString();
-          _isLoading = false;
-        });
-      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _erro = descreverErro(e);
+        _aCarregar = false;
+      });
     }
   }
 
-  /// Poka-Yoke: Checklist Obrigatória antes de concluir a fase
-  Future<bool> _validarChecklistQualidade(List<dynamic> checklistRaw) async {
-    if (checklistRaw.isEmpty) return true;
+  /// Poka-Yoke: checklist obrigatória antes de concluir a fase.
+  Future<bool> _validarChecklist(List<String> itens) async {
+    if (itens.isEmpty) return true;
 
-    final List<String> itens = checklistRaw.map((e) {
-      if (e is Map) return e['item']?.toString() ?? e.toString();
-      return e.toString();
-    }).toList();
+    final verificados = List<bool>.filled(itens.length, false);
 
-    Map<int, bool> verificados = {for (int i = 0; i < itens.length; i++) i: false};
-
-    final result = await showDialog<bool>(
+    final resultado = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            final bool todosVerificados = verificados.values.every((v) => v == true);
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) {
+          final todos = verificados.every((v) => v);
 
-            return AlertDialog(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              title: const Row(
-                children: [
-                  Icon(Icons.fact_check_outlined, color: Color(0xFF2563EB), size: 28),
-                  SizedBox(width: 10),
-                  Text('Checklist de Qualidade', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                ],
-              ),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Confirme a validação de todos os pontos de controlo antes de encerrar a etapa:',
-                    style: TextStyle(fontSize: 13, color: Color(0xFF64748B)),
-                  ),
-                  const SizedBox(height: 16),
-                  Flexible(
-                    child: SingleChildScrollView(
-                      child: Column(
-                        children: List.generate(itens.length, (index) {
-                          return Container(
-                            margin: const EdgeInsets.only(bottom: 8),
-                            decoration: BoxDecoration(
-                              color: verificados[index] == true ? const Color(0xFFF0FDF4) : Colors.grey.shade50,
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                color: verificados[index] == true ? const Color(0xFFBBF7D0) : Colors.grey.shade200,
-                              ),
-                            ),
-                            child: CheckboxListTile(
-                              title: Text(
-                                itens[index],
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w500,
-                                  color: verificados[index] == true ? const Color(0xFF15803D) : const Color(0xFF1E293B),
-                                ),
-                              ),
-                              value: verificados[index],
-                              activeColor: const Color(0xFF10B981),
-                              onChanged: (val) {
-                                setModalState(() {
-                                  verificados[index] = val ?? false;
-                                });
-                              },
-                            ),
-                          );
-                        }),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context, false),
-                  child: const Text('Cancelar'),
+          return AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            title: const Row(
+              children: [
+                Icon(
+                  Icons.fact_check_outlined,
+                  color: TemasCores.infoForte,
+                  size: 28,
                 ),
-                ElevatedButton.icon(
-                  onPressed: todosVerificados ? () => Navigator.pop(context, true) : null,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF10B981),
-                    foregroundColor: Colors.white,
-                    disabledBackgroundColor: Colors.grey.shade300,
-                  ),
-                  icon: const Icon(Icons.check_circle_outline, size: 18),
-                  label: const Text('Validar & Concluir Fase'),
+                SizedBox(width: 10),
+                Text(
+                  'Checklist de Qualidade',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 ),
               ],
-            );
-          },
-        );
-      },
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Confirme a validação de todos os pontos de controlo antes '
+                  'de encerrar a etapa:',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: TemasCores.textoSecundarioFrio,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Flexible(
+                  child: SingleChildScrollView(
+                    child: Column(
+                      children: List.generate(itens.length, (index) {
+                        final marcado = verificados[index];
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 8),
+                          decoration: BoxDecoration(
+                            color: marcado
+                                ? TemasCores.sucessoFundo
+                                : TemasCores.superficieTenue,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: marcado
+                                  ? TemasCores.sucessoBorda
+                                  : TemasCores.borda,
+                            ),
+                          ),
+                          child: CheckboxListTile(
+                            title: Text(
+                              itens[index],
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                                color: marcado
+                                    ? TemasCores.sucessoTexto
+                                    : TemasCores.textoPrimario,
+                              ),
+                            ),
+                            value: marcado,
+                            activeColor: TemasCores.sucessoForte,
+                            onChanged: (val) => setModalState(
+                              () => verificados[index] = val ?? false,
+                            ),
+                          ),
+                        );
+                      }),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancelar'),
+              ),
+              ElevatedButton.icon(
+                onPressed: todos ? () => Navigator.pop(context, true) : null,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: TemasCores.sucessoForte,
+                  foregroundColor: TemasCores.textoInverso,
+                  disabledBackgroundColor: TemasCores.superficieInerte,
+                ),
+                icon: const Icon(Icons.check_circle_outline, size: 18),
+                label: const Text('Validar & Concluir Fase'),
+              ),
+            ],
+          );
+        },
+      ),
     );
 
-    return result ?? false;
+    return resultado ?? false;
   }
 
+  /// Pede a validação necessária e, se passar, fecha a fase.
+  ///
+  /// A checklist e a confirmação não se somam: quem acabou de marcar os pontos
+  /// de controlo um a um e carregou em "Validar & Concluir Fase" já confirmou
+  /// de forma bem mais deliberada do que um "tem a certeza?" acrescentaria.
+  /// Encadear os dois diálogos só ensinava o operador a despachá-los sem ler —
+  /// que é exatamente o que a confirmação existe para evitar. A confirmação
+  /// serve as fases **sem** checklist, onde de outro modo bastava um toque.
   Future<void> _solicitarConclusaoFase() async {
-    if (_encomenda == null || _faseAtualId == null) return;
+    final fase = _tarefa?.faseAtual;
+    if (fase == null) return;
 
-    final fasesCorrespondentes = _fasesDoProduto.where((f) => f['id'] == _faseAtualId);
-    final dynamic faseAtual = fasesCorrespondentes.isNotEmpty ? fasesCorrespondentes.first : null;
+    final validado = fase.checklist.isNotEmpty
+        ? await _validarChecklist(fase.checklist)
+        : await _confirmarConclusao(fase);
 
-    if (faseAtual != null && faseAtual['checklist'] != null) {
-      final dynamic rawChecklist = faseAtual['checklist'];
-      List<dynamic> checklist = [];
+    if (!validado || !mounted) return;
 
-      if (rawChecklist is List) {
-        checklist = rawChecklist;
-      } else if (rawChecklist is String) {
-        try {
-          checklist = jsonDecode(rawChecklist);
-        } catch (_) {}
-      }
-
-      if (checklist.isNotEmpty) {
-        final bool validado = await _validarChecklistQualidade(checklist);
-        if (!validado) return;
-      }
-    }
-
-    _concluirFase();
+    await _concluirFase(fase);
   }
 
   /// Transição de fase pela RPC transacional `avancar_fase_encomenda`.
@@ -354,297 +263,444 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
   /// A RPC decide a fase seguinte, escreve o histórico e atualiza a ordem numa
   /// só transação, e recusa o avanço se a ordem estiver em WIP Hold ou
   /// cancelada — validações que o cliente não pode garantir sozinho.
-  Future<void> _concluirFase() async {
-    if (_faseAtualId == null || _encomenda == null) return;
-
-    setState(() => _isLoading = true);
+  Future<void> _concluirFase(FaseModel fase) async {
+    setState(() => _aCarregar = true);
     _timerAndon?.cancel();
 
     try {
       final resultado = await _encomendasRepo.avancarFase(widget.encomendaId);
+      if (!mounted) return;
 
-      // O cronómetro reinicia-se sozinho: a RPC escreve `data_inicio_fase` na
-      // mesma transação e o ecrã volta a lê-la ao recarregar. Deixa de ser
-      // preciso limpar estado em memória à mão.
-      _inicioFase = null;
+      final concluida = resultado['concluida'] == true;
+      final proxima = resultado['proxima_fase_nome']?.toString();
 
-      final bool ordemConcluida = resultado['concluida'] == true;
-      final String? proximaFase = resultado['proxima_fase_nome']?.toString();
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              ordemConcluida
-                  ? 'Etapa concluída — ordem finalizada! 🚀'
-                  : proximaFase != null
-                      ? 'Etapa concluída! Ordem avançou para: $proximaFase 🚀'
-                      : 'Etapa concluída com sucesso! Encomenda avançada. 🚀',
-            ),
-            backgroundColor: Colors.green,
-          ),
-        );
-        Navigator.of(context).pop(true);
-      }
+      context.mostrarMensagem(
+        concluida
+            ? 'Etapa concluída — ordem finalizada.'
+            : proxima != null
+                ? 'Etapa concluída. Ordem avançou para: $proxima'
+                : 'Etapa concluída com sucesso.',
+      );
+      Navigator.of(context).pop(true);
     } catch (e) {
-      debugPrint('Erro ao concluir fase: $e');
-      if (mounted) {
-        // As RPCs de produção lançam mensagens de negócio já escritas em
-        // português (ex: "Encomenda em WIP Hold: aprove o Line Clearance antes
-        // de avançar."). São mostradas tal e qual ao operador.
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Erro ao atualizar fase: ${_limparErro(e)}'),
-            backgroundColor: Colors.red,
-          ),
-        );
-        // O estado no servidor pode ter mudado (hold aplicado por outra via,
-        // ordem cancelada): recarregar evita que o operador continue a olhar
-        // para uma fase que já não é a atual. `_carregarDetalhesTarefa` repõe
-        // `_isLoading` e reinicia o cronómetro se a fase continuar aberta.
-        _carregarDetalhesTarefa();
-      }
+      if (!mounted) return;
+      // As RPCs de produção lançam mensagens de negócio já escritas em
+      // português (ex: "Encomenda em WIP Hold: aprove o Line Clearance antes
+      // de avançar."). São mostradas tal e qual ao operador.
+      context.mostrarMensagem(_mensagemDeErro(e), eErro: true);
+
+      // O estado no servidor pode ter mudado (hold aplicado por outra via,
+      // ordem cancelada): recarregar evita que o operador continue a olhar
+      // para uma fase que já não é a atual.
+      _carregar();
     }
   }
 
-  String _limparErro(Object e) {
-    if (e is RepositoryException) return e.mensagem;
-    return e.toString().replaceAll('Exception: ', '');
+  /// Confirmação antes de fechar a fase.
+  ///
+  /// A conclusão é irreversível pelo terminal — não há como recuar uma fase sem
+  /// intervenção do admin — e o botão fica ao lado de "Reportar Incidência",
+  /// num ecrã operado com luvas.
+  Future<bool> _confirmarConclusao(FaseModel fase) async {
+    final confirmado = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Concluir a fase?'),
+        content: Text(
+          'A fase "${fase.nomeFasePadrao}" da ordem ${widget.codigoRastreio} '
+          'passa a concluída e a ordem avança no roteiro.\n\n'
+          'Esta ação não pode ser desfeita no terminal.',
+          style: const TextStyle(fontSize: 14),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: TemasCores.sucessoForte,
+              foregroundColor: TemasCores.textoInverso,
+            ),
+            child: const Text('Concluir fase'),
+          ),
+        ],
+      ),
+    );
+
+    return confirmado == true;
   }
 
-  void _abrirPopupIncidencia() async {
-    if (_faseAtualId == null) return;
+  String _mensagemDeErro(Object e) {
+    if (e is RepositoryException) return e.mensagem;
+    return descreverErro(e);
+  }
+
+  Future<void> _abrirPopupIncidencia() async {
+    final faseAtualId = _tarefa?.encomenda.faseAtualId;
+    if (faseAtualId == null) return;
 
     _timerAndon?.cancel();
 
-    final result = await showDialog<bool>(
+    final resultado = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
       builder: (context) => BloquearTarefaPopup(
         encomendaId: widget.encomendaId,
         codigoRastreio: widget.codigoRastreio,
-        faseAtualId: _faseAtualId!,
+        faseAtualId: faseAtualId,
       ),
     );
 
-    if (result == true) {
-      setState(() => _isLoading = true);
-      _carregarDetalhesTarefa();
+    if (resultado == true) {
+      _carregar();
     } else {
-      _iniciarCronometroAndon();
+      _iniciarCronometro();
     }
   }
 
-  String _formatarTempo(int totalSegundos) {
-    final duracao = Duration(seconds: totalSegundos);
-    final horas = duracao.inHours.toString().padLeft(2, '0');
-    final minutos = (duracao.inMinutes % 60).toString().padLeft(2, '0');
-    final segundos = (duracao.inSeconds % 60).toString().padLeft(2, '0');
-    return '$horas:$minutos:$segundos';
+  static String _formatarTempo(int totalSegundos) {
+    final d = Duration(seconds: totalSegundos);
+    String d2(int n) => n.toString().padLeft(2, '0');
+    return '${d2(d.inHours)}:${d2(d.inMinutes % 60)}:${d2(d.inSeconds % 60)}';
+  }
+
+  static String _formatarData(DateTime? d) {
+    if (d == null) return '—';
+    String d2(int n) => n.toString().padLeft(2, '0');
+    return '${d2(d.day)}/${d2(d.month)}/${d.year}';
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
+      backgroundColor: TemasCores.fundoEcraFrio,
       appBar: AppBar(
-        title: Text(widget.codigoRastreio, style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
+        title: Text(
+          widget.codigoRastreio,
+          style: const TextStyle(
+            fontWeight: FontWeight.bold,
+            color: TemasCores.textoPrimario,
+          ),
+        ),
         elevation: 0,
-        backgroundColor: Colors.white,
+        backgroundColor: TemasCores.superficie,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Color(0xFF1E293B)),
+          icon: const Icon(Icons.arrow_back, color: TemasCores.textoPrimario),
           onPressed: () => Navigator.of(context).pop(false),
         ),
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : Padding(
-              padding: const EdgeInsets.all(40.0),
-              child: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (_errorMessage != null)
-                      Container(
-                        margin: const EdgeInsets.only(bottom: 20),
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(color: Colors.red.shade100, borderRadius: BorderRadius.circular(8)),
-                        child: Text('Erro ao carregar dados: $_errorMessage', style: TextStyle(color: Colors.red.shade900)),
-                      ),
+      body: _construirCorpo(),
+    );
+  }
 
-                    Text(
-                      widget.codigoRastreio,
-                      style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Produto: ${_encomenda?['nome_tipo_produto'] ?? 'Artigo'}',
-                      style: const TextStyle(fontSize: 14, color: Color(0xFF64748B)),
-                    ),
-                    const SizedBox(height: 24),
+  Widget _construirCorpo() {
+    if (_aCarregar) return const Center(child: CircularProgressIndicator());
 
-                    // --- BLOCO ANDON VISUAL ---
-                    if (!_isBloqueada && _faseAtualId != null) _construirCardAndon(),
+    final tarefa = _tarefa;
+    if (_erro != null || tarefa == null) {
+      // A ordem não carregou: não há nada de fiável para mostrar, e mostrar um
+      // ecrã meio preenchido num posto de trabalho é pior do que não mostrar.
+      return EstadoErro(
+        titulo: 'Não foi possível carregar esta ordem',
+        detalhe: _erro,
+        aoRepetir: _carregar,
+      );
+    }
 
-                    const SizedBox(height: 24),
+    return Padding(
+      padding: const EdgeInsets.all(40.0),
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              widget.codigoRastreio,
+              style: const TextStyle(
+                fontSize: 28,
+                fontWeight: FontWeight.bold,
+                color: TemasCores.textoPrimarioFrio,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Produto: ${tarefa.encomenda.nomeProduto ?? 'Artigo'}',
+              style: const TextStyle(
+                fontSize: 14,
+                color: TemasCores.textoSecundarioFrio,
+              ),
+            ),
+            const SizedBox(height: 24),
+            if (tarefa.bloqueada)
+              _construirAvisoBloqueio(tarefa)
+            else if (tarefa.faseForaDoRoteiro)
+              _construirAvisoFaseDesconhecida()
+            else if (tarefa.encomenda.faseAtualId != null)
+              _construirCardAndon(),
+            const SizedBox(height: 24),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(flex: 3, child: _construirColunaEsquerda(tarefa)),
+                const SizedBox(width: 32),
+                Expanded(flex: 2, child: _construirCardFases(tarefa)),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Coluna Esquerda: Especificações + Botões
-                        Expanded(
-                          flex: 3,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Card(
-                                elevation: 0,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                  side: BorderSide(color: Colors.grey.shade200),
-                                ),
-                                child: Padding(
-                                  padding: const EdgeInsets.all(24.0),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      const Text(
-                                        'Especificações Técnicas',
-                                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
-                                      ),
-                                      const SizedBox(height: 16),
-                                      // "Dimensões: 500mm x 300mm x 150mm" e
-                                      // "Material: Aço Inoxidável 304" estavam
-                                      // escritos no código: dados falsos
-                                      // mostrados ao operador no posto. O
-                                      // schema não guarda dimensões nem
-                                      // material, pelo que passam a mostrar-se
-                                      // os campos que existem mesmo na ordem.
-                                      _construirLinhaEspecificacao(
-                                        'Quantidade:',
-                                        _encomenda?['quantidade']?.toString() ?? '—',
-                                      ),
-                                      const Divider(height: 24),
-                                      _construirLinhaEspecificacao(
-                                        'Prioridade:',
-                                        (_encomenda?['prioridade'] as String?)?.trim().isNotEmpty == true
-                                            ? _encomenda!['prioridade'].toString()
-                                            : 'Normal',
-                                      ),
-                                      const Divider(height: 24),
-                                      _construirLinhaEspecificacao(
-                                        'Data de Entrega:',
-                                        _encomenda?['data_entrega']?.toString() ?? '—',
-                                      ),
-                                      const Divider(height: 24),
-                                      _construirLinhaEspecificacao('Tempo Estimado da Fase:', '$_tempoEstimadoMinutos min'),
-                                      if ((_encomenda?['observacoes'] as String?)?.trim().isNotEmpty == true) ...[
-                                        const Divider(height: 24),
-                                        _construirLinhaEspecificacao(
-                                          'Observações:',
-                                          _encomenda!['observacoes'].toString(),
-                                        ),
-                                      ],
-                                    ],
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 24),
+  /// A ordem está numa fase que não pertence ao roteiro do produto.
+  ///
+  /// Acontece quando o roteiro é alterado depois de a ordem ter sido lançada.
+  /// O ecrã não consegue dizer em que passo a ordem está, nem quanto tempo essa
+  /// fase devia demorar, por isso não mostra o cronómetro e não deixa concluir:
+  /// fechar a fase errada é pior do que ter de chamar a supervisão.
+  Widget _construirAvisoFaseDesconhecida() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: TemasCores.avisoFundo,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: TemasCores.avisoBorda),
+      ),
+      child: const Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.help_outline, color: TemasCores.avisoTextoForte),
+          SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Fase atual não reconhecida',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15,
+                    color: TemasCores.avisoTextoForte,
+                  ),
+                ),
+                SizedBox(height: 4),
+                Text(
+                  'A fase em que esta ordem se encontra não pertence ao '
+                  'roteiro do produto — o roteiro terá sido alterado depois de '
+                  'a ordem ser lançada. Contacte a supervisão antes de '
+                  'continuar.',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: TemasCores.textoApoioForte,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
-                              // Botões
-                              Row(
-                                children: [
-                                  Expanded(
-                                    flex: 2,
-                                    child: ElevatedButton.icon(
-                                      onPressed: _isBloqueada || _faseAtualId == null ? null : _solicitarConclusaoFase,
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: const Color(0xFF10B981),
-                                        foregroundColor: Colors.white,
-                                        padding: const EdgeInsets.symmetric(vertical: 16),
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                        elevation: 0,
-                                      ),
-                                      icon: const Icon(Icons.check_circle_outline, size: 20),
-                                      label: const Text('Concluir Fase', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: OutlinedButton.icon(
-                                      onPressed: _isBloqueada ? null : _abrirPopupIncidencia,
-                                      style: OutlinedButton.styleFrom(
-                                        foregroundColor: const Color(0xFFEF4444),
-                                        side: const BorderSide(color: Color(0xFFFCA5A5)),
-                                        padding: const EdgeInsets.symmetric(vertical: 16),
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                      ),
-                                      icon: const Icon(Icons.warning_amber_rounded, size: 18),
-                                      label: const Text('Reportar Incidência', style: TextStyle(fontWeight: FontWeight.bold)),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 32),
+  /// Porque é que a ordem não pode ser trabalhada.
+  ///
+  /// Antes, uma ordem bloqueada limitava-se a apresentar os botões desativados,
+  /// sem dizer porquê: quem chega ao posto não tinha como saber se era um
+  /// bloqueio, um erro, ou a ordem já estar concluída.
+  Widget _construirAvisoBloqueio(DetalheTarefa tarefa) {
+    final aberta = tarefa.incidencias.where((i) => i.estaAberta).toList();
+    final motivos = aberta.map((i) => i.rotulo).whereType<String>().toSet();
 
-                        // Coluna Direita: Timeline de Fases
-                        Expanded(
-                          flex: 2,
-                          child: Card(
-                            elevation: 0,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              side: BorderSide(color: Colors.grey.shade200),
-                            ),
-                            child: Padding(
-                              padding: const EdgeInsets.all(24.0),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text(
-                                    'Fases de Produção',
-                                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
-                                  ),
-                                  const SizedBox(height: 24),
-                                  _construirTimelineFases(),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: TemasCores.acentoRoxoFundo,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: TemasCores.acentoRoxo),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.lock_outline, color: TemasCores.acentoRoxoForte),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Ordem em WIP Hold',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15,
+                    color: TemasCores.acentoRoxoForte,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  motivos.isEmpty
+                      ? 'A produção está suspensa. Aguarda aprovação do Line '
+                          'Clearance no painel do admin.'
+                      : 'Motivo: ${motivos.join(' • ')}\nAguarda aprovação do '
+                          'Line Clearance no painel do admin.',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: TemasCores.textoApoioForte,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _construirColunaEsquerda(DetalheTarefa tarefa) {
+    final encomenda = tarefa.encomenda;
+    final observacoes = encomenda.observacoes?.trim();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Card(
+          elevation: 0,
+          color: TemasCores.superficie,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: const BorderSide(color: TemasCores.borda),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Especificações Técnicas',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: TemasCores.textoPrimario,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                // "Dimensões: 500mm x 300mm x 150mm" e "Material: Aço
+                // Inoxidável 304" estavam escritos no código: dados falsos
+                // mostrados ao operador no posto. O schema não guarda dimensões
+                // nem material, pelo que se mostram os campos que a ordem tem
+                // mesmo.
+                _Especificacao(
+                  rotulo: 'Quantidade:',
+                  valor: '${encomenda.quantidade}',
+                ),
+                const Divider(height: 24),
+                _Especificacao(
+                  rotulo: 'Prioridade:',
+                  valor: encomenda.prioridade,
+                ),
+                const Divider(height: 24),
+                _Especificacao(
+                  rotulo: 'Data de Entrega:',
+                  valor: _formatarData(encomenda.dataEntrega),
+                ),
+                const Divider(height: 24),
+                _Especificacao(
+                  rotulo: 'Tempo Estimado da Fase:',
+                  valor: _tempoEstimadoMinutos == null
+                      ? '—'
+                      : '$_tempoEstimadoMinutos min',
+                ),
+                if (observacoes != null && observacoes.isNotEmpty) ...[
+                  const Divider(height: 24),
+                  _Especificacao(rotulo: 'Observações:', valor: observacoes),
+                ],
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 24),
+        Row(
+          children: [
+            Expanded(
+              flex: 2,
+              child: ElevatedButton.icon(
+                onPressed: tarefa.bloqueada || tarefa.faseAtual == null
+                    ? null
+                    : _solicitarConclusaoFase,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: TemasCores.sucessoForte,
+                  foregroundColor: TemasCores.textoInverso,
+                  disabledBackgroundColor: TemasCores.superficieInerte,
+                  disabledForegroundColor: TemasCores.textoTerciario,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  elevation: 0,
+                ),
+                icon: const Icon(Icons.check_circle_outline, size: 20),
+                label: const Text(
+                  'Concluir Fase',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
                 ),
               ),
             ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: tarefa.bloqueada ? null : _abrirPopupIncidencia,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: TemasCores.erroForte,
+                  side: const BorderSide(color: TemasCores.erroClaro),
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                icon: const Icon(Icons.warning_amber_rounded, size: 18),
+                label: const Text(
+                  'Reportar Incidência',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 
   Widget _construirCardAndon() {
-    final int tempoEstimadoSegundos = _tempoEstimadoMinutos * 60;
-    final double racio = tempoEstimadoSegundos > 0 ? (_segundosDecorridos / tempoEstimadoSegundos) : 0;
+    final estimado = _tempoEstimadoMinutos;
 
-    Color corAndon = const Color(0xFF10B981);
-    String estadoAndon = 'DENTRO DO PRAZO';
+    // Sem estimativa não há prazo a comparar: o cartão conta o tempo, mas não
+    // afirma que está dentro de nada.
+    Color cor = TemasCores.infoForte;
+    String estado = 'SEM TEMPO ESTIMADO';
 
-    if (racio > 1.0) {
-      corAndon = const Color(0xFFEF4444);
-      estadoAndon = 'TEMPO ESTIMADO EXCEDIDO';
-    } else if (racio >= 0.8) {
-      corAndon = const Color(0xFFF59E0B);
-      estadoAndon = 'ATENÇÃO AO LIMITE';
+    if (estimado != null) {
+      final racio = _segundosDecorridos / (estimado * 60);
+      if (racio > 1.0) {
+        cor = TemasCores.erroForte;
+        estado = 'TEMPO ESTIMADO EXCEDIDO';
+      } else if (racio >= 0.8) {
+        cor = TemasCores.aviso;
+        estado = 'ATENÇÃO AO LIMITE';
+      } else {
+        cor = TemasCores.sucessoForte;
+        estado = 'DENTRO DO PRAZO';
+      }
     }
 
     return Card(
       elevation: 0,
-      color: corAndon.withValues(alpha: 0.08),
+      color: cor.withValues(alpha: 0.08),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: corAndon.withValues(alpha: 0.3), width: 1.5),
+        side: BorderSide(color: cor.withValues(alpha: 0.3), width: 1.5),
       ),
       child: Padding(
         padding: const EdgeInsets.all(20.0),
@@ -652,8 +708,12 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
           children: [
             Container(
               padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(color: corAndon, shape: BoxShape.circle),
-              child: const Icon(Icons.timer_outlined, color: Colors.white, size: 28),
+              decoration: BoxDecoration(color: cor, shape: BoxShape.circle),
+              child: const Icon(
+                Icons.timer_outlined,
+                color: TemasCores.textoInverso,
+                size: 28,
+              ),
             ),
             const SizedBox(width: 16),
             Expanded(
@@ -664,19 +724,34 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        estadoAndon,
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: corAndon),
+                        estado,
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                          color: cor,
+                        ),
                       ),
                       Text(
-                        'Estimado: $_tempoEstimadoMinutos min',
-                        style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                        estimado == null
+                            ? 'Estimativa não definida'
+                            : 'Estimado: $estimado min',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: TemasCores.textoSecundarioFrio,
+                        ),
                       ),
                     ],
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    _formatarTempo(_segundosDecorridos),
-                    style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: corAndon),
+                    _inicioFase == null
+                        ? '--:--:--'
+                        : _formatarTempo(_segundosDecorridos),
+                    style: TextStyle(
+                      fontSize: 26,
+                      fontWeight: FontWeight.bold,
+                      color: cor,
+                    ),
                   ),
                 ],
               ),
@@ -687,128 +762,231 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
     );
   }
 
-  Widget _construirLinhaEspecificacao(String label, String valor) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(label, style: const TextStyle(color: Color(0xFF64748B), fontWeight: FontWeight.w500, fontSize: 13)),
-        Text(valor, style: const TextStyle(color: Color(0xFF1E293B), fontWeight: FontWeight.bold, fontSize: 13)),
-      ],
+  Widget _construirCardFases(DetalheTarefa tarefa) {
+    return Card(
+      elevation: 0,
+      color: TemasCores.superficie,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: const BorderSide(color: TemasCores.borda),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Fases de Produção',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: TemasCores.textoPrimario,
+              ),
+            ),
+            const SizedBox(height: 24),
+            _construirTimeline(tarefa),
+          ],
+        ),
+      ),
     );
   }
 
-  Widget _construirTimelineFases() {
-    if (_fasesDoProduto.isEmpty) {
+  Widget _construirTimeline(DetalheTarefa tarefa) {
+    if (tarefa.fases.isEmpty) {
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: 12.0),
         child: Text(
           'Nenhuma fase configurada para este produto.',
-          style: TextStyle(fontSize: 13, color: Colors.grey, fontStyle: FontStyle.italic),
+          style: TextStyle(
+            fontSize: 13,
+            color: TemasCores.textoTerciario,
+            fontStyle: FontStyle.italic,
+          ),
         ),
       );
     }
 
-    final indexFaseAtual = _fasesDoProduto.indexWhere((f) => f['id'] == _faseAtualId);
+    final faseAtual = tarefa.faseAtual;
+    final indiceAtual = faseAtual == null
+        ? -1
+        : tarefa.fases.indexWhere((f) => f.id == faseAtual.id);
+
+    // Distinguem-se dois casos que dão ambos `indiceAtual == -1`: a ordem
+    // percorreu o roteiro todo (não há fase atual), ou a fase atual não
+    // pertence a este roteiro. No segundo, marcar tudo como concluído seria
+    // afirmar que a ordem acabou — não sabemos onde está.
+    final ordemConcluida = tarefa.encomenda.faseAtualId == null;
 
     return ListView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      itemCount: _fasesDoProduto.length,
+      itemCount: tarefa.fases.length,
       itemBuilder: (context, index) {
-        final fase = _fasesDoProduto[index];
-        final String nome = fase['nome_fase_padrao'] ?? fase['nome_fase'] ?? 'Fase #${index + 1}';
+        final fase = tarefa.fases[index];
 
-        bool isConcluida = false;
-        bool isAtual = false;
+        final concluida =
+            ordemConcluida || (indiceAtual >= 0 && index < indiceAtual);
+        final atual = indiceAtual >= 0 && index == indiceAtual;
 
-        if (_faseAtualId == null) {
-          isConcluida = true;
-        } else if (indexFaseAtual != -1 && index < indexFaseAtual) {
-          isConcluida = true;
-        } else if (index == indexFaseAtual || (indexFaseAtual == -1 && index == 0)) {
-          isAtual = true;
-        }
-
-        return IntrinsicHeight(
-          child: Row(
-            children: [
-              Column(
-                children: [
-                  Container(
-                    width: 32,
-                    height: 32,
-                    decoration: BoxDecoration(
-                      color: isConcluida
-                          ? const Color(0xFF10B981)
-                          : (isAtual ? const Color(0xFF3B82F6) : Colors.grey.shade100),
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: isConcluida
-                            ? Colors.transparent
-                            : (isAtual ? Colors.transparent : Colors.grey.shade300),
-                        width: 1,
-                      ),
-                    ),
-                    child: Center(
-                      child: isConcluida
-                          ? const Icon(Icons.check, color: Colors.white, size: 16)
-                          : Text(
-                              '${index + 1}',
-                              style: TextStyle(
-                                color: isAtual ? Colors.white : Colors.grey.shade500,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 12,
-                              ),
-                            ),
-                    ),
-                  ),
-                  if (index != _fasesDoProduto.length - 1)
-                    Expanded(
-                      child: Container(
-                        width: 2,
-                        color: isConcluida ? const Color(0xFF10B981) : Colors.grey.shade200,
-                      ),
-                    ),
-                ],
-              ),
-              const SizedBox(width: 16),
-
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      nome,
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: isAtual ? FontWeight.bold : FontWeight.w500,
-                        color: isAtual
-                            ? const Color(0xFF1E293B)
-                            : (isConcluida ? const Color(0xFF64748B) : Colors.grey.shade400),
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      isConcluida
-                          ? 'Concluída'
-                          : (isAtual ? 'Em andamento...' : 'Aguardando'),
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: isConcluida
-                            ? const Color(0xFF10B981)
-                            : (isAtual ? const Color(0xFF3B82F6) : Colors.grey.shade400),
-                        fontWeight: isAtual ? FontWeight.bold : FontWeight.normal,
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                  ],
-                ),
-              ),
-            ],
-          ),
+        return _PassoTimeline(
+          numero: index + 1,
+          nome: fase.nomeFasePadrao.isEmpty
+              ? 'Fase #${index + 1}'
+              : fase.nomeFasePadrao,
+          concluida: concluida,
+          atual: atual,
+          ultima: index == tarefa.fases.length - 1,
         );
       },
+    );
+  }
+}
+
+/// Uma linha `rótulo — valor` do cartão de especificações.
+class _Especificacao extends StatelessWidget {
+  const _Especificacao({required this.rotulo, required this.valor});
+
+  final String rotulo;
+  final String valor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          rotulo,
+          style: const TextStyle(
+            color: TemasCores.textoSecundarioFrio,
+            fontWeight: FontWeight.w500,
+            fontSize: 13,
+          ),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Text(
+            valor,
+            textAlign: TextAlign.end,
+            style: const TextStyle(
+              color: TemasCores.textoPrimario,
+              fontWeight: FontWeight.bold,
+              fontSize: 13,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Um passo do roteiro na coluna da direita.
+class _PassoTimeline extends StatelessWidget {
+  const _PassoTimeline({
+    required this.numero,
+    required this.nome,
+    required this.concluida,
+    required this.atual,
+    required this.ultima,
+  });
+
+  final int numero;
+  final String nome;
+  final bool concluida;
+  final bool atual;
+  final bool ultima;
+
+  @override
+  Widget build(BuildContext context) {
+    final corMarca = concluida
+        ? TemasCores.sucessoForte
+        : (atual ? TemasCores.infoMedio : TemasCores.superficieSuave);
+
+    return IntrinsicHeight(
+      child: Row(
+        children: [
+          Column(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: corMarca,
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: concluida || atual
+                        ? Colors.transparent
+                        : TemasCores.bordaForte,
+                  ),
+                ),
+                child: Center(
+                  child: concluida
+                      ? const Icon(
+                          Icons.check,
+                          color: TemasCores.textoInverso,
+                          size: 16,
+                        )
+                      : Text(
+                          '$numero',
+                          style: TextStyle(
+                            color: atual
+                                ? TemasCores.textoInverso
+                                : TemasCores.textoTerciario,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        ),
+                ),
+              ),
+              if (!ultima)
+                Expanded(
+                  child: Container(
+                    width: 2,
+                    color: concluida
+                        ? TemasCores.sucessoForte
+                        : TemasCores.borda,
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  nome,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: atual ? FontWeight.bold : FontWeight.w500,
+                    color: atual
+                        ? TemasCores.textoPrimario
+                        : (concluida
+                            ? TemasCores.textoSecundarioFrio
+                            : TemasCores.textoDesativado),
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  concluida
+                      ? 'Concluída'
+                      : (atual ? 'Em andamento...' : 'Aguardando'),
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: concluida
+                        ? TemasCores.sucessoForte
+                        : (atual
+                            ? TemasCores.infoMedio
+                            : TemasCores.textoDesativado),
+                    fontWeight: atual ? FontWeight.bold : FontWeight.normal,
+                  ),
+                ),
+                const SizedBox(height: 20),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

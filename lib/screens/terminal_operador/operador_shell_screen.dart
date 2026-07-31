@@ -1,12 +1,18 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
+import '../../core/ecra_recarregavel.dart';
 import '../../core/iniciais.dart';
+import '../../core/mensagens.dart';
+import '../../core/temas_cores.dart';
+import '../../repositories/operador_repository.dart';
 import '../../services/auth_service.dart';
 import '../../services/pdf_service.dart';
 import '../login_screen.dart';
 import 'fila_trabalho_screen.dart';
-import 'historico_operador_screen.dart'; 
+import 'historico_operador_screen.dart';
 import 'relatorios_operador_screen.dart';
 
 class OperadorShellScreen extends StatefulWidget {
@@ -20,92 +26,95 @@ class OperadorShellScreen extends StatefulWidget {
 
 class _OperadorShellScreenState extends State<OperadorShellScreen> {
   final AuthService _authService = AuthService();
-  final _supabase = Supabase.instance.client;
+  final OperadorRepository _repo = OperadorRepository();
+  final SupabaseClient _supabase = Supabase.instance.client;
 
-  int _indiceSelecionado = 0; // 0: Minha Fila, 1: Histórico, 2: Relatórios, 3: Perfil
+  /// 0: Minha Fila, 1: Histórico, 2: Relatórios, 3: Perfil.
+  int _indiceSelecionado = 0;
+  static const int _indicePerfil = 3;
+
   final DateTime _inicioSessao = DateTime.now();
 
-  // Dados dinâmicos do utilizador autenticado
   String _nomeUtilizador = 'Operador';
-  String _emailUtilizador = 'carregando...';
+  String _emailUtilizador = 'a carregar…';
   bool _carregandoPerfil = true;
 
   /// `utilizador_id` da sessão — a identidade real do operador.
   String? _utilizadorId;
 
-  // Subscrição em tempo real via WebSocket
-  StreamSubscription<List<Map<String, dynamic>>>? _utilizadorStreamSubscription;
+  StreamSubscription<List<Map<String, dynamic>>>? _subscricaoPerfil;
 
-  final List<Map<String, dynamic>> _menuItens = [
-    {'titulo': 'Minha Fila', 'icone': Icons.assignment_outlined},
-    {'titulo': 'Histórico', 'icone': Icons.history_toggle_off},
-    {'titulo': 'Relatórios', 'icone': Icons.analytics_outlined},
+  /// Chaves dos separadores, para lhes pedir recarregamento ao voltar.
+  ///
+  /// O `IndexedStack` mantém os quatro separadores vivos: sair e voltar
+  /// preserva scroll e filtros, mas antes preservava também os dados, que
+  /// podiam ficar obsoletos por tempo indefinido.
+  final _chavesEcras = List.generate(3, (_) => GlobalKey<State>());
+
+  static const List<({String titulo, IconData icone})> _menu = [
+    (titulo: 'Minha Fila', icone: Icons.assignment_outlined),
+    (titulo: 'Histórico', icone: Icons.history_toggle_off),
+    (titulo: 'Relatórios', icone: Icons.analytics_outlined),
   ];
 
   @override
   void initState() {
     super.initState();
-    _iniciarEscutaEmTempoReal();
+    _iniciarEscutaPerfil();
   }
 
   @override
   void dispose() {
-    _utilizadorStreamSubscription?.cancel();
+    _subscricaoPerfil?.cancel();
     super.dispose();
   }
 
-  /// Subscreve a tabela 'utilizadores' via WebSocket para atualizações em tempo real
-  void _iniciarEscutaEmTempoReal() {
-    try {
-      final user = _supabase.auth.currentUser;
-      final String? userId = widget.utilizadorId ?? user?.id;
+  /// Segue a linha do próprio utilizador em `utilizadores` por WebSocket, para
+  /// que uma correção do nome feita pelo admin apareça sem terminar sessão.
+  void _iniciarEscutaPerfil() {
+    final utilizador = _supabase.auth.currentUser;
+    final id = widget.utilizadorId ?? utilizador?.id;
 
-      if (userId == null) {
-        if (mounted) setState(() => _carregandoPerfil = false);
-        return;
-      }
-
-      _utilizadorId = userId;
-
-      _utilizadorStreamSubscription = _supabase
-          .from('utilizadores')
-          .stream(primaryKey: ['utilizador_id'])
-          .eq('utilizador_id', userId)
-          .listen(
-            (dados) {
-              if (mounted && dados.isNotEmpty) {
-                final registo = dados.first;
-                final String? nomeDb = registo['nome_utilizador']?.toString();
-                final String? emailDb = registo['email']?.toString();
-
-                setState(() {
-                  _nomeUtilizador = (nomeDb != null && nomeDb.trim().isNotEmpty)
-                      ? nomeDb
-                      : 'Operador';
-                  _emailUtilizador = (emailDb != null && emailDb.trim().isNotEmpty)
-                      ? emailDb
-                      : (user?.email ?? 'operador@factory.com');
-                  _carregandoPerfil = false;
-                });
-              }
-            },
-            onError: (erro) {
-              debugPrint('Erro na escuta em tempo real do operador: $erro');
-              if (mounted) setState(() => _carregandoPerfil = false);
-            },
-          );
-    } catch (e) {
-      debugPrint('Erro ao iniciar stream do perfil: $e');
-      if (mounted) setState(() => _carregandoPerfil = false);
+    if (id == null) {
+      setState(() => _carregandoPerfil = false);
+      return;
     }
+
+    _utilizadorId = id;
+
+    _subscricaoPerfil = _supabase
+        .from('utilizadores')
+        .stream(primaryKey: ['utilizador_id'])
+        .eq('utilizador_id', id)
+        .listen(
+          (dados) {
+            if (!mounted || dados.isEmpty) return;
+            final registo = dados.first;
+            final nome = registo['nome_utilizador']?.toString().trim();
+            final email = registo['email']?.toString().trim();
+
+            setState(() {
+              _nomeUtilizador =
+                  (nome != null && nome.isNotEmpty) ? nome : 'Operador';
+              _emailUtilizador = (email != null && email.isNotEmpty)
+                  ? email
+                  : (utilizador?.email ?? 'sem email registado');
+              _carregandoPerfil = false;
+            });
+          },
+          onError: (erro) {
+            if (!mounted) return;
+            // O perfil é informativo: uma falha aqui não pode tapar o terminal.
+            setState(() {
+              _emailUtilizador = 'Não foi possível carregar o email';
+              _carregandoPerfil = false;
+            });
+          },
+        );
   }
 
-  /// Converte o nome do utilizador em iniciais (ex: "Martim Carvalho" -> "MC").
-  ///
-  /// Delega em `core/iniciais.dart`, a mesma implementação que o painel do
-  /// admin usa — antes este ecrã tinha uma cópia própria, que dividia por um
-  /// espaço único e falhava com espaços repetidos.
-  String _obterIniciais(String? nome) => obterIniciais(nome, omissao: 'OP');
+  /// Iniciais do operador, pela mesma implementação que o painel do admin usa.
+  String get _iniciais => obterIniciais(_nomeUtilizador, omissao: 'OP');
 
   /// Identificador do operador apresentado na interface.
   ///
@@ -119,161 +128,53 @@ class _OperadorShellScreenState extends State<OperadorShellScreen> {
     return 'OP-${id.replaceAll('-', '').substring(0, 8).toUpperCase()}';
   }
 
-  /// Diálogo interativo para alterar a palavra-passe no Auth e na tabela utilizadores
-  void _mostrarDialogoAlterarPalavraPasse() {
-    final novaSenhaController = TextEditingController();
-    final confirmarSenhaController = TextEditingController();
-    final formKey = GlobalKey<FormState>();
-    bool aCarregar = false;
+  void _selecionarSeparador(int indice, {required bool fecharDrawer}) {
+    final mudou = _indiceSelecionado != indice;
+    setState(() => _indiceSelecionado = indice);
+    if (fecharDrawer) Navigator.pop(context);
 
-    showDialog(
-      context: context,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              title: const Row(
-                children: [
-                  Icon(Icons.lock_reset_outlined, color: Colors.blue),
-                  SizedBox(width: 10),
-                  Text('Alterar Palavra-passe'),
-                ],
-              ),
-              content: Form(
-                key: formKey,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextFormField(
-                      controller: novaSenhaController,
-                      obscureText: true,
-                      decoration: const InputDecoration(
-                        labelText: 'Nova Palavra-passe',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.lock_outline),
-                      ),
-                      validator: (v) {
-                        if (v == null || v.trim().length < 6) {
-                          return 'Deve ter pelo menos 6 caracteres.';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      controller: confirmarSenhaController,
-                      obscureText: true,
-                      decoration: const InputDecoration(
-                        labelText: 'Confirmar Palavra-passe',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.lock_clock_outlined),
-                      ),
-                      validator: (v) {
-                        if (v != novaSenhaController.text) {
-                          return 'As palavras-passe não coincidem.';
-                        }
-                        return null;
-                      },
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: aCarregar ? null : () => Navigator.pop(context),
-                  child: const Text('Cancelar'),
-                ),
-                ElevatedButton(
-                  onPressed: aCarregar
-                      ? null
-                      : () async {
-                          if (!formKey.currentState!.validate()) return;
-
-                          setDialogState(() => aCarregar = true);
-
-                          try {
-                            final novaSenha = novaSenhaController.text.trim();
-
-                            // A palavra-passe vive apenas no Supabase Auth, encriptada.
-                            // Nunca a guardamos na tabela pública `utilizadores`.
-                            await _supabase.auth.updateUser(
-                              UserAttributes(password: novaSenha),
-                            );
-
-                            if (context.mounted) {
-                              Navigator.pop(context);
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Palavra-passe alterada com sucesso!'),
-                                  backgroundColor: Colors.green,
-                                ),
-                              );
-                            }
-                          } catch (e) {
-                            setDialogState(() => aCarregar = false);
-                            if (context.mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text('Erro ao alterar palavra-passe: $e'),
-                                  backgroundColor: Colors.red,
-                                ),
-                              );
-                            }
-                          }
-                        },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue,
-                    foregroundColor: Colors.white,
-                  ),
-                  child: aCarregar
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                        )
-                      : const Text('Guardar'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
+    // Só o separador para onde se entra é recarregado, e só quando é uma
+    // mudança real: tocar no separador já ativo não deve disparar uma query.
+    if (mudou && indice < _chavesEcras.length) {
+      final estado = _chavesEcras[indice].currentState;
+      if (estado is EcraRecarregavel) {
+        (estado as EcraRecarregavel).recarregar();
+      }
+    }
   }
 
-  /// Processa o fecho de turno, descarregando automaticamente o relatório PDF com as métricas do turno
-  Future<void> _processarFechoSessaoComRelatorio() async {
+  /// Fecha o turno: gera o relatório de atividade e termina a sessão.
+  Future<void> _terminarSessao() async {
     // Fechar o turno é irreversível a meio do trabalho e o botão está sempre
     // visível na barra lateral: um toque acidental com luvas terminava a
     // sessão sem aviso.
-    final bool confirmado = await showDialog<bool>(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('Terminar sessão?'),
-            content: const Text(
-              'O turno é fechado e o relatório de atividade é gerado. '
-              'Terá de voltar a autenticar-se para retomar o trabalho.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(false),
-                child: const Text('Continuar a trabalhar'),
-              ),
-              ElevatedButton(
-                onPressed: () => Navigator.of(context).pop(true),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.red.shade600,
-                  foregroundColor: Colors.white,
-                ),
-                child: const Text('Terminar sessão'),
-              ),
-            ],
+    final confirmado = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Terminar sessão?'),
+        content: const Text(
+          'O turno é fechado e o relatório de atividade é gerado. '
+          'Terá de voltar a autenticar-se para retomar o trabalho.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Continuar a trabalhar'),
           ),
-        ) ??
-        false;
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: TemasCores.erroForte,
+              foregroundColor: TemasCores.textoInverso,
+            ),
+            child: const Text('Terminar sessão'),
+          ),
+        ],
+      ),
+    );
 
-    if (!confirmado || !mounted) return;
+    if (confirmado != true || !mounted) return;
 
     showDialog(
       context: context,
@@ -291,13 +192,19 @@ class _OperadorShellScreenState extends State<OperadorShellScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Compilando Relatório de Turno...',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                      'A compilar o relatório de turno…',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
                     ),
                     SizedBox(height: 4),
                     Text(
-                      'A processar os vossos avanços e incidências de hoje.',
-                      style: TextStyle(color: Colors.grey, fontSize: 12),
+                      'A processar os avanços e as incidências de hoje.',
+                      style: TextStyle(
+                        color: TemasCores.textoTerciario,
+                        fontSize: 12,
+                      ),
                     ),
                   ],
                 ),
@@ -308,105 +215,201 @@ class _OperadorShellScreenState extends State<OperadorShellScreen> {
       ),
     );
 
+    // O diálogo de progresso é fechado uma única vez, aconteça o que acontecer.
+    // Fechá-lo dentro do `try` **e** do `catch` fazia dois `pop` sempre que a
+    // geração do PDF falhasse: o segundo desmontava o próprio terminal.
+    var falhou = false;
     try {
-      final String? authUserId = widget.utilizadorId ?? _supabase.auth.currentUser?.id; 
-      
-      int avancosSessao = 0;
-      int incidenciasSessao = 0;
+      final resumo = await _repo.obterResumoDaSessao(_inicioSessao);
+      final agora = DateTime.now();
+      String d2(int n) => n.toString().padLeft(2, '0');
 
-      if (authUserId != null) {
-        final historicoData = await _supabase
-            .from('historico_producao')
-            .select('id, data_conclusao, incidencias(id)')
-            .eq('utilizador_id', authUserId)
-            // `toUtc()`: `data_conclusao` é `timestamptz`; enviar a hora local
-            // sem offset fazia o servidor lê-la como UTC e deslocava o início
-            // do turno.
-            .gte('data_conclusao', _inicioSessao.toUtc().toIso8601String());
-
-        avancosSessao = (historicoData as List).length;
-
-        for (var row in historicoData) {
-          final List<dynamic> incs = row['incidencias'] ?? [];
-          if (incs.isNotEmpty) {
-            incidenciasSessao++;
-          }
-        }
-      }
-
-      if (!mounted) return;
-      Navigator.of(context).pop();
-
-      final String dataHoje = '${DateTime.now().day.toString().padLeft(2, '0')}/${DateTime.now().month.toString().padLeft(2, '0')}/${DateTime.now().year}';
-      
       await PdfService.descarregarRelatorioTurno(
         nomeOperador: _nomeUtilizador,
-        dataTurno: dataHoje,
-        totalFases: avancosSessao,
-        totalIncidencias: incidenciasSessao,
+        dataTurno: '${d2(agora.day)}/${d2(agora.month)}/${agora.year}',
+        totalFases: resumo.fasesConcluidas,
+        totalIncidencias: resumo.fasesComParagem,
       );
-
-      _executarLogoutFinal();
-
-    } catch (e) {
-      debugPrint('Erro ao processar relatório automático: $e');
-      if (mounted) Navigator.of(context).pop();
-      _executarLogoutFinal();
+    } catch (_) {
+      falhou = true;
     }
+
+    // O `mounted` não pode travar a saída: o operador já mandou terminar a
+    // sessão e sair é a parte que não pode falhar. Só a interface é que precisa
+    // do widget vivo.
+    if (mounted) {
+      Navigator.of(context).pop(); // fecha o diálogo de progresso
+      if (falhou) {
+        // O relatório é um extra do fecho de turno: falhar a gerá-lo não pode
+        // prender o operador numa sessão que ele já mandou terminar. Mas também
+        // não pode desaparecer em silêncio, ou o turno fica sem registo.
+        context.mostrarMensagem(
+          'Sessão terminada, mas não foi possível gerar o relatório de turno.',
+          eErro: true,
+        );
+      }
+    }
+
+    await _sair();
   }
 
-  void _executarLogoutFinal() async {
+  Future<void> _sair() async {
     await _authService.logout();
-    if (mounted) {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (context) => const LoginScreen()),
-      );
-    }
+    if (!mounted) return;
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (context) => const LoginScreen()),
+    );
+  }
+
+  Future<void> _alterarPalavraPasse() async {
+    final novaController = TextEditingController();
+    final confirmarController = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+    bool aGuardar = false;
+
+    await showDialog<void>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: const Row(
+            children: [
+              Icon(Icons.lock_reset_outlined, color: TemasCores.info),
+              SizedBox(width: 10),
+              Text('Alterar Palavra-passe'),
+            ],
+          ),
+          content: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextFormField(
+                  controller: novaController,
+                  obscureText: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Nova Palavra-passe',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.lock_outline),
+                  ),
+                  validator: (v) => (v == null || v.trim().length < 6)
+                      ? 'Deve ter pelo menos 6 caracteres.'
+                      : null,
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: confirmarController,
+                  obscureText: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Confirmar Palavra-passe',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.lock_clock_outlined),
+                  ),
+                  validator: (v) => v != novaController.text
+                      ? 'As palavras-passe não coincidem.'
+                      : null,
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: aGuardar ? null : () => Navigator.pop(context),
+              child: const Text('Cancelar'),
+            ),
+            ElevatedButton(
+              onPressed: aGuardar
+                  ? null
+                  : () async {
+                      if (!formKey.currentState!.validate()) return;
+                      setDialogState(() => aGuardar = true);
+
+                      try {
+                        // A palavra-passe vive apenas no Supabase Auth,
+                        // encriptada. Nunca é escrita na tabela pública
+                        // `utilizadores`.
+                        await _supabase.auth.updateUser(
+                          UserAttributes(password: novaController.text.trim()),
+                        );
+                        if (!context.mounted) return;
+                        Navigator.pop(context);
+                        context.mostrarMensagem(
+                          'Palavra-passe alterada com sucesso.',
+                        );
+                      } catch (e) {
+                        if (!context.mounted) return;
+                        setDialogState(() => aGuardar = false);
+                        context.mostrarMensagem(
+                          'Não foi possível alterar a palavra-passe: $e',
+                          eErro: true,
+                        );
+                      }
+                    },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: TemasCores.infoForte,
+                foregroundColor: TemasCores.textoInverso,
+              ),
+              child: aGuardar
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: TemasCores.textoInverso,
+                      ),
+                    )
+                  : const Text('Guardar'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    novaController.dispose();
+    confirmarController.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final double larguraEcra = MediaQuery.of(context).size.width;
-    final bool eDesktop = larguraEcra > 950;
+    final eDesktop = MediaQuery.of(context).size.width > 950;
 
-    final List<Widget> telas = [
-      const FilaTrabalhoScreen(), // 👈 FIX: Chamada limpa sem parâmetros desconhecidos
-      const HistoricoOperadorScreen(),
-      const RelatoriosOperadorScreen(),
+    final telas = <Widget>[
+      FilaTrabalhoScreen(key: _chavesEcras[0]),
+      HistoricoOperadorScreen(key: _chavesEcras[1]),
+      RelatoriosOperadorScreen(key: _chavesEcras[2]),
       _construirEcraPerfil(),
     ];
 
     return Scaffold(
-      appBar: !eDesktop
-          ? AppBar(
-              title: Text(_indiceSelecionado == 3 
-                  ? 'O Meu Perfil' 
-                  : _menuItens[_indiceSelecionado]['titulo']),
-              backgroundColor: Colors.deepPurple.shade50,
-            )
-          : null,
-      drawer: !eDesktop ? Drawer(child: _buildSidebar(dentroDrawer: true)) : null,
+      appBar: eDesktop
+          ? null
+          : AppBar(
+              title: Text(
+                _indiceSelecionado == _indicePerfil
+                    ? 'O Meu Perfil'
+                    : _menu[_indiceSelecionado].titulo,
+              ),
+              backgroundColor: TemasCores.superficie,
+            ),
+      drawer:
+          eDesktop ? null : Drawer(child: _construirBarra(dentroDrawer: true)),
       body: Row(
         children: [
           if (eDesktop)
-            SizedBox(
-              width: 260,
-              child: _buildSidebar(dentroDrawer: false),
-            ),
+            SizedBox(width: 260, child: _construirBarra(dentroDrawer: false)),
           Expanded(
-            child: IndexedStack(
-              index: _indiceSelecionado,
-              children: telas,
-            ),
+            child: IndexedStack(index: _indiceSelecionado, children: telas),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildSidebar({required bool dentroDrawer}) {
+  Widget _construirBarra({required bool dentroDrawer}) {
     return Container(
-      color: const Color(0xFF111625),
+      color: TemasCores.marcaEscura,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -414,12 +417,16 @@ class _OperadorShellScreenState extends State<OperadorShellScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
             child: const Row(
               children: [
-                Icon(Icons.precision_manufacturing, color: Colors.blue, size: 28),
+                Icon(
+                  Icons.precision_manufacturing,
+                  color: TemasCores.marcaAcento,
+                  size: 28,
+                ),
                 SizedBox(width: 12),
                 Text(
                   'Terminal Operador',
                   style: TextStyle(
-                    color: Colors.white,
+                    color: TemasCores.textoInverso,
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
                     letterSpacing: 0.5,
@@ -428,90 +435,91 @@ class _OperadorShellScreenState extends State<OperadorShellScreen> {
               ],
             ),
           ),
-          
-          const Divider(color: Colors.white10, height: 1),
+          const Divider(color: TemasCores.separadorEscuro, height: 1),
           const SizedBox(height: 16),
-
           Expanded(
             child: ListView.builder(
-              itemCount: _menuItens.length,
+              itemCount: _menu.length,
               itemBuilder: (context, index) {
-                final item = _menuItens[index];
-                final bool estaSelecionado = _indiceSelecionado == index;
+                final item = _menu[index];
+                final selecionado = _indiceSelecionado == index;
 
                 return Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
                   child: ListTile(
-                    selected: estaSelecionado,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    selectedTileColor: Colors.white.withValues(alpha: 0.08),
+                    selected: selecionado,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    selectedTileColor: TemasCores.realceSobreEscuro,
                     leading: Icon(
-                      item['icone'],
-                      color: estaSelecionado ? Colors.blue : Colors.grey.shade500,
+                      item.icone,
+                      color: selecionado
+                          ? TemasCores.marcaAcento
+                          : TemasCores.textoInversoTenue,
                       size: 20,
                     ),
                     title: Text(
-                      item['titulo'],
+                      item.titulo,
                       style: TextStyle(
-                        color: estaSelecionado ? Colors.white : Colors.grey.shade400,
+                        color: selecionado
+                            ? TemasCores.textoInverso
+                            : TemasCores.textoInversoSuave,
                         fontSize: 14,
-                        fontWeight: estaSelecionado ? FontWeight.w600 : FontWeight.normal,
+                        fontWeight:
+                            selecionado ? FontWeight.w600 : FontWeight.normal,
                       ),
                     ),
-                    onTap: () {
-                      setState(() {
-                        _indiceSelecionado = index;
-                      });
-                      if (dentroDrawer) {
-                        Navigator.pop(context);
-                      }
-                    },
+                    onTap: () => _selecionarSeparador(
+                      index,
+                      fecharDrawer: dentroDrawer,
+                    ),
                   ),
                 );
               },
             ),
           ),
-
-          const Divider(color: Colors.white10, height: 1),
-          _buildRodapeSidebar(dentroDrawer),
+          const Divider(color: TemasCores.separadorEscuro, height: 1),
+          _construirRodape(dentroDrawer),
         ],
       ),
     );
   }
 
-  Widget _buildRodapeSidebar(bool dentroDrawer) {
-    final bool estaNoPerfil = _indiceSelecionado == 3;
-    final String iniciais = _obterIniciais(_nomeUtilizador);
-    final String idDisplay = _idFuncionario;
+  Widget _construirRodape(bool dentroDrawer) {
+    final noPerfil = _indiceSelecionado == _indicePerfil;
 
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Column(
         children: [
           InkWell(
-            onTap: () {
-              setState(() {
-                _indiceSelecionado = 3;
-              });
-              if (dentroDrawer) {
-                Navigator.pop(context);
-              }
-            },
+            onTap: () => _selecionarSeparador(
+              _indicePerfil,
+              fecharDrawer: dentroDrawer,
+            ),
             borderRadius: BorderRadius.circular(8),
             child: Container(
               padding: const EdgeInsets.all(8.0),
               decoration: BoxDecoration(
-                color: estaNoPerfil ? Colors.white.withValues(alpha: 0.08) : Colors.transparent,
+                color: noPerfil
+                    ? TemasCores.realceSobreEscuro
+                    : Colors.transparent,
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Row(
                 children: [
                   CircleAvatar(
-                    backgroundColor: Colors.blue.shade100,
+                    backgroundColor: TemasCores.infoFundoForte,
                     radius: 18,
                     child: Text(
-                      iniciais,
-                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.blue),
+                      _iniciais,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: TemasCores.infoForte,
+                      ),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -521,12 +529,19 @@ class _OperadorShellScreenState extends State<OperadorShellScreen> {
                       children: [
                         Text(
                           _nomeUtilizador,
-                          style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                          style: const TextStyle(
+                            color: TemasCores.textoInverso,
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                          ),
                           overflow: TextOverflow.ellipsis,
                         ),
                         Text(
-                          idDisplay,
-                          style: TextStyle(color: Colors.grey.shade500, fontSize: 11),
+                          _idFuncionario,
+                          style: const TextStyle(
+                            color: TemasCores.textoInversoTenue,
+                            fontSize: 11,
+                          ),
                           overflow: TextOverflow.ellipsis,
                         ),
                       ],
@@ -538,16 +553,21 @@ class _OperadorShellScreenState extends State<OperadorShellScreen> {
           ),
           const SizedBox(height: 12),
           ElevatedButton.icon(
-            onPressed: _processarFechoSessaoComRelatorio,
+            onPressed: _terminarSessao,
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red.withValues(alpha: 0.15),
-              foregroundColor: Colors.redAccent,
+              backgroundColor: TemasCores.erro.withValues(alpha: 0.15),
+              foregroundColor: TemasCores.erroVivo,
               elevation: 0,
               minimumSize: const Size.fromHeight(38),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
             ),
             icon: const Icon(Icons.logout_rounded, size: 16),
-            label: const Text('Terminar Sessão', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+            label: const Text(
+              'Terminar Sessão',
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+            ),
           ),
         ],
       ),
@@ -555,9 +575,6 @@ class _OperadorShellScreenState extends State<OperadorShellScreen> {
   }
 
   Widget _construirEcraPerfil() {
-    final String iniciais = _obterIniciais(_nomeUtilizador);
-    final String idDisplay = _idFuncionario;
-
     return Padding(
       padding: const EdgeInsets.all(40.0),
       child: Center(
@@ -565,7 +582,9 @@ class _OperadorShellScreenState extends State<OperadorShellScreen> {
           constraints: const BoxConstraints(maxWidth: 550),
           child: Card(
             elevation: 4,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
             child: Padding(
               padding: const EdgeInsets.all(32.0),
               child: _carregandoPerfil
@@ -575,56 +594,76 @@ class _OperadorShellScreenState extends State<OperadorShellScreen> {
                       children: [
                         CircleAvatar(
                           radius: 45,
-                          backgroundColor: Colors.blue.shade600,
+                          backgroundColor: TemasCores.infoForte,
                           child: Text(
-                            iniciais,
-                            style: const TextStyle(fontSize: 28, color: Colors.white, fontWeight: FontWeight.bold),
+                            _iniciais,
+                            style: const TextStyle(
+                              fontSize: 28,
+                              color: TemasCores.textoInverso,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ),
                         const SizedBox(height: 20),
                         Text(
                           _nomeUtilizador,
-                          style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                          style: const TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                         const SizedBox(height: 4),
                         const Text(
                           'Operador Industrial',
-                          style: TextStyle(fontSize: 14, color: Colors.grey, fontWeight: FontWeight.w500),
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: TemasCores.textoTerciario,
+                            fontWeight: FontWeight.w500,
+                          ),
                         ),
                         const Divider(height: 40),
-                        
-                        _construirCampoInformativo(
-                          label: 'Email Institucional',
+                        _CampoInformativo(
+                          rotulo: 'Email Institucional',
                           valor: _emailUtilizador,
                           icone: Icons.email_outlined,
                         ),
                         const SizedBox(height: 16),
-                        _construirCampoInformativo(
-                          label: 'ID do Funcionário',
-                          valor: idDisplay,
+                        _CampoInformativo(
+                          rotulo: 'ID do Funcionário',
+                          valor: _idFuncionario,
                           icone: Icons.badge_outlined,
                         ),
                         const SizedBox(height: 32),
-                        
                         OutlinedButton.icon(
-                          onPressed: _mostrarDialogoAlterarPalavraPasse,
+                          onPressed: _alterarPalavraPasse,
                           style: OutlinedButton.styleFrom(
                             minimumSize: const Size.fromHeight(50),
-                            side: BorderSide(color: Colors.grey.shade300),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            side: const BorderSide(
+                              color: TemasCores.bordaForte,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
                           ),
-                          icon: const Icon(Icons.vpn_key_outlined, color: Colors.black87),
-                          label: const Text('Alterar Palavra-passe', style: TextStyle(color: Colors.black87)),
+                          icon: const Icon(
+                            Icons.vpn_key_outlined,
+                            color: TemasCores.textoPrimario,
+                          ),
+                          label: const Text(
+                            'Alterar Palavra-passe',
+                            style: TextStyle(color: TemasCores.textoPrimario),
+                          ),
                         ),
                         const SizedBox(height: 12),
-                        
                         ElevatedButton.icon(
-                          onPressed: _processarFechoSessaoComRelatorio,
+                          onPressed: _terminarSessao,
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.red.shade600,
-                            foregroundColor: Colors.white,
+                            backgroundColor: TemasCores.erroForte,
+                            foregroundColor: TemasCores.textoInverso,
                             minimumSize: const Size.fromHeight(50),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
                           ),
                           icon: const Icon(Icons.logout),
                           label: const Text('Terminar Sessão'),
@@ -637,31 +676,56 @@ class _OperadorShellScreenState extends State<OperadorShellScreen> {
       ),
     );
   }
+}
 
-  Widget _construirCampoInformativo({
-    required String label,
-    required String valor,
-    required IconData icone,
-  }) {
+/// Campo só de leitura do cartão de perfil.
+class _CampoInformativo extends StatelessWidget {
+  const _CampoInformativo({
+    required this.rotulo,
+    required this.valor,
+    required this.icone,
+  });
+
+  final String rotulo;
+  final String valor;
+  final IconData icone;
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
+      width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: Colors.grey.shade50,
+        color: TemasCores.superficieTenue,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(width: 1, color: Colors.grey.shade200),
+        border: Border.all(color: TemasCores.borda),
       ),
       child: Row(
         children: [
-          Icon(icone, color: Colors.grey),
+          Icon(icone, color: TemasCores.textoTerciario),
           const SizedBox(width: 16),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
-              const SizedBox(height: 2),
-              Text(valor, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
-            ],
-          )
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  rotulo,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: TemasCores.textoTerciario,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  valor,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );

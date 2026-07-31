@@ -4,6 +4,7 @@ import '../models/encomenda_model.dart';
 import '../models/estado_ordem.dart';
 import '../models/historico_model.dart';
 import '../models/incidencia_model.dart';
+import '../models/reason_code_model.dart';
 import 'base_repository.dart';
 
 /// Rastreabilidade completa de uma ordem: fases concluídas e paragens.
@@ -305,11 +306,23 @@ class EncomendasRepository extends BaseRepository {
     });
   }
 
-  /// Catálogo de motivos oficiais de paragem.
-  Future<List<Map<String, dynamic>>> obterReasonCodes() {
+  /// Catálogo de motivos oficiais de paragem, sem repetições de `id`.
+  ///
+  /// A deduplicação é feita aqui e não em cada ecrã: o
+  /// `DropdownButtonFormField` lança em runtime se receber dois itens com o
+  /// mesmo valor, e tanto o painel de controlo como o terminal do operador
+  /// alimentam um a partir desta lista.
+  Future<List<ReasonCodeModel>> obterReasonCodes() {
     return guarda('carregar os motivos de paragem', () async {
-      final dados = await client.from('reason_codes').select().order('categoria');
-      return comoLista(dados);
+      final dados =
+          await client.from('reason_codes').select().order('categoria');
+
+      final porId = <int, ReasonCodeModel>{};
+      for (final linha in comoLista(dados)) {
+        final motivo = ReasonCodeModel.fromJson(linha);
+        porId[motivo.id] = motivo;
+      }
+      return porId.values.toList();
     });
   }
 

@@ -88,6 +88,20 @@ class IncidenciaModel {
     );
   }
 
+  /// Motivo da paragem em texto legível, ou `null` se não houver nenhum.
+  ///
+  /// A coluna `motivo` é texto livre e ficou vazia desde que o terminal passou
+  /// a gravar motivos estruturados (bug (D)): o motivo oficial vive agora no
+  /// `reason_code`. Mostra-se o que existir, do mais específico para o mais
+  /// genérico, em vez de uma célula vazia.
+  String? get rotulo {
+    for (final candidato in [motivo, descricaoReasonCode, categoriaReasonCode]) {
+      final texto = candidato?.trim();
+      if (texto != null && texto.isNotEmpty) return texto;
+    }
+    return null;
+  }
+
   /// A incidência ainda bloqueia a linha.
   bool get estaAberta => !lineClearanceValidado;
 

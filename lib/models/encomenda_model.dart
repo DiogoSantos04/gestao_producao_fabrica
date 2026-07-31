@@ -25,6 +25,14 @@ class EncomendaModel {
 
   final bool emSuspenso;
 
+  /// Momento em que a ordem entrou na fase atual, escrito por
+  /// `avancar_fase_encomenda` na mesma transação da transição.
+  ///
+  /// É a origem do cronómetro do terminal do operador. Fica nulo numa ordem
+  /// concluída (não há fase a decorrer) e nas ordens anteriores à migração
+  /// `add_data_inicio_fase_encomendas` cujo backfill não encontrou referência.
+  final DateTime? dataInicioFase;
+
   /// Campos vindos das junções. Ficam nulos quando a query não os pediu.
   final String? nomeCliente;
   final String? nomeProduto;
@@ -51,6 +59,7 @@ class EncomendaModel {
     this.motivoCancelamento,
     this.dataCancelamento,
     this.emSuspenso = false,
+    this.dataInicioFase,
     this.nomeCliente,
     this.nomeProduto,
     this.nomeFaseAtual,
@@ -82,6 +91,7 @@ class EncomendaModel {
       motivoCancelamento: json['motivo_cancelamento'] as String?,
       dataCancelamento: _data(json['data_cancelamento']),
       emSuspenso: json['em_suspenso'] == true,
+      dataInicioFase: _data(json['data_inicio_fase']),
       nomeCliente: cliente?['nome_cliente'] as String?,
       nomeProduto: produto?['nome_tipo_produto'] as String?,
       nomeFaseAtual: fase?['nome_fase_padrao'] as String?,
