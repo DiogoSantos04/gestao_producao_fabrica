@@ -39,6 +39,11 @@ abstract class BaseRepository {
   Future<T> guarda<T>(String contexto, Future<T> Function() operacao) async {
     try {
       return await operacao();
+    } on RepositoryException {
+      // A operação já traduziu o erro para linguagem de negócio (por exemplo, ao
+      // reconhecer o código de uma restrição). Reembrulhá-la aqui trocaria essa
+      // mensagem pelo texto genérico do `catch` final.
+      rethrow;
     } on PostgrestException catch (e) {
       // As RPCs usam RAISE EXCEPTION com texto de negócio; nesse caso a mensagem
       // do servidor é melhor do que qualquer coisa que possamos compor aqui.

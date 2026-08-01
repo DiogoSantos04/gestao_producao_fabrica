@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../repositories/base_repository.dart';
+import '../../repositories/portal_cliente_repository.dart';
 import '../../services/auth_service.dart';
 import '../login_screen.dart';
 import 'rastreio_cliente_screen.dart';
@@ -16,7 +18,15 @@ class ClienteShellScreen extends StatefulWidget {
 
 class _ClienteShellScreenState extends State<ClienteShellScreen> {
   final AuthService _authService = AuthService();
+  final PortalClienteRepository _repositorio = PortalClienteRepository();
   final _supabase = Supabase.instance.client;
+
+  /// Notificações já mostradas nesta sessão.
+  ///
+  /// O `stream()` do Supabase reemite a **lista completa** a cada alteração, e
+  /// não apenas a linha nova. Sem este registo, uma notificação nova fazia
+  /// reaparecer o SnackBar de todas as anteriores que ainda estivessem por ler.
+  final Set<Object> _notificacoesApresentadas = {};
 
   // Chave global para comunicar com o ecrã de Solicitar Encomenda
   final GlobalKey<SolicitarEncomendaScreenState> _solicitarKey = GlobalKey();
@@ -27,7 +37,7 @@ class _ClienteShellScreenState extends State<ClienteShellScreen> {
   String _emailUtilizador = 'carregando...';
   bool _carregandoPerfil = true;
 
-  StreamSubscription<List<Map<String, dynamic>>>? _utilizadorStreamSubscription;
+  StreamSubscription<Map<String, dynamic>?>? _utilizadorStreamSubscription;
   StreamSubscription<List<Map<String, dynamic>>>? _notificacoesStreamSubscription;
 
   final List<Map<String, dynamic>> _menuItens = [
@@ -51,69 +61,60 @@ class _ClienteShellScreenState extends State<ClienteShellScreen> {
   }
 
   void _iniciarEscutaPerfilEmTempoReal() {
-    try {
-      final user = _supabase.auth.currentUser;
-      if (user == null) return;
+    final user = _supabase.auth.currentUser;
+    if (user == null) return;
 
-      _utilizadorStreamSubscription = _supabase
-          .from('utilizadores')
-          .stream(primaryKey: ['utilizador_id'])
-          .eq('utilizador_id', user.id)
-          .listen(
-            (dados) {
-              if (mounted && dados.isNotEmpty) {
-                final registo = dados.first;
-                final String? nomeDb = registo['nome_utilizador']?.toString();
-                final String? emailDb = registo['email']?.toString();
+    _utilizadorStreamSubscription = _repositorio.escutarPerfil().listen(
+      (registo) {
+        if (!mounted || registo == null) return;
 
-                setState(() {
-                  _nomeUtilizador = (nomeDb != null && nomeDb.trim().isNotEmpty) ? nomeDb : 'Cliente';
-                  _emailUtilizador = (emailDb != null && emailDb.trim().isNotEmpty) ? emailDb : (user.email ?? 'cliente@factory.com');
-                  _carregandoPerfil = false;
-                });
-              }
-            },
-            onError: (erro) {
-              debugPrint('Aviso Stream Utilizadores: $erro');
-              if (mounted) setState(() => _carregandoPerfil = false);
-            },
-          );
-    } catch (e) {
-      debugPrint('Erro ao iniciar stream utilizador: $e');
-      if (mounted) setState(() => _carregandoPerfil = false);
-    }
+        final String? nomeDb = registo['nome_utilizador']?.toString();
+        final String? emailDb = registo['email']?.toString();
+
+        setState(() {
+          _nomeUtilizador = (nomeDb != null && nomeDb.trim().isNotEmpty) ? nomeDb : 'Cliente';
+          _emailUtilizador = (emailDb != null && emailDb.trim().isNotEmpty)
+              ? emailDb
+              : (user.email ?? 'cliente@factory.com');
+          _carregandoPerfil = false;
+        });
+      },
+      onError: (erro) {
+        debugPrint('Aviso Stream Utilizadores: $erro');
+        if (mounted) setState(() => _carregandoPerfil = false);
+      },
+    );
   }
 
   void _iniciarEscutaNotificacoesEmTempoReal() {
-    try {
-      final user = _supabase.auth.currentUser;
-      if (user == null) return;
+    _notificacoesStreamSubscription = _repositorio.escutarNotificacoes().listen(
+      (notificacoes) {
+        if (!mounted) return;
 
-      _notificacoesStreamSubscription = _supabase
-          .from('notificacoes')
-          .stream(primaryKey: ['id'])
-          .eq('utilizador_id', user.id)
-          .listen(
-            (notificacoes) {
-              if (mounted && notificacoes.isNotEmpty) {
-                for (var n in notificacoes) {
-                  if (n['lida'] == false) {
-                    _exibirNotificacaoAoVivo(n['id'], n['titulo']?.toString() ?? '', n['mensagem']?.toString() ?? '');
-                  }
-                }
-              }
-            },
-            onError: (erro) {
-              debugPrint('Aviso Stream Notificações (Realtime pode estar desativado): $erro');
-            },
+        for (final n in notificacoes) {
+          final Object? id = n['id'] as Object?;
+          if (id == null || n['lida'] == true) continue;
+
+          // Uma notificação só é mostrada uma vez por sessão, mesmo que a
+          // marcação de lida no servidor falhe: o contrário dava um ciclo de
+          // SnackBars a cada nova emissão do stream.
+          if (!_notificacoesApresentadas.add(id)) continue;
+
+          _exibirNotificacaoAoVivo(
+            id,
+            n['titulo']?.toString() ?? '',
+            n['mensagem']?.toString() ?? '',
           );
-    } catch (e) {
-      debugPrint('Erro no stream de notificações: $e');
-    }
+        }
+      },
+      onError: (erro) {
+        debugPrint('Aviso Stream Notificações (Realtime pode estar desativado): $erro');
+      },
+    );
   }
 
-  void _exibirNotificacaoAoVivo(dynamic notificacaoId, String titulo, String mensagem) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+  void _exibirNotificacaoAoVivo(Object notificacaoId, String titulo, String mensagem) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -140,7 +141,13 @@ class _ClienteShellScreenState extends State<ClienteShellScreen> {
         ),
       );
 
-      _supabase.from('notificacoes').update({'lida': true}).eq('id', notificacaoId);
+      // A marcação era disparada sem `await` nem tratamento de erro: falhando,
+      // a notificação voltava na emissão seguinte do stream.
+      try {
+        await _repositorio.marcarNotificacaoLida(notificacaoId);
+      } on RepositoryException catch (e) {
+        debugPrint('Não foi possível marcar a notificação como lida: ${e.mensagem}');
+      }
     });
   }
 
@@ -395,7 +402,7 @@ class _ClienteShellScreenState extends State<ClienteShellScreen> {
         onRepetirEncomenda: (tipoProdutoId, quantidade) {
           // Preenche os dados no formulário através da chave global
           _solicitarKey.currentState?.preencherParaRepeticao(
-            tipoProdutoId: tipoProdutoId.toString(),
+            tipoProdutoId: tipoProdutoId,
             quantidade: quantidade,
           );
 
