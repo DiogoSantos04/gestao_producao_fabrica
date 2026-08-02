@@ -1,4 +1,5 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../core/sessao_local.dart';
 import '../core/supabase_config.dart';
 import '../models/utilizador_model.dart';
 import 'base_repository.dart';
@@ -130,6 +131,72 @@ class UtilizadoresRepository extends BaseRepository {
         await tempClient.dispose();
       }
     });
+  }
+
+  /// Regista um pedido de acesso feito pelo próprio, a aguardar aprovação.
+  ///
+  /// A conta fica com `estado_conta = 'Pendente'`, que é o campo que o
+  /// `AuthService` usa como travão de login. O `perfil` recebe já um papel real
+  /// ('Cliente', o menos privilegiado) em vez de servir também de estado de
+  /// aprovação: 'Pendente' não é um perfil válido, e `PerfilUtilizador` traduzia-o
+  /// para `desconhecido`, que se apresenta na gestão de utilizadores como
+  /// "Funcionário". O administrador ajusta o papel ao aprovar.
+  ///
+  /// Fecha a sessão que o `signUp` abre: a conta ainda não está aprovada e não
+  /// pode ficar autenticada.
+  Future<void> registarPedidoDeAcesso({
+    required String nome,
+    required String email,
+    required String password,
+  }) {
+    return guarda('solicitar o registo', () async {
+      final AuthResponse res = await client.auth.signUp(
+        email: email,
+        password: password,
+      );
+
+      final novoUser = res.user;
+      if (novoUser == null) {
+        throw const RepositoryException(
+          'Não foi possível criar a credencial de acesso.',
+        );
+      }
+
+      try {
+        // A palavra-passe não é gravada aqui: vive apenas no Auth, encriptada.
+        await client.from('utilizadores').insert({
+          'utilizador_id': novoUser.id,
+          'nome_utilizador': nome,
+          'email': email,
+          'perfil': 'Cliente',
+          'estado_conta': 'Pendente',
+        });
+      } catch (e) {
+        // A credencial ficou criada e o perfil não. O utilizador não consegue
+        // entrar (não há perfil) nem registar-se de novo (o email já existe no
+        // Auth), pelo que a mensagem tem de o encaminhar para quem consegue
+        // resolver, em vez de sugerir que tente outra vez.
+        await _terminarSessao();
+        throw RepositoryException(
+          'A credencial foi criada, mas o registo não ficou completo. '
+          'Contacte o Administrador em vez de tentar registar-se novamente.',
+          e,
+        );
+      }
+
+      await _terminarSessao();
+    });
+  }
+
+  /// Fecha a sessão aberta pelo `signUp`, sem que o vigilante a confunda com
+  /// uma perda de sessão involuntária.
+  Future<void> _terminarSessao() async {
+    SessaoLocal.marcarTerminoIntencional();
+    try {
+      await client.auth.signOut();
+    } catch (_) {
+      // A sessão local é descartada pelo SDK mesmo que a revogação falhe.
+    }
   }
 
   /// Altera a palavra-passe do utilizador autenticado, apenas no Auth.

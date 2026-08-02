@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../core/temas_cores.dart';
+import '../repositories/utilizadores_repository.dart';
+import '../widgets/estado_erro.dart';
 
 class RegistoScreen extends StatefulWidget {
   const RegistoScreen({super.key});
@@ -14,13 +16,23 @@ class _RegistoScreenState extends State<RegistoScreen> {
   final _nomeController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _confirmarController = TextEditingController();
+  final _repo = UtilizadoresRepository();
   bool _isLoading = false;
+
+  /// Validação de formato do email.
+  ///
+  /// Deliberadamente permissiva — o objetivo é apanhar o engano óbvio (falta do
+  /// `@`, espaço no meio) antes de gastar um `signUp`, não validar o endereço.
+  /// A validade real só se sabe quando a mensagem chegar.
+  static final RegExp _formatoEmail = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
 
   @override
   void dispose() {
     _nomeController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
+    _confirmarController.dispose();
     super.dispose();
   }
 
@@ -30,61 +42,47 @@ class _RegistoScreenState extends State<RegistoScreen> {
     setState(() => _isLoading = true);
 
     try {
-      // 1. Cria a credencial no Auth do Supabase
-      final AuthResponse res = await Supabase.instance.client.auth.signUp(
+      await _repo.registarPedidoDeAcesso(
+        nome: _nomeController.text.trim(),
         email: _emailController.text.trim(),
-        password: _passwordController.text.trim(),
+        password: _passwordController.text,
       );
 
-      final user = res.user;
-
-      if (user != null) {
-        // 2. CORREÇÃO: Insere na tabela 'utilizadores' definindo o perfil fixo como 'Pendente'
-        // Garante que o utilizador não consegue autodeclarar privilégios no sistema
-        await Supabase.instance.client.from('utilizadores').insert({
-          'utilizador_id': user.id,
-          'nome_utilizador': _nomeController.text.trim(),
-          'email': _emailController.text.trim(),
-          'perfil': 'Pendente',
-          // NOTA: a password NÃO é guardada aqui. É gerida de forma segura
-          // (encriptada) pelo Supabase Auth via signUp acima.
-        });
-
-        if (mounted) {
-          showDialog(
-            context: context,
-            barrierDismissible: false,
-            builder: (context) => AlertDialog(
-              title: const Row(
-                children: [
-                  Icon(Icons.hourglass_top, color: Colors.orange),
-                  SizedBox(width: 8),
-                  Text('Pedido Enviado'),
-                ],
-              ),
-              content: const Text(
-                'A sua conta foi pré-registada com sucesso! Deverá aguardar que um Administrador aprove o seu acesso e lhe atribua a função adequada antes de conseguir iniciar sessão.',
-              ),
-              actions: [
-                ElevatedButton(
-                  onPressed: () {
-                    Navigator.of(context).pop(); // Fecha o diálogo
-                    Navigator.of(context).pop(); // Volta ao Login
-                  },
-                  child: const Text('Compreendido'),
-                )
-              ],
-            ),
-          );
-        }
-      }
-    } on AuthException catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.message), backgroundColor: TemasCores.vermelhoErro),
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.hourglass_top, color: Colors.orange),
+              SizedBox(width: 8),
+              Text('Pedido Enviado'),
+            ],
+          ),
+          content: const Text(
+            'A sua conta foi pré-registada com sucesso! Deverá aguardar que um '
+            'Administrador aprove o seu acesso e lhe atribua a função adequada '
+            'antes de conseguir iniciar sessão.',
+          ),
+          actions: [
+            ElevatedButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Compreendido'),
+            )
+          ],
+        ),
       );
-    } catch (e) {
+
+      if (!mounted) return;
+      Navigator.of(context).pop(); // Volta ao Login
+    } catch (erro) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erro ao solicitar registo: $e'), backgroundColor: TemasCores.vermelhoErro),
+        SnackBar(
+          content: Text(descreverErro(erro)),
+          backgroundColor: TemasCores.vermelhoErro,
+        ),
       );
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -113,22 +111,57 @@ class _RegistoScreenState extends State<RegistoScreen> {
                   const SizedBox(height: 24),
                   TextFormField(
                     controller: _nomeController,
+                    enabled: !_isLoading,
+                    textInputAction: TextInputAction.next,
                     decoration: const InputDecoration(labelText: 'Nome Completo', prefixIcon: Icon(Icons.person)),
-                    validator: (val) => val!.isEmpty ? 'Campo obrigatório' : null,
+                    validator: (val) =>
+                        (val ?? '').trim().isEmpty ? 'Campo obrigatório' : null,
                   ),
                   const SizedBox(height: 16),
                   TextFormField(
                     controller: _emailController,
+                    enabled: !_isLoading,
+                    textInputAction: TextInputAction.next,
                     decoration: const InputDecoration(labelText: 'E-mail', prefixIcon: Icon(Icons.email)),
                     keyboardType: TextInputType.emailAddress,
-                    validator: (val) => val!.isEmpty ? 'Campo obrigatório' : null,
+                    validator: (val) {
+                      final email = (val ?? '').trim();
+                      if (email.isEmpty) return 'Campo obrigatório';
+                      if (!_formatoEmail.hasMatch(email)) {
+                        return 'Introduza um e-mail válido';
+                      }
+                      return null;
+                    },
                   ),
                   const SizedBox(height: 16),
                   TextFormField(
                     controller: _passwordController,
+                    enabled: !_isLoading,
+                    textInputAction: TextInputAction.next,
                     decoration: const InputDecoration(labelText: 'Palavra-passe', prefixIcon: Icon(Icons.lock)),
                     obscureText: true,
-                    validator: (val) => val!.length < 6 ? 'Mínimo 6 caracteres' : null,
+                    validator: (val) =>
+                        (val ?? '').length < 6 ? 'Mínimo 6 caracteres' : null,
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: _confirmarController,
+                    enabled: !_isLoading,
+                    textInputAction: TextInputAction.done,
+                    onFieldSubmitted: (_) {
+                      if (!_isLoading) _solicitarRegisto();
+                    },
+                    decoration: const InputDecoration(
+                      labelText: 'Confirmar palavra-passe',
+                      prefixIcon: Icon(Icons.lock_outline),
+                    ),
+                    obscureText: true,
+                    // Um engano a escrever a password só se descobria no primeiro
+                    // login — que falha sem explicação possível, porque a conta
+                    // até existe.
+                    validator: (val) => val != _passwordController.text
+                        ? 'As palavras-passe não coincidem'
+                        : null,
                   ),
                   const SizedBox(height: 24),
                   ElevatedButton(

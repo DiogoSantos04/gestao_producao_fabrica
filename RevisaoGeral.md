@@ -63,7 +63,11 @@ O Supabase Auth pode validar passwords contra a HaveIBeenPwned. Está desligado.
 
 ---
 
-## 2. Bugs de código
+## 2. Bugs de código — ✅ RESOLVIDO (2 de agosto de 2026)
+
+> Todos os pontos desta secção foram corrigidos. Estado após as correções:
+> **197 testes passam** (+3), **`flutter analyze`: 33 issues, 0 errors, 0 warnings** (eram 41 com 2 warnings).
+> O detalhe do que foi feito em cada ponto está em [8. Resoluções aplicadas](#8-resoluções-aplicadas).
 
 ### 2.1 `lib/services/auth_service.dart`
 
@@ -202,5 +206,61 @@ Duas questões que precisam de resposta antes de avançar:
 **7.1 — RLS: quem escreve as políticas?**
 As políticas por perfil (administrador: acesso total; operador: leitura de produção e escrita de histórico; cliente: apenas as suas linhas via `clientes.utilizador_id`) podem ser escritas e aplicadas como migração a partir daqui, ou feitas manualmente na consola do Supabase. É preciso decidir qual.
 
-**7.2 — `perfil: 'Pendente'` no registo: intencional?**
-Se a aprovação deve continuar a ser codificada no campo `perfil`, fica como está e documenta-se. Se passar a usar `estado_conta: 'Pendente'` com `perfil` a conter apenas papéis reais — que é o desenho correto — as contas já registadas com `perfil='Pendente'` precisam de migração de dados.
+**7.2 — `perfil: 'Pendente'` no registo: intencional?** — ✅ **Decidido a 2 de agosto de 2026.**
+Confirmado na base de dados que **nenhuma** linha usa `perfil='Pendente'` (7 utilizadores: 5 Operador, 1 Cliente, 1 Administrador, todos Ativo), logo o custo de migração era zero. Decisão: passar a usar `estado_conta: 'Pendente'` como travão, com `perfil` a conter apenas papéis reais. Aplicado — ver 8.2.
+
+---
+
+## 8. Resoluções aplicadas
+
+**Data:** 2 de agosto de 2026. Âmbito: toda a secção 2 (bugs de código). As secções 1, 3, 4 e 5 continuam por resolver.
+
+### 8.1 `auth_service.dart` reescrito
+
+- Passou a **estender `BaseRepository`** e a envolver as operações em `guarda()`. Deixa de lançar `Exception` cru: todas as falhas saem como `RepositoryException` com texto de negócio.
+- **Condição morta e `!` inútil removidos** — `verificarSessaoAtiva` passou a verificar apenas `currentSession == null` e usa `sessao.user.id` diretamente. Eram os 2 únicos *warnings* do projeto.
+- **4 `print()` eliminados.** Eram os únicos do projeto; o diagnóstico agora vem da mensagem da própria exceção.
+- **`try/catch/rethrow` vazio removido.**
+- **`obterUtilizadorPorId` passou a usar `maybeSingle`**, distinguindo "credencial sem perfil associado" (mensagem própria, que encaminha para o Administrador) de falha de rede.
+- **Sessão órfã em falha de perfil corrigida.** Se `obterUtilizadorPorId` falhar depois de um `signInWithPassword` bem-sucedido, `login()` faz agora `logout()` antes de propagar o erro. Antes, ficava uma sessão ativa e persistida enquanto a interface dizia que o login tinha falhado — e a app entrava autenticada no arranque seguinte.
+- **`login()` devolve `UtilizadorModel` não-nullable.** O caminho "sem erro mas sem utilizador" deixou de existir, e com ele a verificação redundante no `login_screen`.
+- **`logout()` não usa `guarda`** de propósito: é chamado a partir de caminhos de erro (incluindo o do próprio `login`) e uma falha a fechar sessão não pode substituir o erro original.
+- **`obterTodosUtilizadores` e `atualizarEstadoUtilizador` removidos** — duplicavam `UtilizadoresRepository.obterTodos` / `alterarEstadoConta` e não tinham uma única utilização.
+
+### 8.2 `registo_screen.dart`
+
+- **Os 2 `use_build_context_synchronously` desapareceram.** Todos os caminhos verificam `mounted` antes de tocar no `context`.
+- **`perfil: 'Pendente'` substituído** por `perfil: 'Cliente'` (papel real, o menos privilegiado, que o Administrador ajusta ao aprovar) + `estado_conta: 'Pendente'`, que é o campo que o `AuthService` usa efetivamente como travão de login. O campo `perfil` deixou de codificar aprovação.
+- **Acesso ao Supabase movido para `UtilizadoresRepository.registarPedidoDeAcesso`** — o ecrã deixou de ser um dos dois últimos em `lib/screens/` a chamar `Supabase.instance.client` para ler/escrever dados.
+- **Conta órfã tratada.** Se o `insert` falhar depois do `signUp`, a sessão é fechada e a mensagem encaminha explicitamente para o Administrador, em vez de sugerir nova tentativa — que nunca poderia funcionar, porque o email já existe no Auth. A eliminação da causa (RPC transacional ou trigger em `auth.users`) fica para o trabalho da secção 1, que já mexe na base de dados.
+- **A sessão aberta pelo `signUp` é fechada.** Uma conta pendente de aprovação não pode ficar autenticada.
+- **Validação de e-mail por formato** e **campo de confirmação de palavra-passe** adicionados. Um engano a escrever a password só se descobria no primeiro login, que falha sem explicação possível porque a conta até existe.
+- Campos passam a ficar desativados durante a submissão.
+
+### 8.3 `main.dart`
+
+- **`SupabaseConfig.init()` protegido com `try/catch`.** Em caso de falha, arranca um `_AppArranqueFalhado` com mensagem legível em vez de morrer com ecrã preto. O detalhe técnico só aparece em `kDebugMode`.
+- **`ErrorWidget.builder`** substitui o ecrã vermelho do Flutter em release por um aviso contido. Em debug, o ecrã vermelho mantém-se — é útil a quem está a desenvolver.
+- **`FlutterError.onError`** encadeado sobre o anterior, para registo dos erros não tratados.
+- **`navigatorKey` e `scaffoldMessengerKey` globais** adicionados, o que torna possível navegar e mostrar mensagens a partir de código que não pertence a nenhum ecrã.
+
+### 8.4 Perda de sessão involuntária
+
+Criados dois ficheiros:
+
+- **`lib/core/sessao.dart` — `VigilanteSessao`.** Subscreve `onAuthStateChange` e, quando a sessão termina sem ser a pedido, faz `pushAndRemoveUntil` para o login com a mensagem "A sua sessão terminou. Inicie sessão novamente.". Cobre token expirado e conta desativada pelo Administrador a meio do turno — situações em que a app ficava a mostrar dados em cache e a falhar em silêncio nas queries seguintes.
+- **`lib/core/sessao_local.dart` — `SessaoLocal`.** Distingue o término pedido pela aplicação (botão de logout, `signOut` após `signUp`) do involuntário. Sem isto, cada logout normal daria uma navegação a mais e uma mensagem de erro que não corresponde a nada. É uma **marca temporal com janela de 5 segundos**, não um booleano, para não ficar presa: se o `signOut` falhar a meio, expira sozinha em vez de mascarar a perda de sessão seguinte.
+
+O travão de `estado_conta` do `AuthService` continua a existir e a correr no login e no arranque; o vigilante cobre o intervalo entre os dois.
+
+### 8.5 `login_screen.dart`
+
+- `replaceAll('Exception: ', '')` substituído por **`descreverErro`**, que já existia em `estado_erro.dart` para este efeito.
+- Verificação de `utilizador == null` removida (`login()` já não devolve `null`).
+- **`_redirecionarPorPerfil` passou a `Future<void>`** e o `logout()` do caso `desconhecido` é agora **aguardado**. Antes era *fire-and-forget*: a sessão podia ficar aberta e a conta entrava sozinha no arranque seguinte, apesar de não ter perfil válido.
+
+### 8.6 Testes
+
+Adicionado `test/core/sessao_local_test.dart` — 3 testes que cobrem a marca ausente, a marca consumida e o facto de a marca servir apenas uma vez (um segundo `signOut`, este involuntário, não pode aproveitar a marca do primeiro).
+
+**Total: 197 testes, todos a passar.**

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../core/temas_cores.dart';
 import '../models/utilizador_model.dart';
 import '../services/auth_service.dart';
+import '../widgets/estado_erro.dart';
 import 'dashboard_admin/dashboard_admin_shell.dart';
 import 'portal_cliente/cliente_shell_screen.dart'; // 👈 IMPORTADO: Shell centralizada do cliente
 import 'portal_cliente/rastreio_cliente_screen.dart';
@@ -45,7 +46,7 @@ class _LoginScreenState extends State<LoginScreen> {
     try {
       final utilizador = await _authService.verificarSessaoAtiva();
       if (mounted && utilizador != null) {
-        _redirecionarPorPerfil(utilizador.perfil);
+        await _redirecionarPorPerfil(utilizador.perfil);
       }
     } catch (e) {
       debugPrint('Erro ao verificar sessão existente: $e');
@@ -79,23 +80,18 @@ class _LoginScreenState extends State<LoginScreen> {
         password: password,
       );
 
-      if (utilizador == null) {
-        throw Exception('Não foi possível obter os dados do utilizador.');
-      }
-
       if (!mounted) return;
 
       debugPrint('Utilizador autenticado. Perfil: ${utilizador.perfil.name}');
 
-      _redirecionarPorPerfil(utilizador.perfil);
+      await _redirecionarPorPerfil(utilizador.perfil);
 
     } catch (erro) {
       debugPrint('Erro detetado no Login: $erro');
       if (mounted) {
-        final mensagemLimpa = erro.toString().replaceAll('Exception: ', '');
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(mensagemLimpa), 
+            content: Text(descreverErro(erro)),
             backgroundColor: TemasCores.vermelhoErro,
           ),
         );
@@ -111,7 +107,7 @@ class _LoginScreenState extends State<LoginScreen> {
   /// As variantes históricas do texto do perfil ("Admin"/"Administrador",
   /// "Operador"/"Funcionario") são normalizadas em [PerfilUtilizador], em vez de
   /// serem comparadas à mão em cada sítio.
-  void _redirecionarPorPerfil(PerfilUtilizador perfil) {
+  Future<void> _redirecionarPorPerfil(PerfilUtilizador perfil) async {
     switch (perfil) {
       case PerfilUtilizador.administrador:
         debugPrint('Redirecionando para: DashboardAdminShell (Admin)');
@@ -130,7 +126,10 @@ class _LoginScreenState extends State<LoginScreen> {
         );
       case PerfilUtilizador.desconhecido:
         debugPrint('ERRO: Perfil de acesso inválido.');
-        _authService.logout();
+        // A sessão do Auth já está aberta neste ponto: sem o logout, a conta
+        // entrava sozinha no arranque seguinte apesar de não ter perfil válido.
+        await _authService.logout();
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: const Text('O seu perfil de acesso é inválido ou desconhecido.'),

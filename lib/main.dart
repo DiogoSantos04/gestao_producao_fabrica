@@ -1,32 +1,167 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+
+import 'core/sessao.dart';
 import 'core/supabase_config.dart';
 import 'core/temas_cores.dart';
 import 'screens/login_screen.dart';
 
+/// Navegador global.
+///
+/// Necessário para as ações que não partem de um ecrã concreto — em particular,
+/// o encaminhamento para o login quando a sessão se perde (ver [VigilanteSessao]).
+final GlobalKey<NavigatorState> chaveNavegador = GlobalKey<NavigatorState>();
+
+/// Mensagens (SnackBars) que sobrevivem a uma troca de ecrã.
+final GlobalKey<ScaffoldMessengerState> chaveMensagens =
+    GlobalKey<ScaffoldMessengerState>();
+
 Future<void> main() async {
-  // 1. Garante que o motor do Flutter está pronto antes do Supabase
   WidgetsFlutterBinding.ensureInitialized();
 
-  // 2. Inicializa o Supabase usando a vossa classe centralizada no core
-  await SupabaseConfig.init();
+  // Substitui o ecrã vermelho do Flutter por algo legível. Um erro de build num
+  // painel não deve mostrar uma stack trace a quem está na fábrica.
+  ErrorWidget.builder = (detalhes) => _EcraErroInesperado(detalhes: detalhes);
+
+  final anterior = FlutterError.onError;
+  FlutterError.onError = (detalhes) {
+    anterior?.call(detalhes);
+    debugPrint('Erro não tratado: ${detalhes.exceptionAsString()}');
+  };
+
+  // A inicialização do Supabase é aguardada antes do primeiro frame, pelo que
+  // uma falha aqui — rede indisponível no arranque, por exemplo — deixava a
+  // aplicação a morrer com ecrã preto, sem nada que explicasse porquê.
+  try {
+    await SupabaseConfig.init();
+  } catch (e) {
+    runApp(_AppArranqueFalhado(erro: e.toString()));
+    return;
+  }
 
   runApp(const MyApp());
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
   const MyApp({super.key});
+
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  late final VigilanteSessao _vigilante = VigilanteSessao(
+    chaveNavegador: chaveNavegador,
+    chaveMensagens: chaveMensagens,
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _vigilante.iniciar();
+  }
+
+  @override
+  void dispose() {
+    _vigilante.descartar();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Controlo de Produção',
       debugShowCheckedModeBanner: false,
-      
-      // 3. Aplica o estilo e cores globais definidos no core/temas_cores.dart
+      navigatorKey: chaveNavegador,
+      scaffoldMessengerKey: chaveMensagens,
       theme: TemasCores.obterTema(),
-      
-      // 4. Arranca diretamente no ecrã de Login
       home: const LoginScreen(),
+    );
+  }
+}
+
+/// Mostrado quando a aplicação não consegue sequer arrancar.
+///
+/// Não usa [TemasCores] nem nada que dependa da inicialização: a esta altura
+/// não há garantia nenhuma sobre o que está pronto.
+class _AppArranqueFalhado extends StatelessWidget {
+  const _AppArranqueFalhado({required this.erro});
+
+  final String erro;
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: Scaffold(
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.cloud_off_rounded, size: 48, color: Colors.redAccent),
+                const SizedBox(height: 20),
+                const Text(
+                  'Não foi possível ligar ao servidor',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Verifique a ligação à rede e volte a abrir a aplicação.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 14, color: Colors.black54),
+                ),
+                if (kDebugMode) ...[
+                  const SizedBox(height: 16),
+                  Text(
+                    erro,
+                    textAlign: TextAlign.center,
+                    maxLines: 4,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 12, color: Colors.black45),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Substitui o ecrã vermelho de erro do Flutter em release.
+class _EcraErroInesperado extends StatelessWidget {
+  const _EcraErroInesperado({required this.detalhes});
+
+  final FlutterErrorDetails detalhes;
+
+  @override
+  Widget build(BuildContext context) {
+    // Em desenvolvimento o ecrã vermelho é útil e deve manter-se.
+    if (kDebugMode) return ErrorWidget(detalhes.exception);
+
+    return const Material(
+      color: Colors.white,
+      child: Center(
+        child: Padding(
+          padding: EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.warning_amber_rounded, size: 40, color: Colors.orange),
+              SizedBox(height: 12),
+              Text(
+                'Ocorreu um erro inesperado nesta secção.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
