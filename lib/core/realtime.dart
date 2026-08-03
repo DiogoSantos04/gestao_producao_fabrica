@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:clock/clock.dart';
+
 /// Janela de coalescência dos eventos realtime nas listas.
 ///
 /// O mesmo valor de [esperaPesquisa] (`paginacao.dart`): avançar uma fase gera
@@ -55,7 +57,7 @@ class RecarregadorDebounced {
   void pedir() {
     if (_descartado) return;
     if (_timer == null) {
-      _inicioRajada = DateTime.now();
+      _inicioRajada = clock.now();
       _armarJanela();
       _correr();
     } else {
@@ -77,7 +79,7 @@ class RecarregadorDebounced {
     var espera = janela;
     final inicio = _inicioRajada;
     if (inicio != null) {
-      final restante = tetoEspera - DateTime.now().difference(inicio);
+      final restante = tetoEspera - clock.now().difference(inicio);
       if (restante < espera) espera = restante;
     }
     if (espera < Duration.zero) espera = Duration.zero;
@@ -91,7 +93,7 @@ class RecarregadorDebounced {
       return;
     }
     _pendente = false;
-    _inicioRajada = DateTime.now();
+    _inicioRajada = clock.now();
     _armarJanela();
     _correr();
   }
@@ -116,7 +118,7 @@ class RecarregadorDebounced {
     // apanhar, corre agora.
     if (_pendente && _timer == null && !_descartado) {
       _pendente = false;
-      _inicioRajada = DateTime.now();
+      _inicioRajada = clock.now();
       _armarJanela();
       unawaited(_correr());
     }

@@ -20,6 +20,48 @@ class TimelineOrdem {
   bool get vazia => producao.isEmpty && incidencias.isEmpty;
 }
 
+/// Forma como uma [CondicaoEstado] compara a coluna.
+enum OperadorCondicao { igual, ehNulo, naoEhNulo }
+
+/// Uma condição sobre uma das colunas de estado de `encomendas`.
+///
+/// Existe para separar *que* condições um filtro implica de *como* elas são
+/// escritas no PostgREST: a precedência entre cancelada, em hold, concluída e em
+/// produção é regra de negócio e passa a ser verificável sem rede.
+class CondicaoEstado {
+  final String coluna;
+  final OperadorCondicao operador;
+
+  /// Só é usado com [OperadorCondicao.igual].
+  final Object? valor;
+
+  const CondicaoEstado.igual(this.coluna, this.valor)
+      : operador = OperadorCondicao.igual;
+  const CondicaoEstado.ehNulo(this.coluna)
+      : operador = OperadorCondicao.ehNulo,
+        valor = null;
+  const CondicaoEstado.naoEhNulo(this.coluna)
+      : operador = OperadorCondicao.naoEhNulo,
+        valor = null;
+
+  @override
+  bool operator ==(Object other) =>
+      other is CondicaoEstado &&
+      other.coluna == coluna &&
+      other.operador == operador &&
+      other.valor == valor;
+
+  @override
+  int get hashCode => Object.hash(coluna, operador, valor);
+
+  @override
+  String toString() => switch (operador) {
+        OperadorCondicao.igual => '$coluna = $valor',
+        OperadorCondicao.ehNulo => '$coluna is null',
+        OperadorCondicao.naoEhNulo => '$coluna is not null',
+      };
+}
+
 /// Acesso a ordens de produção, histórico e incidências.
 ///
 /// As transições de estado (avançar fase, WIP hold, line clearance, cancelar)
@@ -74,7 +116,7 @@ class EncomendasRepository extends BaseRepository {
         filtro,
       );
 
-      final termo = _termoPesquisa(pesquisa);
+      final termo = termoPesquisa(pesquisa);
       if (termo != null) {
         // A pesquisa cobre o código de rastreio e o nome do cliente, mas o nome
         // vive noutra tabela. O PostgREST não permite juntar num único `or` uma
@@ -127,30 +169,52 @@ class EncomendasRepository extends BaseRepository {
   /// Segue a mesma precedência de [EstadoOrdem.derivar] — cancelada → em hold →
   /// concluída → em produção. As canceladas só aparecem no seu próprio filtro,
   /// tal como acontecia quando a filtragem era feita em memória.
+  static List<CondicaoEstado> condicoesDoFiltro(FiltroEstadoOrdem filtro) {
+    if (filtro == FiltroEstadoOrdem.cancelada) {
+      return const [CondicaoEstado.igual('cancelada', true)];
+    }
+    const base = CondicaoEstado.igual('cancelada', false);
+    return switch (filtro) {
+      FiltroEstadoOrdem.todos => const [base],
+      FiltroEstadoOrdem.emHold => const [
+          base,
+          CondicaoEstado.igual('em_suspenso', true),
+        ],
+      FiltroEstadoOrdem.emProducao => const [
+          base,
+          CondicaoEstado.igual('em_suspenso', false),
+          CondicaoEstado.naoEhNulo('fase_atual_id'),
+        ],
+      FiltroEstadoOrdem.concluida => const [
+          base,
+          CondicaoEstado.igual('em_suspenso', false),
+          CondicaoEstado.ehNulo('fase_atual_id'),
+        ],
+      FiltroEstadoOrdem.cancelada => const [base], // já tratado acima
+    };
+  }
+
+  /// Escreve as condições de [condicoesDoFiltro] na query.
   PostgrestFilterBuilder<T> _aplicarFiltroEstado<T>(
     PostgrestFilterBuilder<T> query,
     FiltroEstadoOrdem filtro,
   ) {
-    if (filtro == FiltroEstadoOrdem.cancelada) {
-      return query.eq('cancelada', true);
+    var q = query;
+    for (final c in condicoesDoFiltro(filtro)) {
+      q = switch (c.operador) {
+        OperadorCondicao.igual => q.eq(c.coluna, c.valor as Object),
+        OperadorCondicao.ehNulo => q.isFilter(c.coluna, null),
+        OperadorCondicao.naoEhNulo => q.not(c.coluna, 'is', null),
+      };
     }
-    final base = query.eq('cancelada', false);
-    return switch (filtro) {
-      FiltroEstadoOrdem.todos => base,
-      FiltroEstadoOrdem.emHold => base.eq('em_suspenso', true),
-      FiltroEstadoOrdem.emProducao =>
-        base.eq('em_suspenso', false).not('fase_atual_id', 'is', null),
-      FiltroEstadoOrdem.concluida =>
-        base.eq('em_suspenso', false).isFilter('fase_atual_id', null),
-      FiltroEstadoOrdem.cancelada => base, // já tratado acima
-    };
+    return q;
   }
 
   /// Normaliza o termo de pesquisa, ou devolve `null` se não houver pesquisa.
   ///
   /// Vírgulas, parênteses e aspas são removidos porque são a sintaxe do `or()`
   /// do PostgREST — deixá-los passar partiria a query em vez de procurar por eles.
-  static String? _termoPesquisa(String pesquisa) {
+  static String? termoPesquisa(String pesquisa) {
     final termo = pesquisa.trim().replaceAll(RegExp(r'[,()"]'), '');
     return termo.isEmpty ? null : termo;
   }

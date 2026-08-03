@@ -1,0 +1,33 @@
+name: CI
+
+# Corre em cada push e em cada pull request para main: é o travão que garante
+# que nada entra no ramo principal sem `flutter analyze` e `flutter test` verdes.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  analise-e-testes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Instalar dependências (com as versões do pubspec.lock)
+        run: flutter pub get --enforce-lockfile
+
+      # Os ~33 `info` que restam são deprecações conhecidas, tratadas na sessão 8
+      # (secção 5 do RevisaoGeral.md). Até lá o CI trava em erros e warnings; se
+      # também travasse nos infos, ficava vermelho desde o primeiro dia e
+      # ninguém voltava a olhar para ele.
+      - name: Análise estática
+        run: flutter analyze --no-fatal-infos
+
+      - name: Testes
+        run: flutter test

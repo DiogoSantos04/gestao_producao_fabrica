@@ -233,7 +233,7 @@ Aplicam-se a tudo o que falta. Existem porque o recurso escasso não é o códig
 | # | Sessão | Secção | Estado |
 |---|---|---|---|
 | 1 | RLS + advisors + trigger de registo | 1 | ✅ concluída (2 ago 2026) |
-| 2 | Testes do `encomendas_repository` + `RecarregadorDebounced` + CI | 4 | ⬜ |
+| 2 | Testes do `encomendas_repository` + `RecarregadorDebounced` + CI | 4 | ✅ concluída (3 ago 2026) |
 | 3 | `painel_controlo` — extrair os 5 diálogos (1761 → ~850 linhas) | 3.1 | ⬜ |
 | 4 | `painel_controlo` — extrair cartão de ordem e botões de ação (~850 → ~450) | 3.1 | ⬜ |
 | 5 | `gestao_utilizadores` (1024 → ~400) | 3.1 | ⬜ |
@@ -468,3 +468,39 @@ Dois caminhos foram validados por lógica e por impersonação SQL, mas não com
 2. **Streams de realtime** (perfil do operador, notificações do cliente, listas do painel). Passam a ser filtrados pelas mesmas políticas. O Realtime avalia o RLS por ligação, o que não é simulável por SQL.
 
 Rollback, se algum ecrã ficar vazio: `alter table public.<tabela> disable row level security;`
+
+---
+
+## 12. Sessão 2 — testes do `encomendas_repository`, `RecarregadorDebounced` e CI
+
+**Data:** 3 de agosto de 2026. Fecha a sessão 2 da secção 8. Testes: **+37, num total de 234**, todos verdes; `flutter analyze` sem erros nem warnings (33 `info`, os mesmos de antes).
+
+### 12.1 Decisão: lógica pura em vez de mocks do Supabase
+
+O `encomendas_repository` é quase todo construção de queries sobre `PostgrestFilterBuilder`, que é uma classe `final` do `supabase_flutter` — não se estende nem se falsifica sem uma camada de fakes que partiria a cada upgrade do pacote. Em vez disso, extraiu-se a **regra de negócio** do **modo de a escrever no PostgREST**:
+
+- `_aplicarFiltroEstado` foi partido em dois: `EncomendasRepository.condicoesDoFiltro(filtro)` — **estático e puro**, devolve `List<CondicaoEstado>` — e o método privado que se limita a escrever essas condições na query. A precedência entre cancelada, em hold, concluída e em produção passou a ser verificável sem rede.
+- `_termoPesquisa` passou a `termoPesquisa` (público estático) — a sanitização da sintaxe do `or()` é o sítio onde uma vírgula escrita pelo utilizador partia a query.
+
+O que **não** fica coberto: as chamadas RPC (`avancarFase`, `cancelar`, `aplicarWipHold`, `aprovarLineClearance`) e os `insert`/`update`. Continuam sem teste automático — a garantia sobre elas é a das RPCs transacionais na base de dados e o teste manual.
+
+### 12.2 Bug encontrado pelos testes: o teto de rajada media tempo real
+
+O `RecarregadorDebounced` usava `DateTime.now()` para saber quanto faltava até ao `tetoEspera`. Um relógio virtual (`fakeAsync`) não mexe no `DateTime.now()`, pelo que o teste do teto mostrava **um único recarregamento numa rajada de 2 segundos** — o teto nunca disparava no teste. Em produção o comportamento estava certo, mas a lógica ficava por verificar para sempre.
+
+Resolvido com `package:clock`: `clock.now()` em vez de `DateTime.now()`. Em produção é exatamente o mesmo relógio; nos testes o `fakeAsync` substitui-o. Duas dependências novas, ambas já presentes na árvore do `flutter_test`: `clock` (runtime) e `fake_async` (dev).
+
+### 12.3 Ficheiros
+
+| Ficheiro | O que tem |
+|---|---|
+| `test/repositories/encomendas_repository_test.dart` | 18 testes: condições de cada filtro de estado, exclusão mútua produção/concluída, precedência do hold, sanitização e recorte do termo de pesquisa, `TimelineOrdem.vazia` |
+| `test/core/realtime_test.dart` | 13 testes: aresta inicial imediata, coalescência de rajada, teto, pedidos sobrepostos, falha que não deixa o recarregador preso, `descartar` idempotente, invariantes das constantes de temporização |
+| `test/core/paginacao_test.dart` | 6 testes: a sonda `tamanho + 1` é descartada e é ela que decide o `temMais` |
+| `.github/workflows/ci.yml` | `flutter pub get --enforce-lockfile` + `flutter analyze --no-fatal-infos` + `flutter test`, em push e PR para `main` |
+
+**Porquê `--no-fatal-infos`.** O `flutter analyze` devolve código de saída ≠ 0 com qualquer `info`. Com os 33 `info` de deprecações ainda por tratar (secção 5, sessão 8), o CI nascia vermelho e deixava de ser lido. Trava em erros e warnings — dos quais não há nenhum. Retirar a flag na sessão 8, depois de limpar os lints.
+
+### 12.4 Comportamento da aplicação
+
+Nenhuma alteração funcional. A refatoração do filtro produz exatamente as mesmas condições que o `switch` anterior (é isso que os testes de 12.1 fixam) e o `clock.now()` é o relógio do sistema fora de testes.

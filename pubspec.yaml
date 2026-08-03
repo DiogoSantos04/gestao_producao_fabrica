@@ -12,6 +12,9 @@ dependencies:
     sdk: flutter
 
   cupertino_icons: ^1.0.8
+  # Relógio injetável: o teto de rajada do RecarregadorDebounced mede tempo real
+  # e sem isto não é verificável com um relógio virtual nos testes.
+  clock: any
   supabase_flutter: ^2.16.0
   pdf: ^3.13.0
   printing: ^5.15.0
@@ -21,6 +24,9 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  # Relógio virtual para os testes do RecarregadorDebounced. Sem versão: já vem
+  # com o flutter_test e fixá-la aqui só criaria conflitos a cada upgrade.
+  fake_async: any
 
 flutter:
   uses-material-design: true
