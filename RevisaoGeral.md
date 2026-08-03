@@ -16,7 +16,11 @@ Esta revisão fecha o ciclo de análise por módulos (`dashboard_admin`, `termin
 
 ---
 
-## 1. Segurança — crítico
+## 1. Segurança — ✅ RESOLVIDO (2 de agosto de 2026)
+
+> Todos os pontos desta secção foram corrigidos, exceto 1.5 (toggle manual na consola).
+> Advisors de segurança: **0 ERROR, 7 WARN** — eram 12 ERROR e 8 WARN. Os 7 restantes são deliberados e estão justificados em [10.7](#107-avisos-que-ficam-por-desenho).
+> O detalhe está em [10. Sessão 1 — RLS e segurança da base de dados](#10-sessão-1--rls-e-segurança-da-base-de-dados).
 
 ### 1.1 RLS desligado em 12 tabelas
 
@@ -67,7 +71,7 @@ O Supabase Auth pode validar passwords contra a HaveIBeenPwned. Está desligado.
 
 > Todos os pontos desta secção foram corrigidos. Estado após as correções:
 > **197 testes passam** (+3), **`flutter analyze`: 33 issues, 0 errors, 0 warnings** (eram 41 com 2 warnings).
-> O detalhe do que foi feito em cada ponto está em [8. Resoluções aplicadas](#8-resoluções-aplicadas).
+> O detalhe do que foi feito em cada ponto está em [9. Resoluções aplicadas](#9-resoluções-aplicadas).
 
 ### 2.1 `lib/services/auth_service.dart`
 
@@ -207,15 +211,59 @@ Duas questões que precisam de resposta antes de avançar:
 As políticas por perfil (administrador: acesso total; operador: leitura de produção e escrita de histórico; cliente: apenas as suas linhas via `clientes.utilizador_id`) podem ser escritas e aplicadas como migração a partir daqui, ou feitas manualmente na consola do Supabase. É preciso decidir qual.
 
 **7.2 — `perfil: 'Pendente'` no registo: intencional?** — ✅ **Decidido a 2 de agosto de 2026.**
-Confirmado na base de dados que **nenhuma** linha usa `perfil='Pendente'` (7 utilizadores: 5 Operador, 1 Cliente, 1 Administrador, todos Ativo), logo o custo de migração era zero. Decisão: passar a usar `estado_conta: 'Pendente'` como travão, com `perfil` a conter apenas papéis reais. Aplicado — ver 8.2.
+Confirmado na base de dados que **nenhuma** linha usa `perfil='Pendente'` (7 utilizadores: 5 Operador, 1 Cliente, 1 Administrador, todos Ativo), logo o custo de migração era zero. Decisão: passar a usar `estado_conta: 'Pendente'` como travão, com `perfil` a conter apenas papéis reais. Aplicado — ver 9.2.
 
 ---
 
-## 8. Resoluções aplicadas
+## 8. Plano de execução do trabalho restante
+
+**Definido a 2 de agosto de 2026.** Este é o roteiro a seguir entre sessões de trabalho. Substitui a ordem indicativa da secção 6.
+
+### Regras de trabalho
+
+Aplicam-se a tudo o que falta. Existem porque o recurso escasso não é o código — é o contexto disponível numa sessão. Ler o `painel_controlo_screen.dart` inteiro custa cerca de 25 000 tokens; ler os quatro ecrãs grandes e ainda editá-los não cabe numa sessão. A partir do momento em que o contexto é resumido, o trabalho passa a ser feito sobre uma versão comprimida do que já foi visto — que é precisamente quando reaparecem bugs já corrigidos.
+
+1. **Uma unidade de trabalho por sessão, com commit no fim.** O commit é o que permite esquecer o que já foi feito sem perder nada.
+2. **Nunca reler um ficheiro grande por inteiro.** Localizar com `grep`, ler por intervalo de linhas.
+3. **Nunca misturar mover com alterar no mesmo passo.** Uma extração pura verifica-se com `flutter analyze` + `flutter test`. Se levar correções à boleia, deixa de ser verificável e passa a precisar de revisão manual linha a linha.
+4. **Registar o resultado neste ficheiro no fim de cada sessão**, para a sessão seguinte não ter de redescobrir o contexto.
+
+### Sequência
+
+| # | Sessão | Secção | Estado |
+|---|---|---|---|
+| 1 | RLS + advisors + trigger de registo | 1 | ✅ concluída (2 ago 2026) |
+| 2 | Testes do `encomendas_repository` + `RecarregadorDebounced` + CI | 4 | ⬜ |
+| 3 | `painel_controlo` — extrair os 5 diálogos (1761 → ~850 linhas) | 3.1 | ⬜ |
+| 4 | `painel_controlo` — extrair cartão de ordem e botões de ação (~850 → ~450) | 3.1 | ⬜ |
+| 5 | `gestao_utilizadores` (1024 → ~400) | 3.1 | ⬜ |
+| 6 | `informacoes_clientes` (1230 → ~450) | 3.1 | ⬜ |
+| 7 | `criar_encomenda` (1100 → ~450) | 3.1 | ⬜ |
+| 8 | Promover widgets a partilhados, instância única de `AuthService`, lints, arrumar `docs/` | 3.2, 3.3, 3.4, 5 | ⬜ |
+
+**Porquê o RLS primeiro.** É trabalho de base de dados: custa quase zero contexto — são migrações SQL, sem leitura de ficheiros Flutter. É o item de maior risco do projeto e o mais barato de executar.
+
+**Porquê testes antes de refatorar.** Não existe um único teste que cubra `lancar`, `avancarFase` ou `cancelar`. Sem a sessão 2, as sessões 3 a 7 refatoram 5115 linhas de UI que chamam essas funções sem nada que sinalize uma regressão.
+
+### Decisões estruturais tomadas
+
+**Ecrã a ecrã, não passagem transversal primeiro.** Extrair widgets partilhados antes de partir os ecrãs seria desenhar a abstração a partir de um único exemplo. Regra adotada: um widget nasce dentro do módulo onde é usado e **só sobe para `lib/widgets/` à segunda ocorrência real** (sessão 8, com a duplicação já visível).
+
+**Só extração — sem gestão de estado.** Introduzir Provider ou Riverpod em 5115 linhas de UI sem testes de widget é o item de maior risco e menor retorno do documento. O problema concreto da secção 3.3 não precisa disso: é `AuthService` instanciado de novo em quatro sítios, cada um a reler o perfil da base de dados. Resolve-se com uma instância única e cache do perfil da sessão (sessão 8). A gestão de estado a sério fica como decisão separada, para quando os ecrãs já forem pequenos o suficiente para a mudança ser avaliável.
+
+**Corte escolhido para o `painel_controlo`.** O ficheiro não é grande por ter muitos widgets (tem 5 métodos `Widget _`), mas por causa dos diálogos inline: `_abrirDialogWipHold` (479-613), `_abrirDialogRegistoTecnico` (613-804), `_abrirDialogLineClearance` (804-1007), `_abrirDialogHistorico` (1007-1145) e `_abrirDialogEditar` (1803-fim) somam cerca de 900 das 1761 linhas. Cada um tem estado próprio e fronteira óbvia — é o corte mais limpo que existe.
+
+### Este é o último documento de análise
+
+As secções 1 a 5 consolidam o backlog de **todas** as análises feitas (`dashboard_admin`, `terminal_operador`, `portal_cliente` e esta revisão transversal). Fechadas as sessões 1 a 8, não fica análise pendente e o trabalho passa a ser de funcionalidades novas. Duas ressalvas: a secção 4 (testes) nunca fica "completa", fica suficiente; e a proteção contra passwords comprometidas (1.5) é um toggle na consola do Supabase, que tem de ser ligado manualmente.
+
+---
+
+## 9. Resoluções aplicadas
 
 **Data:** 2 de agosto de 2026. Âmbito: toda a secção 2 (bugs de código). As secções 1, 3, 4 e 5 continuam por resolver.
 
-### 8.1 `auth_service.dart` reescrito
+### 9.1 `auth_service.dart` reescrito
 
 - Passou a **estender `BaseRepository`** e a envolver as operações em `guarda()`. Deixa de lançar `Exception` cru: todas as falhas saem como `RepositoryException` com texto de negócio.
 - **Condição morta e `!` inútil removidos** — `verificarSessaoAtiva` passou a verificar apenas `currentSession == null` e usa `sessao.user.id` diretamente. Eram os 2 únicos *warnings* do projeto.
@@ -227,7 +275,7 @@ Confirmado na base de dados que **nenhuma** linha usa `perfil='Pendente'` (7 uti
 - **`logout()` não usa `guarda`** de propósito: é chamado a partir de caminhos de erro (incluindo o do próprio `login`) e uma falha a fechar sessão não pode substituir o erro original.
 - **`obterTodosUtilizadores` e `atualizarEstadoUtilizador` removidos** — duplicavam `UtilizadoresRepository.obterTodos` / `alterarEstadoConta` e não tinham uma única utilização.
 
-### 8.2 `registo_screen.dart`
+### 9.2 `registo_screen.dart`
 
 - **Os 2 `use_build_context_synchronously` desapareceram.** Todos os caminhos verificam `mounted` antes de tocar no `context`.
 - **`perfil: 'Pendente'` substituído** por `perfil: 'Cliente'` (papel real, o menos privilegiado, que o Administrador ajusta ao aprovar) + `estado_conta: 'Pendente'`, que é o campo que o `AuthService` usa efetivamente como travão de login. O campo `perfil` deixou de codificar aprovação.
@@ -237,14 +285,14 @@ Confirmado na base de dados que **nenhuma** linha usa `perfil='Pendente'` (7 uti
 - **Validação de e-mail por formato** e **campo de confirmação de palavra-passe** adicionados. Um engano a escrever a password só se descobria no primeiro login, que falha sem explicação possível porque a conta até existe.
 - Campos passam a ficar desativados durante a submissão.
 
-### 8.3 `main.dart`
+### 9.3 `main.dart`
 
 - **`SupabaseConfig.init()` protegido com `try/catch`.** Em caso de falha, arranca um `_AppArranqueFalhado` com mensagem legível em vez de morrer com ecrã preto. O detalhe técnico só aparece em `kDebugMode`.
 - **`ErrorWidget.builder`** substitui o ecrã vermelho do Flutter em release por um aviso contido. Em debug, o ecrã vermelho mantém-se — é útil a quem está a desenvolver.
 - **`FlutterError.onError`** encadeado sobre o anterior, para registo dos erros não tratados.
 - **`navigatorKey` e `scaffoldMessengerKey` globais** adicionados, o que torna possível navegar e mostrar mensagens a partir de código que não pertence a nenhum ecrã.
 
-### 8.4 Perda de sessão involuntária
+### 9.4 Perda de sessão involuntária
 
 Criados dois ficheiros:
 
@@ -253,14 +301,170 @@ Criados dois ficheiros:
 
 O travão de `estado_conta` do `AuthService` continua a existir e a correr no login e no arranque; o vigilante cobre o intervalo entre os dois.
 
-### 8.5 `login_screen.dart`
+### 9.5 `login_screen.dart`
 
 - `replaceAll('Exception: ', '')` substituído por **`descreverErro`**, que já existia em `estado_erro.dart` para este efeito.
 - Verificação de `utilizador == null` removida (`login()` já não devolve `null`).
 - **`_redirecionarPorPerfil` passou a `Future<void>`** e o `logout()` do caso `desconhecido` é agora **aguardado**. Antes era *fire-and-forget*: a sessão podia ficar aberta e a conta entrava sozinha no arranque seguinte, apesar de não ter perfil válido.
 
-### 8.6 Testes
+### 9.6 Testes
 
 Adicionado `test/core/sessao_local_test.dart` — 3 testes que cobrem a marca ausente, a marca consumida e o facto de a marca servir apenas uma vez (um segundo `signOut`, este involuntário, não pode aproveitar a marca do primeiro).
 
 **Total: 197 testes, todos a passar.**
+
+---
+
+## 10. Sessão 1 — RLS e segurança da base de dados
+
+**Data:** 2 de agosto de 2026. Âmbito: secção 1 completa. Resultado: **0 ERROR nos advisors** (eram 12), **197 testes a passar**, `flutter analyze` com 33 issues e 0 warnings.
+
+### 10.1 Migrações aplicadas
+
+| Migração | O que faz |
+|---|---|
+| `rls_funcoes_auxiliares_perfil` | Funções `perfil_atual()`, `e_admin()`, `e_operador()`, `e_pessoal()`, `cliente_atual_id()` |
+| `rls_politicas_por_perfil` | Políticas de todas as tabelas, criadas **antes** de ligar o RLS |
+| `rls_ativar_e_corrigir_relatorios` | `enable row level security` nas 12 tabelas + substituição da política permissiva de `historico_relatorios` |
+| `rls_travao_autopromocao_e_ajuste_selects` | Triggers `impedir_autopromocao` e `forcar_registo_pendente`; restrição dos `select` de `pedidos_encomenda` e `avaliacoes` |
+| `seguranca_storage_e_revogacao_rpc` | Políticas do bucket `relatorios`; revogação de `EXECUTE` em 3 funções de trigger |
+| `criar_perfil_no_registo_auth` | Trigger em `auth.users` que cria a linha de perfil na mesma transação da credencial |
+| `revogar_execute_triggers_novos` | Revogação de `EXECUTE` nas funções de trigger criadas nesta sessão |
+
+Rollback, caso algum ecrã fique vazio: `alter table public.<tabela> disable row level security;`
+
+### 10.2 Modelo de acesso
+
+As funções auxiliares são `SECURITY DEFINER` **de propósito**: leem `utilizadores`, que também tem RLS. Se fossem `INVOKER`, a política de `utilizadores` chamaria uma função que lê `utilizadores` — recursão infinita.
+
+Todas exigem `estado_conta = 'Ativo'`. O travão de aprovação que só existia no `AuthService` passa a existir **também no servidor**: uma conta pendente ou inativa não obtém privilégio nenhum, mesmo contornando a aplicação.
+
+| Tabela | Administrador | Operador | Cliente | Anónimo |
+|---|---|---|---|---|
+| `utilizadores` | tudo | lê todos | só a própria linha | — |
+| `clientes` | tudo | lê | lê/edita a própria | — |
+| `encomendas` | tudo | lê + atualiza | lê as suas | — |
+| `historico_producao` | tudo | lê + insere em nome próprio | — | — |
+| `incidencias` | tudo | lê/insere/atualiza | — | — |
+| `pedidos_encomenda` | tudo | — | lê/submete os seus | — |
+| `avaliacoes` | lê + gere | — | lê/submete as suas | — |
+| `notificacoes` | tudo | — | as suas | — |
+| `tipos_produto`, `fases_padrao` | escreve | lê | lê | — |
+| `reason_codes`, `postos_trabalho` | escreve | lê | — | — |
+| `historico_relatorios` | tudo | lê + emite | — | — |
+
+O rastreio público continua a funcionar sem sessão porque `rastrear_encomenda` é `SECURITY DEFINER` e ignora as políticas. É a **única** porta que o anónimo tem, em vez de ter a tabela `encomendas` inteira.
+
+### 10.3 Escalada de privilégios — encontrada e tapada
+
+O RLS decide que **linhas** cada um vê e altera, não que **colunas**. A política de `utilizadores` permite (e tem de permitir) que cada um corrija o seu próprio nome — o que deixava a porta aberta a:
+
+```sql
+update public.utilizadores set perfil = 'Admin' where utilizador_id = auth.uid();
+```
+
+**Confirmado por teste: era aceite.** Corrigido com o trigger `impedir_autopromocao`, que recusa alterações a `perfil`, `estado_conta` e `utilizador_id` a quem não seja administrador. O trigger `forcar_registo_pendente` faz o equivalente no `insert`, para que ninguém se autodeclare `Admin`/`Ativo` no registo.
+
+### 10.4 Storage — pior do que o advisor indicava
+
+O advisor sinalizou que a política de leitura do bucket `relatorios` permitia **listar** todos os ficheiros. Ao inspecionar as políticas, apareceu uma segunda que **nenhum advisor sinalizou**: `Permitir Upload de Relatorios` aceitava o papel `anon`. Qualquer pessoa com a anon key podia **escrever** ficheiros no bucket.
+
+Ambas substituídas por políticas restritas a `e_pessoal()`. Os links já emitidos continuam a funcionar — o acesso por URL direto num bucket público não depende destas políticas.
+
+### 10.5 Conta órfã do registo — causa-raiz eliminada
+
+O registo eram dois passos do lado do cliente: `signUp` no Auth e depois `insert` em `utilizadores`. Na secção 9.2 isto ficou apenas *mitigado* (mensagem a encaminhar para o Administrador).
+
+Agora a linha de perfil é criada pelo trigger `trg_criar_perfil_utilizador` em `auth.users`, **na mesma transação da credencial**: ou existem ambas, ou nenhuma. O nome vai em metadados do `signUp`. A conta nasce sempre `Cliente`/`Pendente`.
+
+Alterações no Dart que isto obrigou:
+
+- `registarPedidoDeAcesso` deixou de inserir em `utilizadores`; passa `data: {'nome_utilizador': nome}` no `signUp`.
+- `criarFuncionario` deixou de inserir. A linha já existe (criada pelo trigger como `Cliente`/`Pendente`) e a promoção a `Operador`/`Ativo` passou a ser feita pelo **cliente partilhado**, que é o que tem a sessão do administrador. O cliente temporário está autenticado como o próprio funcionário e o `impedir_autopromocao` recusaria a alteração — que é exatamente o comportamento desejado.
+
+### 10.6 Verificação por impersonação
+
+Cada perfil foi impersonado (`set local role` + `request.jwt.claims`) e testado contra os caminhos reais da aplicação, tudo dentro de transações revertidas.
+
+| Teste | Resultado |
+|---|---|
+| Anónimo lê `encomendas`, `clientes`, `utilizadores`, `pedidos`, `avaliacoes`, `notificacoes` | 0 linhas em todas |
+| Anónimo usa o rastreio público | funciona |
+| Admin lê as 13 tabelas | tudo visível |
+| Operador lê produção (`encomendas`, `historico`, `incidencias`, `postos`, `fases`, `reason_codes`) | tudo visível |
+| Operador lê `pedidos` e `avaliacoes` | **via-os** → política restringida a admin |
+| Cliente lê encomendas/pedidos/avaliações de outros | 0 linhas |
+| Cliente lê `historico_producao`, `incidencias`, `postos`, `relatorios` | 0 linhas |
+| Cliente promove-se a Admin | bloqueado pelo trigger |
+| Cliente corrige o próprio nome | permitido |
+| Cliente altera a linha de outro utilizador | 0 linhas |
+| Cliente avalia em nome de outro cliente | bloqueado pela política |
+| Cliente submete pedido próprio | permitido |
+| Operador avança fase (RPC `avancar_fase_encomenda`) | permitido |
+| Operador aplica WIP Hold (RPC `aplicar_wip_hold`) | permitido |
+| Operador regista trabalho em nome de outro | bloqueado |
+| Operador apaga encomenda / apaga cliente / altera fluxo | 0 linhas |
+| Admin aprova pedido (RPC completa: encomenda + notificação) | permitido |
+| Admin cancela ordem, cria cliente, regista relatório, altera perfis | permitido |
+| Registo: `insert` em `auth.users` cria perfil `Cliente`/`Pendente` | confirmado |
+
+**Nota metodológica:** o RLS filtra linhas em silêncio no `delete` e no `update` — não lança erro, devolve 0 linhas. Os primeiros testes deram falsos "aceite" por não distinguirem "sem exceção" de "0 linhas afetadas". Foram repetidos com `get diagnostics ... row_count`.
+
+**As 5 RPCs de negócio são `SECURITY INVOKER`**, portanto passaram a correr sujeitas às políticas. Foi por isso que o operador precisou de `update` em `encomendas` e o admin de `update` em `pedidos_encomenda` (o `select ... for update` exige política de `update` mesmo antes de escrever).
+
+### 10.7 Avisos que ficam por desenho
+
+Restam 7 WARN nos advisors, todos deliberados:
+
+- **`rastrear_encomenda`** executável por `anon` — é a porta do rastreio público.
+- **`perfil_atual`, `e_admin`, `e_operador`, `e_pessoal`, `cliente_atual_id`** executáveis por `authenticated` — **não podem ser revogadas**: as expressões das políticas de RLS são avaliadas com os privilégios de quem faz a query, pelo que revogar o `EXECUTE` bloquearia todos os acessos. Cada uma devolve apenas informação sobre o próprio chamador e nenhuma aceita argumentos.
+- **Proteção contra passwords comprometidas** — toggle na consola do Supabase (*Authentication → Providers → Email*), não acessível pela API. **Fica por ligar manualmente.**
+
+### 10.8 Por verificar na aplicação real
+
+O RLS foi validado ao nível da base de dados, não com a app a correr. Convém abrir os três perfis e confirmar, em particular:
+
+- os **streams de realtime** (perfil do operador, notificações do cliente, listas do painel), que passam a ser filtrados pelas mesmas políticas;
+- o ecrã de **gestão de utilizadores** a criar um funcionário, que é o caminho alterado em 10.5 e o único não coberto pelos testes de impersonação.
+
+---
+
+## 11. Impacto funcional das sessões 1 e 2
+
+**Data:** 2 de agosto de 2026. As secções 9 e 10 descrevem o que foi alterado tecnicamente. Esta descreve o que disso **se nota a usar a aplicação**, e o que foi verificado para garantir que o resto não partiu.
+
+### 11.1 Comportamento que mudou de propósito
+
+| Onde | Antes | Agora | Origem |
+|---|---|---|---|
+| Ecrã de registo | Nome, e-mail, palavra-passe | Passou a ter **campo de confirmação de palavra-passe** e validação de formato do e-mail | 9.2 |
+| Registo | A conta ficava autenticada logo após o `signUp` | A sessão é fechada — a conta está por aprovar e não pode ficar autenticada | 10.5 |
+| Registo | Conta nascia com `perfil = 'Pendente'`, que a gestão de utilizadores apresentava como "Funcionário" | Nasce `Cliente`/`Pendente` e aparece corretamente como pendente | 9.2 |
+| Login | Erro genérico "Erro ao carregar dados do perfil do utilizador" para qualquer falha | Uma credencial sem perfil associado tem mensagem própria, que encaminha para o Administrador; falhas de rede continuam a dizer o que são | 9.1 |
+| Login com perfil inválido | A sessão do Auth ficava aberta apesar do erro apresentado | A sessão é fechada | 9.5 |
+| Sessão expirada ou conta desativada a meio do uso | A app ficava com os dados em cache e as queries seguintes falhavam em silêncio | Encaminha para o login com "A sua sessão terminou. Inicie sessão novamente." | 9.4 |
+| Falha ao arrancar (sem rede) | Ecrã preto, sem explicação | Ecrã "Não foi possível ligar ao servidor" | 9.3 |
+| Erro inesperado de interface em release | Ecrã vermelho do Flutter com stack trace | Aviso contido; em debug o ecrã vermelho mantém-se | 9.3 |
+| Criar funcionário (admin) | O cliente temporário inseria a linha de perfil | O trigger cria a linha pendente e o cliente do administrador promove-a a `Operador`/`Ativo`. **Resultado final igual** | 10.5 |
+| Contas por aprovar | O travão de acesso existia apenas no `AuthService` | Existe também no servidor: uma conta `Pendente` ou `Inativa` não obtém privilégio nenhum, mesmo contornando a aplicação | 10.2 |
+
+### 11.2 Verificado que NÃO mudou
+
+O RLS podia ter deixado ecrãs vazios. Cada restrição foi cruzada com o código que lê a tabela:
+
+| Restrição introduzida | Verificação |
+|---|---|
+| Operador deixou de ver `pedidos_encomenda` e `avaliacoes` | Só [relatorios_admin_screen](lib/screens/dashboard_admin/relatorios_admin_screen.dart) e [pedidos_clientes_admin_screen](lib/screens/dashboard_admin/pedidos_clientes_admin_screen.dart) as leem — ambos do administrador. Nenhum ecrã do operador perde conteúdo. |
+| Cliente deixou de ver `historico_producao`, `incidencias`, `postos_trabalho`, `reason_codes`, `historico_relatorios` | O `PortalClienteRepository` não lê nenhuma dessas tabelas (zero ocorrências). |
+| Anónimo deixou de ver todas as tabelas | O único caminho anónimo da aplicação é o rastreio público, que passa pela RPC `rastrear_encomenda` (`SECURITY DEFINER`, ignora as políticas). Testado a funcionar sem sessão. |
+| Bucket `relatorios` fechado a `anon` | O upload só parte do ecrã de relatórios do administrador, que cumpre `e_pessoal()`. Os `getPublicUrl` já emitidos continuam válidos — um bucket público não depende destas políticas para servir um URL direto. |
+| RPCs de negócio sujeitas ao RLS | As cinco (`avancar_fase_encomenda`, `aplicar_wip_hold`, `aprovar_line_clearance`, `cancelar_ordem`, `aprovar_pedido_encomenda`) foram executadas com o perfil que as usa. Todas passam — ver 10.6. |
+
+### 11.3 Por confirmar com a aplicação a correr
+
+Dois caminhos foram validados por lógica e por impersonação SQL, mas não com a app aberta:
+
+1. **Criar funcionário.** É o único caminho cujo mecanismo interno mudou (10.5). O resultado esperado é idêntico ao anterior, mas é o primeiro sítio a testar.
+2. **Streams de realtime** (perfil do operador, notificações do cliente, listas do painel). Passam a ser filtrados pelas mesmas políticas. O Realtime avalia o RLS por ligação, o que não é simulável por SQL.
+
+Rollback, se algum ecrã ficar vazio: `alter table public.<tabela> disable row level security;`

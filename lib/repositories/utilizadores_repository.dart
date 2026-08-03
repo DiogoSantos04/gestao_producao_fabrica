@@ -113,20 +113,27 @@ class UtilizadoresRepository extends BaseRepository {
         authOptions: const AuthClientOptions(authFlowType: AuthFlowType.implicit),
       );
       try {
-        final AuthResponse res = await tempClient.auth.signUp(email: email, password: password);
+        final AuthResponse res = await tempClient.auth.signUp(
+          email: email,
+          password: password,
+          data: {'nome_utilizador': nome},
+        );
         final novoUser = res.user;
         if (novoUser == null) {
           throw const RepositoryException('Não foi possível criar a credencial do funcionário.');
         }
 
-        // A password fica só no Auth, encriptada.
-        await tempClient.from('utilizadores').insert({
-          'utilizador_id': novoUser.id,
+        // A linha de perfil já foi criada pelo trigger, como
+        // 'Cliente'/'Pendente'. A promoção a operador ativo é feita pelo cliente
+        // partilhado, que é o que tem a sessão do administrador: o cliente
+        // temporário está autenticado como o próprio funcionário e o trigger
+        // `trg_impedir_autopromocao` recusaria a alteração — que é exatamente o
+        // que se quer, porque é o que impede uma conta de se promover a si mesma.
+        await client.from('utilizadores').update({
           'nome_utilizador': nome,
-          'email': email,
           'perfil': 'Operador',
           'estado_conta': 'Ativo',
-        });
+        }).eq('utilizador_id', novoUser.id);
       } finally {
         await tempClient.dispose();
       }
@@ -135,52 +142,35 @@ class UtilizadoresRepository extends BaseRepository {
 
   /// Regista um pedido de acesso feito pelo próprio, a aguardar aprovação.
   ///
-  /// A conta fica com `estado_conta = 'Pendente'`, que é o campo que o
-  /// `AuthService` usa como travão de login. O `perfil` recebe já um papel real
-  /// ('Cliente', o menos privilegiado) em vez de servir também de estado de
-  /// aprovação: 'Pendente' não é um perfil válido, e `PerfilUtilizador` traduzia-o
-  /// para `desconhecido`, que se apresenta na gestão de utilizadores como
-  /// "Funcionário". O administrador ajusta o papel ao aprovar.
+  /// O perfil **não** é inserido aqui: é o trigger `trg_criar_perfil_utilizador`
+  /// (em `auth.users`) que cria a linha de `utilizadores`, na mesma transação da
+  /// credencial. Enquanto foram dois passos do lado do cliente, uma falha no
+  /// segundo deixava uma credencial sem perfil — impossível de recuperar pela
+  /// aplicação, porque o email já existia no Auth. O nome vai em metadados, que é
+  /// o que o trigger lê.
   ///
-  /// Fecha a sessão que o `signUp` abre: a conta ainda não está aprovada e não
-  /// pode ficar autenticada.
+  /// A conta nasce sempre `Cliente`/`Pendente`. O `estado_conta` é o campo que o
+  /// `AuthService` usa como travão de login; o `perfil` guarda um papel real, que
+  /// o administrador ajusta ao aprovar.
+  ///
+  /// Fecha a sessão que o `signUp` abre: uma conta por aprovar não pode ficar
+  /// autenticada.
   Future<void> registarPedidoDeAcesso({
     required String nome,
     required String email,
     required String password,
   }) {
     return guarda('solicitar o registo', () async {
+      // A palavra-passe não é gravada em `utilizadores`: vive apenas no Auth.
       final AuthResponse res = await client.auth.signUp(
         email: email,
         password: password,
+        data: {'nome_utilizador': nome},
       );
 
-      final novoUser = res.user;
-      if (novoUser == null) {
+      if (res.user == null) {
         throw const RepositoryException(
           'Não foi possível criar a credencial de acesso.',
-        );
-      }
-
-      try {
-        // A palavra-passe não é gravada aqui: vive apenas no Auth, encriptada.
-        await client.from('utilizadores').insert({
-          'utilizador_id': novoUser.id,
-          'nome_utilizador': nome,
-          'email': email,
-          'perfil': 'Cliente',
-          'estado_conta': 'Pendente',
-        });
-      } catch (e) {
-        // A credencial ficou criada e o perfil não. O utilizador não consegue
-        // entrar (não há perfil) nem registar-se de novo (o email já existe no
-        // Auth), pelo que a mensagem tem de o encaminhar para quem consegue
-        // resolver, em vez de sugerir que tente outra vez.
-        await _terminarSessao();
-        throw RepositoryException(
-          'A credencial foi criada, mas o registo não ficou completo. '
-          'Contacte o Administrador em vez de tentar registar-se novamente.',
-          e,
         );
       }
 
