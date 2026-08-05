@@ -1,6 +1,16 @@
 import 'package:flutter/material.dart';
 
+import '../repositories/base_repository.dart';
 import 'temas_cores.dart';
+
+/// Texto legível de um erro, para SnackBars.
+///
+/// Os repositórios já devolvem mensagens de negócio prontas a mostrar; das
+/// exceções genéricas só se remove o prefixo `Exception: `.
+String mensagemDeErro(Object e) {
+  if (e is RepositoryException) return e.mensagem;
+  return e.toString().replaceAll('Exception: ', '');
+}
 
 /// Ponto único para apresentar SnackBars, evitando repetir o mesmo bloco
 /// `ScaffoldMessenger.of(context).showSnackBar(SnackBar(...))` em cada ecrã.

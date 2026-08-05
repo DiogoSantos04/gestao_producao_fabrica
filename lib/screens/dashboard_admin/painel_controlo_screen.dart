@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart'
@@ -12,14 +12,17 @@ import '../../core/formatos.dart';
 import '../../models/encomenda_model.dart';
 import '../../models/estado_ordem.dart';
 import '../../models/fase_model.dart';
-import '../../models/historico_model.dart';
-import '../../models/incidencia_model.dart';
 import '../../models/reason_code_model.dart';
-import '../../repositories/base_repository.dart';
 import '../../repositories/encomendas_repository.dart';
 import '../../repositories/fluxos_repository.dart';
 import '../../repositories/utilizadores_repository.dart';
 import '../../widgets/estado_erro.dart';
+import 'dialogos/dialogo_cancelar_ordem.dart';
+import 'dialogos/dialogo_editar_ordem.dart';
+import 'dialogos/dialogo_historico_ordem.dart';
+import 'dialogos/dialogo_line_clearance.dart';
+import 'dialogos/dialogo_registo_tecnico.dart';
+import 'dialogos/dialogo_wip_hold.dart';
 
 class PainelControloScreen extends StatefulWidget {
   const PainelControloScreen({super.key});
@@ -109,7 +112,7 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
         _tecnicosUtilizadores = utilizadoresData;
       });
     } catch (e) {
-      _mostrarMensagem('Erro ao carregar dados de apoio: ${_limparErro(e)}', eErro: true);
+      _mostrarMensagem('Erro ao carregar dados de apoio: ${mensagemDeErro(e)}', eErro: true);
     }
   }
 
@@ -135,7 +138,7 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
       if (mounted) {
         setState(() {
           _isLoading = false;
-          _erroCarregamento = _limparErro(e);
+          _erroCarregamento = mensagemDeErro(e);
         });
       }
     }
@@ -164,7 +167,7 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
       if (mounted) {
         setState(() {
           _aCarregarMais = false;
-          _erroPaginacao = _limparErro(e);
+          _erroPaginacao = mensagemDeErro(e);
         });
       }
     }
@@ -191,7 +194,7 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
         _erroCarregamento = null;
       });
     } catch (e) {
-      if (mounted) setState(() => _erroCarregamento = _limparErro(e));
+      if (mounted) setState(() => _erroCarregamento = mensagemDeErro(e));
     }
   }
 
@@ -463,677 +466,61 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
 
       _recarregarMantendoPosicao();
     } catch (e) {
-      _mostrarMensagem('Erro ao avançar fase: ${_limparErro(e)}', eErro: true);
+      _mostrarMensagem('Erro ao avançar fase: ${mensagemDeErro(e)}', eErro: true);
     }
-  }
-
-  /// Os repositórios já devolvem mensagens de negócio legíveis; aqui só removemos
-  /// o prefixo das exceções genéricas.
-  String _limparErro(Object e) {
-    if (e is RepositoryException) return e.mensagem;
-    return e.toString().replaceAll('Exception: ', '');
   }
 
   // --- AÇÕES DE WIP HOLD, REGISTO TÉCNICO HÍBRIDO E LINE CLEARANCE ---
 
-  void _abrirDialogWipHold(EncomendaModel enc) {
-    int? selectedReasonId;
-    final notasController = TextEditingController();
-    bool isSubmitting = false;
-
-    // A deduplicação por `id` passou para o repositório: era feita aqui e outra
-    // vez no terminal do operador, com o mesmo motivo (o dropdown lança em
-    // runtime com dois itens de igual valor).
-
-    showDialog(
-      context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: Row(
-                children: [
-                  Icon(Icons.pause_circle_filled_rounded, color: TemasCores.erroTexto),
-                  const SizedBox(width: 8),
-                  const Text('Suspender Ordem (WIP Hold)'),
-                ],
-              ),
-              content: SizedBox(
-                width: 450,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Selecione o motivo oficial (Reason Code) da paragem na linha:',
-                      style: const TextStyle(fontSize: 12, color: TemasCores.textoApoio),
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<int>(
-                      value: selectedReasonId,
-                      decoration: const InputDecoration(
-                        labelText: 'Reason Code *',
-                        border: OutlineInputBorder(),
-                        isDense: true,
-                      ),
-                      items: _reasonCodes.map((r) {
-                        return DropdownMenuItem<int>(
-                          value: r.id,
-                          child: Text(
-                            r.rotulo,
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                        );
-                      }).toList(),
-                      onChanged: isSubmitting
-                          ? null
-                          : (val) => setDialogState(() => selectedReasonId = val),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: notasController,
-                      enabled: !isSubmitting,
-                      maxLines: 2,
-                      decoration: const InputDecoration(
-                        labelText: 'Descrição / Observações do Operador',
-                        hintText: 'Ex: Frequência de ruído anormal no equipamento.',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: isSubmitting
-                      ? null
-                      : () {
-                          notasController.dispose();
-                          Navigator.pop(dialogContext);
-                        },
-                  child: const Text('Cancelar'),
-                ),
-                ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: TemasCores.erroTexto,
-                    foregroundColor: TemasCores.textoInverso,
-                  ),
-                  icon: isSubmitting
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(color: TemasCores.textoInverso, strokeWidth: 2),
-                        )
-                      : const Icon(Icons.block, size: 16),
-                  label: const Text('Aplicar WIP Hold'),
-                  onPressed: isSubmitting
-                      ? null
-                      : () async {
-                          if (selectedReasonId == null) {
-                            _mostrarMensagem('Selecione um motivo de paragem.', eErro: true);
-                            return;
-                          }
-
-                          setDialogState(() => isSubmitting = true);
-
-                          try {
-                            final int encId = enc.id;
-
-                            // Criar a incidência e suspender a ordem é uma só
-                            // transação — e o posto de trabalho é resolvido no
-                            // servidor a partir da fase atual.
-                            await _encomendasRepo.aplicarWipHold(
-                              encomendaId: encId,
-                              reasonCodeId: selectedReasonId!,
-                              descricaoOperador: notasController.text.trim(),
-                            );
-
-                            notasController.dispose();
-                            if (dialogContext.mounted) {
-                              Navigator.pop(dialogContext);
-                            }
-
-                            _mostrarMensagem('🔴 Ordem colocada em ON HOLD!');
-                            _recarregarMantendoPosicao();
-                          } catch (e) {
-                            setDialogState(() => isSubmitting = false);
-                            _mostrarMensagem('Erro ao aplicar WIP Hold: ${_limparErro(e)}', eErro: true);
-                          }
-                        },
-                ),
-              ],
-            );
-          },
-        );
-      },
+  Future<void> _abrirDialogWipHold(EncomendaModel enc) async {
+    final mensagem = await DialogoWipHold.mostrar(
+      context,
+      encomenda: enc,
+      reasonCodes: _reasonCodes,
+      repositorio: _encomendasRepo,
     );
+    if (mensagem == null || !mounted) return;
+    _mostrarMensagem(mensagem);
+    _recarregarMantendoPosicao();
   }
 
   // --- NOVO: MODAL REGISTO TÉCNICO HÍBRIDO ---
-  void _abrirDialogRegistoTecnico(EncomendaModel enc, Map<String, dynamic>? incidenciaAtiva) {
+  Future<void> _abrirDialogRegistoTecnico(
+    EncomendaModel enc,
+    Map<String, dynamic>? incidenciaAtiva,
+  ) async {
     if (incidenciaAtiva == null) return;
 
-    String tipoManutencao = 'INTERNA'; // 'INTERNA' ou 'EXTERNA'
-    String? tecnicoSelecionadoId;
-    final entidadeExternaController = TextEditingController();
-    final notaTecnicaController = TextEditingController();
-    bool isSubmitting = false;
-
-    showDialog(
-      context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: Row(
-                children: [
-                  Icon(Icons.build_circle_rounded, color: TemasCores.avisoTextoForte),
-                  const SizedBox(width: 8),
-                  const Text('Registo Técnico de Intervenção'),
-                ],
-              ),
-              content: SizedBox(
-                width: 480,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(10),
-                      margin: const EdgeInsets.only(bottom: 16),
-                      decoration: BoxDecoration(
-                        color: TemasCores.avisoFundo,
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: TemasCores.avisoBorda),
-                      ),
-                      child: Text(
-                        'Incidente: ${incidenciaAtiva['motivo'] ?? 'Manutenção Requerida'}',
-                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: TemasCores.avisoTextoForte),
-                      ),
-                    ),
-
-                    const Text('Tipo de Intervenção Técnica:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                    const SizedBox(height: 8),
-
-                    SegmentedButton<String>(
-                      segments: const [
-                        ButtonSegment(
-                          value: 'INTERNA',
-                          label: Text('Manutenção Interna'),
-                          icon: Icon(Icons.engineering_rounded, size: 16),
-                        ),
-                        ButtonSegment(
-                          value: 'EXTERNA',
-                          label: Text('Assistência Externa'),
-                          icon: Icon(Icons.fire_truck_rounded, size: 16),
-                        ),
-                      ],
-                      selected: {tipoManutencao},
-                      onSelectionChanged: isSubmitting
-                          ? null
-                          : (newSelection) {
-                              setDialogState(() {
-                                tipoManutencao = newSelection.first;
-                              });
-                            },
-                    ),
-                    const SizedBox(height: 16),
-
-                    if (tipoManutencao == 'INTERNA') ...[
-                      DropdownButtonFormField<String>(
-                        value: tecnicoSelecionadoId,
-                        decoration: const InputDecoration(
-                          labelText: 'Técnico Responsável *',
-                          border: OutlineInputBorder(),
-                          isDense: true,
-                        ),
-                        items: _tecnicosUtilizadores.map((u) {
-                          final id = u['utilizador_id'].toString();
-                          final nome = u['nome_utilizador'] ?? 'Sem nome';
-                          final perfil = u['perfil'] ?? 'Utilizador';
-                          return DropdownMenuItem<String>(
-                            value: id,
-                            child: Text('$nome ($perfil)', style: const TextStyle(fontSize: 12)),
-                          );
-                        }).toList(),
-                        onChanged: isSubmitting
-                            ? null
-                            : (val) => setDialogState(() => tecnicoSelecionadoId = val),
-                      ),
-                    ] else ...[
-                      TextField(
-                        controller: entidadeExternaController,
-                        enabled: !isSubmitting,
-                        decoration: const InputDecoration(
-                          labelText: 'Empresa / Entidade Externa *',
-                          hintText: 'Ex: Siemens, Kuka Robotics, EletroCaldas',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                    ],
-
-                    const SizedBox(height: 14),
-                    TextField(
-                      controller: notaTecnicaController,
-                      enabled: !isSubmitting,
-                      maxLines: 3,
-                      decoration: const InputDecoration(
-                        labelText: 'Relatório Técnico / Ações Corretivas',
-                        hintText: 'Descreva os trabalhos efetuados, peças substituídas ou calibração efetuada...',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: isSubmitting
-                      ? null
-                      : () {
-                          entidadeExternaController.dispose();
-                          notaTecnicaController.dispose();
-                          Navigator.pop(dialogContext);
-                        },
-                  child: const Text('Cancelar'),
-                ),
-                ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: TemasCores.avisoTexto,
-                    foregroundColor: TemasCores.textoInverso,
-                  ),
-                  icon: isSubmitting
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(color: TemasCores.textoInverso, strokeWidth: 2),
-                        )
-                      : const Icon(Icons.check_circle_outline, size: 16),
-                  label: const Text('Concluir Intervenção Técnica'),
-                  onPressed: isSubmitting
-                      ? null
-                      : () async {
-                          if (tipoManutencao == 'INTERNA' && tecnicoSelecionadoId == null) {
-                            _mostrarMensagem('Selecione o técnico interno responsável.', eErro: true);
-                            return;
-                          }
-                          if (tipoManutencao == 'EXTERNA' && entidadeExternaController.text.trim().isEmpty) {
-                            _mostrarMensagem('Indique a empresa de assistência externa.', eErro: true);
-                            return;
-                          }
-
-                          setDialogState(() => isSubmitting = true);
-
-                          try {
-                            final int incId = int.parse(incidenciaAtiva['id'].toString());
-
-                            await _encomendasRepo.registarIntervencaoTecnica(
-                              incidenciaId: incId,
-                              tipoManutencao: tipoManutencao,
-                              tecnicoId: tipoManutencao == 'INTERNA' ? tecnicoSelecionadoId : null,
-                              entidadeExterna: tipoManutencao == 'EXTERNA'
-                                  ? entidadeExternaController.text.trim()
-                                  : null,
-                              notaTecnica: notaTecnicaController.text.trim(),
-                            );
-
-                            entidadeExternaController.dispose();
-                            notaTecnicaController.dispose();
-
-                            if (dialogContext.mounted) {
-                              Navigator.pop(dialogContext);
-                            }
-
-                            _mostrarMensagem('🛠️ Registo técnico concluído! A ordem aguarda agora Line Clearance.');
-                            _recarregarMantendoPosicao();
-                          } catch (e) {
-                            setDialogState(() => isSubmitting = false);
-                            _mostrarMensagem('Erro ao gravar registo técnico: $e', eErro: true);
-                          }
-                        },
-                ),
-              ],
-            );
-          },
-        );
-      },
+    final mensagem = await DialogoRegistoTecnico.mostrar(
+      context,
+      incidencia: incidenciaAtiva,
+      tecnicos: _tecnicosUtilizadores,
+      repositorio: _encomendasRepo,
     );
+    if (mensagem == null || !mounted) return;
+    _mostrarMensagem(mensagem);
+    _recarregarMantendoPosicao();
   }
 
-  void _abrirDialogLineClearance(EncomendaModel enc, Map<String, dynamic>? incidenciaAtiva) {
-    bool isSubmitting = false;
-
-    showDialog(
-      context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: Row(
-                children: [
-                  Icon(Icons.verified_user_rounded, color: TemasCores.sucessoTexto),
-                  const SizedBox(width: 8),
-                  const Text('Aprovar Line Clearance (FAI)'),
-                ],
-              ),
-              content: SizedBox(
-                width: 450,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (incidenciaAtiva != null) ...[
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(12),
-                        margin: const EdgeInsets.only(bottom: 16),
-                        decoration: BoxDecoration(
-                          color: TemasCores.sucessoFundo,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: TemasCores.sucessoBorda),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Resumo da Intervenção Técnica:',
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: TemasCores.sucessoTextoIntenso),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Tipo: ${incidenciaAtiva['tipo_manutencao'] ?? 'N/A'}',
-                              style: const TextStyle(fontSize: 12, color: TemasCores.sucessoTextoIntenso),
-                            ),
-                            if (incidenciaAtiva['tipo_manutencao'] == 'INTERNA')
-                              Text(
-                                'Técnico: ${incidenciaAtiva['utilizadores']?['nome_utilizador'] ?? 'Técnico Interno'}',
-                                style: const TextStyle(fontSize: 12, color: TemasCores.sucessoTextoIntenso),
-                              )
-                            else if (incidenciaAtiva['tipo_manutencao'] == 'EXTERNA')
-                              Text(
-                                'Entidade: ${incidenciaAtiva['entidade_externa'] ?? 'Empresa Externa'}',
-                                style: const TextStyle(fontSize: 12, color: TemasCores.sucessoTextoIntenso),
-                              ),
-                            if (incidenciaAtiva['nota_tecnica'] != null &&
-                                incidenciaAtiva['nota_tecnica'].toString().isNotEmpty)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 4),
-                                child: Text(
-                                  'Nota Técnica: ${incidenciaAtiva['nota_tecnica']}',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    fontStyle: FontStyle.italic,
-                                    color: TemasCores.sucessoTextoForte,
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                    ],
-                    const Text('Confirmação de Qualidade:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Ao aprovar o Line Clearance, confirma que a 1ª peça (First Article Inspection) foi validada e a linha de produção está limpa e pronta a retomar.',
-                      style: const TextStyle(fontSize: 11, color: TemasCores.textoApoioForte),
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: isSubmitting ? null : () => Navigator.pop(dialogContext),
-                  child: const Text('Cancelar'),
-                ),
-                ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: TemasCores.sucessoTexto,
-                    foregroundColor: TemasCores.textoInverso,
-                  ),
-                  icon: isSubmitting
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(color: TemasCores.textoInverso, strokeWidth: 2),
-                        )
-                      : const Icon(Icons.check_circle_rounded, size: 16),
-                  label: const Text('Validar & Libertar Linha'),
-                  onPressed: isSubmitting
-                      ? null
-                      : () async {
-                          setDialogState(() => isSubmitting = true);
-
-                          try {
-                            if (incidenciaAtiva == null) {
-                              throw Exception('Não há incidência ativa para validar.');
-                            }
-
-                            // Fechar a incidência e libertar a ordem numa só transação.
-                            await _encomendasRepo.aprovarLineClearance(
-                              int.parse(incidenciaAtiva['id'].toString()),
-                            );
-
-                            if (dialogContext.mounted) {
-                              Navigator.pop(dialogContext);
-                            }
-
-                            _mostrarMensagem('🟢 Line Clearance Aprovado! Produção retomada.');
-                            _recarregarMantendoPosicao();
-                          } catch (e) {
-                            setDialogState(() => isSubmitting = false);
-                            _mostrarMensagem('Erro ao aprovar Line Clearance: ${_limparErro(e)}', eErro: true);
-                          }
-                        },
-                ),
-              ],
-            );
-          },
-        );
-      },
+  Future<void> _abrirDialogLineClearance(
+    EncomendaModel enc,
+    Map<String, dynamic>? incidenciaAtiva,
+  ) async {
+    final mensagem = await DialogoLineClearance.mostrar(
+      context,
+      incidencia: incidenciaAtiva,
+      repositorio: _encomendasRepo,
     );
+    if (mensagem == null || !mounted) return;
+    _mostrarMensagem(mensagem);
+    _recarregarMantendoPosicao();
   }
 
-  // --- HISTÓRICO & TIMELINE DE RASTREABILIDADE ---
-
-  /// Converte a rastreabilidade da ordem numa lista de eventos ordenada do mais
-  /// recente para o mais antigo.
-  ///
-  /// Cada incidência pode gerar até três eventos: o WIP Hold, a reparação técnica
-  /// e o line clearance.
-  List<Map<String, dynamic>> _construirEventosTimeline(TimelineOrdem? timeline) {
-    final eventos = <Map<String, dynamic>>[];
-
-    for (final p in timeline?.producao ?? const <HistoricoModel>[]) {
-      final data = p.momento;
-      eventos.add({
-        'timestamp': data ?? DateTime.now(),
-        'data_str': data?.toIso8601String() ?? '',
-        'titulo': 'Concluída Fase ${p.ordemFase ?? ''}: ${p.nomeFase ?? 'Fase de Produção'}',
-        'subtitulo': 'Executado por: ${p.nomeUtilizador ?? 'Operador'}',
-        'tipo': 'PRODUCAO',
-        'cor': TemasCores.sucessoTexto,
-        'icone': Icons.check_circle_rounded,
-      });
-    }
-
-    for (final inc in timeline?.incidencias ?? const <IncidenciaModel>[]) {
-      final dataRegisto = inc.inicio;
-      final motivo = inc.motivo ?? 'Incidente em Linha';
-      final notaOp = inc.descricaoOperador;
-
-      eventos.add({
-        'timestamp': dataRegisto ?? DateTime.now(),
-        'data_str': dataRegisto?.toIso8601String() ?? '',
-        'titulo': 'WIP Hold (Linha Suspensa)',
-        'subtitulo': 'Motivo: $motivo${notaOp != null && notaOp.isNotEmpty ? "\nNota: $notaOp" : ""}',
-        'tipo': 'HOLD',
-        'cor': TemasCores.erroTexto,
-        'icone': Icons.pause_circle_filled_rounded,
-      });
-
-      if (inc.manutencaoConcluida) {
-        final dataManut = inc.dataFimManutencao ?? dataRegisto;
-        final notaTec = inc.notaTecnica ?? '';
-        eventos.add({
-          'timestamp': dataManut ?? DateTime.now(),
-          'data_str': dataManut?.toIso8601String() ?? '',
-          'titulo': 'Reparação Técnica Concluída (${inc.tipoManutencao ?? 'N/A'})',
-          'subtitulo':
-              'Responsável: ${inc.responsavelIntervencao ?? 'Técnico'}${notaTec.isNotEmpty ? "\nRelatório: $notaTec" : ""}',
-          'tipo': 'MANUTENCAO',
-          'cor': TemasCores.avisoTextoForte,
-          'icone': Icons.build_circle_rounded,
-        });
-      }
-
-      if (inc.lineClearanceValidado && inc.dataLineClearance != null) {
-        final dataClearance = inc.dataLineClearance!;
-        eventos.add({
-          'timestamp': dataClearance,
-          'data_str': dataClearance.toIso8601String(),
-          'titulo': 'Line Clearance Aprovado (Produção Retomada)',
-          'subtitulo': 'Aprovado por Responsável de Qualidade/Supervisão',
-          'tipo': 'CLEARANCE',
-          'cor': TemasCores.infoTextoForte,
-          'icone': Icons.verified_user_rounded,
-        });
-      }
-    }
-
-    return eventos;
-  }
-
-  Future<void> _abrirDialogHistorico(EncomendaModel enc) async {
-    final int encId = enc.id;
-    final idFormatado = Formatos.referenciaOrdem(
-      encId,
-      criadaEm: enc.createdAt?.toIso8601String(),
-    );
-
-    showDialog(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: Row(
-            children: [
-              const Icon(Icons.history_edu_rounded, color: TemasCores.marcaEscura),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'Histórico & Rastreabilidade - $idFormatado',
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-          ),
-          content: SizedBox(
-            width: 550,
-            height: 450,
-            child: FutureBuilder(
-              future: _encomendasRepo.obterTimeline(encId),
-              builder: (context, AsyncSnapshot<TimelineOrdem> snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-
-                if (snapshot.hasError) {
-                  return Center(
-                    child: Text('Erro ao carregar histórico: ${snapshot.error}', style: const TextStyle(color: TemasCores.erro)),
-                  );
-                }
-
-                final eventosTimeline = _construirEventosTimeline(snapshot.data);
-
-                if (eventosTimeline.isEmpty) {
-                  return const Center(
-                    child: Text('Nenhum evento registado no histórico desta ordem.', style: TextStyle(color: TemasCores.textoTerciario)),
-                  );
-                }
-
-                eventosTimeline.sort((a, b) => (b['timestamp'] as DateTime).compareTo(a['timestamp'] as DateTime));
-
-                return ListView.builder(
-                  itemCount: eventosTimeline.length,
-                  itemBuilder: (context, idx) {
-                    final item = eventosTimeline[idx];
-                    return Container(
-                      margin: const EdgeInsets.only(bottom: 16),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Column(
-                            children: [
-                              CircleAvatar(
-                                radius: 14,
-                                backgroundColor: (item['cor'] as Color).withOpacity(0.15),
-                                child: Icon(item['icone'] as IconData, size: 16, color: item['cor'] as Color),
-                              ),
-                              if (idx != eventosTimeline.length - 1)
-                                Container(
-                                  width: 2,
-                                  height: 35,
-                                  color: TemasCores.bordaForte,
-                                ),
-                            ],
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: TemasCores.superficieTenue,
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: TemasCores.borda),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Expanded(
-                                        child: Text(
-                                          item['titulo'].toString(),
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 12,
-                                            color: item['cor'] as Color,
-                                          ),
-                                        ),
-                                      ),
-                                      Text(
-                                        Formatos.dataHora(item['data_str']),
-                                        style: const TextStyle(fontSize: 10, color: TemasCores.textoTerciario),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    item['subtitulo'].toString(),
-                                    style: const TextStyle(fontSize: 11, color: TemasCores.textoApoioIntenso),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                );
-              },
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Fechar'),
-            ),
-          ],
-        );
-      },
+  Future<void> _abrirDialogHistorico(EncomendaModel enc) {
+    return DialogoHistoricoOrdem.mostrar(
+      context,
+      encomenda: enc,
+      repositorio: _encomendasRepo,
     );
   }
 
@@ -1150,7 +537,7 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
       await _recarregarMantendoPosicao();
       if (mounted) setState(() => _isLoading = false);
     } catch (e) {
-      _mostrarMensagem('Erro ao cancelar ordem: ${_limparErro(e)}', eErro: true);
+      _mostrarMensagem('Erro ao cancelar ordem: ${mensagemDeErro(e)}', eErro: true);
       if (mounted) setState(() => _isLoading = false);
     }
   }
@@ -1736,158 +1123,22 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
 
   // --- POPUPS E DIALOGS ADICIONAIS ---
 
-  void _confirmarCancelamento(int id, String refOrdem) {
-    final motivoController = TextEditingController();
-
-    showDialog(
-      context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: const Text('Cancelar Ordem de Produção'),
-              content: SizedBox(
-                width: 420,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'A ordem $refOrdem será marcada como cancelada. O histórico de '
-                      'produção e as incidências são preservados para auditoria.',
-                      style: const TextStyle(fontSize: 13),
-                    ),
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: motivoController,
-                      maxLines: 2,
-                      autofocus: true,
-                      decoration: const InputDecoration(
-                        labelText: 'Motivo do cancelamento *',
-                        hintText: 'Ex: Anulação a pedido do cliente.',
-                        border: OutlineInputBorder(),
-                      ),
-                      onChanged: (_) => setDialogState(() {}),
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () {
-                    motivoController.dispose();
-                    Navigator.pop(dialogContext);
-                  },
-                  child: const Text('Não'),
-                ),
-                ElevatedButton(
-                  onPressed: motivoController.text.trim().isEmpty
-                      ? null
-                      : () {
-                          final motivo = motivoController.text.trim();
-                          motivoController.dispose();
-                          Navigator.pop(dialogContext);
-                          _cancelarOrdem(id, motivo);
-                        },
-                  style: ElevatedButton.styleFrom(backgroundColor: TemasCores.erro, foregroundColor: TemasCores.textoInverso),
-                  child: const Text('Sim, Cancelar'),
-                ),
-              ],
-            );
-          },
-        );
-      },
+  Future<void> _confirmarCancelamento(int id, String refOrdem) async {
+    final motivo = await DialogoCancelarOrdem.mostrar(
+      context,
+      referencia: refOrdem,
     );
+    if (motivo == null || !mounted) return;
+    await _cancelarOrdem(id, motivo);
   }
 
-  void _abrirDialogEditar(EncomendaModel enc) {
-    final dataController = TextEditingController(text: enc.dataEntregaIso ?? '');
-    final fasesDisponiveis = List<FaseModel>.from(
-      _fasesPorProduto[enc.tipoProdutoId] ?? const <FaseModel>[],
+  Future<void> _abrirDialogEditar(EncomendaModel enc) async {
+    final edicao = await DialogoEditarOrdem.mostrar(
+      context,
+      encomenda: enc,
+      fases: _fasesPorProduto[enc.tipoProdutoId] ?? const <FaseModel>[],
     );
-
-    int? faseIdSelecionada = enc.faseAtualId;
-
-    showDialog(
-      context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: const Text('Editar Ordem de Produção'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                    controller: dataController,
-                    readOnly: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Data de Entrega (AAAA-MM-DD)',
-                      suffixIcon: Icon(Icons.calendar_today),
-                    ),
-                    onTap: () async {
-                      final DateTime? data = await showDatePicker(
-                        context: context,
-                        initialDate: DateTime.tryParse(dataController.text) ?? DateTime.now(),
-                        firstDate: DateTime.now().subtract(const Duration(days: 365)),
-                        lastDate: DateTime.now().add(const Duration(days: 365)),
-                      );
-                      if (data != null) {
-                        setDialogState(() {
-                          dataController.text =
-                              "${data.year}-${data.month.toString().padLeft(2, '0')}-${data.day.toString().padLeft(2, '0')}";
-                        });
-                      }
-                    },
-                  ),
-                  const SizedBox(height: 16),
-                  DropdownButtonFormField<int?>(
-                    value: faseIdSelecionada,
-                    decoration: const InputDecoration(labelText: 'Fase Atual de Produção'),
-                    items: [
-                      ...fasesDisponiveis.map((f) {
-                        return DropdownMenuItem<int?>(
-                          value: f.id,
-                          child: Text('Fase ${f.ordem}: ${f.nomeFasePadrao}'),
-                        );
-                      }),
-                      const DropdownMenuItem<int?>(
-                        value: null,
-                        child: Text('🏁 Dar como Concluída'),
-                      ),
-                    ],
-                    onChanged: (val) {
-                      setDialogState(() => faseIdSelecionada = val);
-                    },
-                  ),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () {
-                    dataController.dispose();
-                    Navigator.pop(dialogContext);
-                  },
-                  child: const Text('Cancelar'),
-                ),
-                ElevatedButton(
-                  onPressed: () {
-                    final novaData = dataController.text.trim();
-                    dataController.dispose();
-                    Navigator.pop(dialogContext);
-                    _salvarEdicaoOrdem(
-                      enc.id,
-                      novaData,
-                      faseIdSelecionada,
-                    );
-                  },
-                  child: const Text('Gravar'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
+    if (edicao == null || !mounted) return;
+    await _salvarEdicaoOrdem(enc.id, edicao.dataEntrega, edicao.faseAtualId);
   }
 }

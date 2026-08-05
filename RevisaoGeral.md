@@ -234,7 +234,7 @@ Aplicam-se a tudo o que falta. Existem porque o recurso escasso não é o códig
 |---|---|---|---|
 | 1 | RLS + advisors + trigger de registo | 1 | ✅ concluída (2 ago 2026) |
 | 2 | Testes do `encomendas_repository` + `RecarregadorDebounced` + CI | 4 | ✅ concluída (3 ago 2026) |
-| 3 | `painel_controlo` — extrair os 5 diálogos (1761 → ~850 linhas) | 3.1 | ⬜ |
+| 3 | `painel_controlo` — extrair os 5 diálogos (1761 → ~850 linhas) | 3.1 | ✅ concluída (3 ago 2026) — 1761 → 1053 |
 | 4 | `painel_controlo` — extrair cartão de ordem e botões de ação (~850 → ~450) | 3.1 | ⬜ |
 | 5 | `gestao_utilizadores` (1024 → ~400) | 3.1 | ⬜ |
 | 6 | `informacoes_clientes` (1230 → ~450) | 3.1 | ⬜ |
@@ -504,3 +504,52 @@ Resolvido com `package:clock`: `clock.now()` em vez de `DateTime.now()`. Em prod
 ### 12.4 Comportamento da aplicação
 
 Nenhuma alteração funcional. A refatoração do filtro produz exatamente as mesmas condições que o `switch` anterior (é isso que os testes de 12.1 fixam) e o `clock.now()` é o relógio do sistema fora de testes.
+
+---
+
+## 13. Sessão 3 — `painel_controlo`: extração dos diálogos
+
+**Data:** 3 de agosto de 2026. Fecha a sessão 3 da secção 8. `painel_controlo_screen.dart`: **1761 → 1053 linhas**. `flutter analyze` sem erros nem warnings (33 `info`, os mesmos de antes); 234 testes verdes.
+
+### 13.1 O que saiu do ecrã
+
+Seis diálogos, em `lib/screens/dashboard_admin/dialogos/`:
+
+| Ficheiro | Devolve | Linhas |
+|---|---|---|
+| `dialogo_wip_hold.dart` | mensagem de sucesso, ou `null` | 153 |
+| `dialogo_registo_tecnico.dart` | mensagem de sucesso, ou `null` | 218 |
+| `dialogo_line_clearance.dart` | mensagem de sucesso, ou `null` | 170 |
+| `dialogo_historico_ordem.dart` | nada — só lê | 237 |
+| `dialogo_editar_ordem.dart` | `EdicaoOrdem(dataEntrega, faseAtualId)`, ou `null` | 116 |
+| `dialogo_cancelar_ordem.dart` | motivo escrito, ou `null` | 79 |
+
+O `_construirEventosTimeline` foi com o diálogo do histórico — é a única coisa que o usa.
+
+### 13.2 Contrato adotado: o diálogo devolve, o ecrã reage
+
+Cada diálogo passou de `StatefulBuilder` dentro de uma closure a `StatefulWidget` próprio com um construtor estático `mostrar(...)`. O resultado sai por `Navigator.pop`; o ecrã fica com três linhas por ação:
+
+```dart
+final mensagem = await DialogoWipHold.mostrar(context, ...);
+if (mensagem == null || !mounted) return;
+_mostrarMensagem(mensagem);
+_recarregarMantendoPosicao();
+```
+
+Foi esta a escolha porque a alternativa — passar `aoMostrarMensagem` e `aoConcluir` como callbacks — mantinha o ecrã acoplado ao interior de cada diálogo e não reduzia nada de fundo.
+
+Quem escreve na base de dados continua a ser o diálogo, **exceto** em editar e cancelar: esses só recolhem a decisão e devolvem-na, porque a gravação mexe no `_isLoading` do ecrã.
+
+Efeito colateral bem-vindo: os `TextEditingController` passaram a ser libertados no `dispose` do `State`. Antes cada botão do diálogo tinha de se lembrar de chamar `dispose()` — e o caminho do erro não o fazia.
+
+### 13.3 Duas mudanças que não são extração pura
+
+1. **`mensagemDeErro`** — o `_limparErro` privado do ecrã subiu para [mensagens.dart](lib/core/mensagens.dart) para poder ser usado pelos diálogos. É a mesma função; o ecrã passou a chamar a partilhada e a sua cópia foi apagada.
+2. **Erro do registo técnico** — mostrava `$e` cru (`Exception: ...`); passou a usar `mensagemDeErro(e)`, como todos os outros. Era o único do ficheiro fora do padrão.
+
+### 13.4 Comportamento da aplicação
+
+Sem alterações visíveis, tirando o texto do erro em 13.2.2. Os SnackBars de validação dentro dos diálogos passaram a ser emitidos com o `context` do diálogo em vez do `context` do ecrã — é o mesmo `ScaffoldMessenger` ancestral, logo aparecem no mesmo sítio.
+
+**Por confirmar com a aplicação a correr:** abrir cada um dos seis diálogos no painel de controlo, com uma ordem em produção e outra em hold. É extração, mas nenhum tem teste de widget.
