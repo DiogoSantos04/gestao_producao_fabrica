@@ -553,3 +553,173 @@ Efeito colateral bem-vindo: os `TextEditingController` passaram a ser libertados
 Sem alterações visíveis, tirando o texto do erro em 13.2.2. Os SnackBars de validação dentro dos diálogos passaram a ser emitidos com o `context` do diálogo em vez do `context` do ecrã — é o mesmo `ScaffoldMessenger` ancestral, logo aparecem no mesmo sítio.
 
 **Por confirmar com a aplicação a correr:** abrir cada um dos seis diálogos no painel de controlo, com uma ordem em produção e outra em hold. É extração, mas nenhum tem teste de widget.
+
+---
+
+## 14. Sessão 4 — `painel_controlo`: extração do cartão e do rodapé
+
+**Data:** 5 de agosto de 2026. Fecha a sessão 4 da secção 8. `painel_controlo_screen.dart`: **1144 → 737 linhas** (o ficheiro em disco tinha 1144 no início desta sessão, não os 1053 registados em 13; a diferença são as linhas em branco e comentários que a extração dos diálogos deixou). `flutter analyze` dos ficheiros tocados sem erros nem warnings; 234 testes verdes.
+
+### 14.1 O que saiu do ecrã
+
+| Ficheiro | Contém | Linhas |
+|---|---|---|
+| `lib/screens/dashboard_admin/widgets/cartao_ordem_producao.dart` | `CartaoOrdemProducao` e, privados, `_LinhaEtiquetas`, `_BotoesAcao`, `_coresEstado`, `_etiqueta`, `_estaAtrasada` | 472 |
+| `lib/screens/dashboard_admin/widgets/rodape_paginacao.dart` | `RodapePaginacao` | 56 |
+
+O `_verificarSeAtrasada` do ecrã foi com o cartão (passou a `_estaAtrasada`, função de topo de ficheiro) — era o único sítio que o usava. O `import` de `etiqueta_estado.dart` deixou de fazer falta no ecrã.
+
+O que **ficou** no ecrã: estado, consultas, realtime, as ações sobre ordens e o `_calcularProgresso` — este porque a percentagem depende do roteiro do produto, que vive no `_fasesPorProduto` do ecrã.
+
+### 14.2 Contrato adotado: o cartão não sabe de rede
+
+`CartaoOrdemProducao` recebe a encomenda, o **progresso já calculado** e um callback por ação. Não tem repositório, não faz `setState` de lista, não conhece o `EncomendasRepository`.
+
+```dart
+CartaoOrdemProducao(
+  encomenda: enc,
+  progresso: _calcularProgresso(enc),
+  aoAvancarFase: () => _avancarFase(enc),
+  aoRegistoTecnico: (incidencia) => _abrirDialogRegistoTecnico(enc, incidencia),
+  aoCancelar: (idFormatado) => _confirmarCancelamento(enc.id, idFormatado),
+  // ...
+)
+```
+
+Duas assinaturas fogem ao `VoidCallback` e é de propósito:
+
+- **`aoRegistoTecnico` / `aoLineClearance`** recebem `Map<String, dynamic>?` — a incidência ativa é derivada dentro do cartão (`enc.incidenciaAtiva`), e é ela que decide qual dos dois botões aparece. Devolvê-la no callback evita que o ecrã tenha de a derivar outra vez.
+- **`aoCancelar`** recebe a referência já formatada. É o cartão que chama `Formatos.referenciaOrdem`, e é essa string que o diálogo de confirmação mostra ao utilizador — reformatá-la no ecrã seria duplicar a regra.
+
+As regras de que botão aparece em que estado não mudaram: cancelada só permite histórico; em hold mostra Registo Técnico ou Line Clearance conforme `manutencao_concluida`; em produção mostra WIP Hold e Avançar Fase; concluída mostra apenas Histórico, Editar e Cancelar.
+
+### 14.3 `RodapePaginacao` nasceu genérico, mas fica onde está
+
+O rodapé não tem nada de específico das ordens de produção — é o par `aCarregar` / `erro` que qualquer lista paginada deste projeto tem. Por isso o título do erro é parâmetro (`tituloErro`), com um texto neutro por omissão, e o ecrã passa o seu:
+
+```dart
+RodapePaginacao(
+  aCarregar: _aCarregarMais,
+  erro: _erroPaginacao,
+  aoCarregarMais: _carregarMais,
+  tituloErro: 'Não foi possível carregar mais ordens.',
+)
+```
+
+Ficou em `dashboard_admin/widgets/` e não em `lib/widgets/` por causa da regra da secção 8: só sobe à segunda ocorrência real. É o primeiro candidato a subir quando outro ecrã paginado aparecer nas sessões 5–7.
+
+### 14.4 Porque o ecrã ficou em 737 e não nos ~450 previstos
+
+A estimativa da secção 8 contava com um corte só de UI. O que sobra depois de tirar a UI toda são cerca de 230 linhas de realtime — `_aoEventoRealtime` e os seus auxiliares (`_talvezInserir`, `_atualizarLocalmente`, `_substituirDoServidor`, `_pertenceAoFiltro`, `_correspondeAPesquisa`, `_faseDoRoteiro`) — mais as consultas e a paginação.
+
+Isso é lógica de estado, não de apresentação: para sair do `State` precisa de um controller (`ChangeNotifier` ou equivalente), que é uma mudança de arquitetura e não uma extração. Fica como decisão para a sessão 8, a par da instância única do `AuthService`.
+
+### 14.5 Comportamento da aplicação
+
+Nenhuma alteração funcional. A árvore de widgets construída é a mesma, com os mesmos valores; `_LinhaEtiquetas` e `_BotoesAcao` passaram de métodos `_build...` a `StatelessWidget`, o que só muda o local de reconstrução na árvore, não o que é desenhado.
+
+**Por confirmar com a aplicação a correr:** percorrer a lista com os cinco filtros de estado, confirmar que os botões de cada cartão continuam a abrir o diálogo certo e que o "Carregar mais" e o seu estado de erro se comportam como antes. Continua sem teste de widget.
+
+---
+
+## 15. Sessão 5 — `gestao_utilizadores`: diálogos, painel de detalhe e linha da tabela
+
+**Data:** 5 de agosto de 2026. Fecha a sessão 5 da secção 8. `gestao_utilizadores_screen.dart`: **1108 → 558 linhas**. `flutter analyze` dos ficheiros tocados sem erros nem warnings; 234 testes verdes.
+
+### 15.1 O que saiu do ecrã
+
+| Ficheiro | Contém | Linhas |
+|---|---|---|
+| `widgets/identidade_utilizador.dart` | `AvatarUtilizador`, `EtiquetaPerfil`, `EtiquetaEstadoConta` | 72 |
+| `widgets/linha_utilizador.dart` | `LinhaUtilizador` e, privado, `_ChipPosto` | 170 |
+| `widgets/painel_detalhe_utilizador.dart` | `PainelDetalheUtilizador.mostrar(...)`, `_LinhaDetalhe`, `_formatarData` | 241 |
+| `dialogos/dialogo_editar_utilizador.dart` | `DialogoEditarUtilizador`, `EdicaoUtilizador` | 146 |
+| `dialogos/dialogo_adicionar_funcionario.dart` | `DialogoAdicionarFuncionario` | 152 |
+| `dialogos/dialogo_rejeitar_registo.dart` | `DialogoRejeitarRegisto.mostrar(...)` | 35 |
+
+O que **ficou** no ecrã: carregamento, subscrição e timer dos postos, filtro, ordenação, os quatro KPIs, a barra de pesquisa e o cabeçalho ordenável da tabela — este último porque é ele que lê `_colunaOrdenacao` e `_ordemAscendente`.
+
+### 15.2 `identidade_utilizador.dart` — o caso que a regra da secção 8 previa
+
+O avatar de iniciais e as duas pílulas (perfil, estado da conta) eram usados em dois sítios: a linha da tabela e o cabeçalho do painel de detalhe. Ao separar os dois, ou se duplicavam ou subiam para um ficheiro comum. É exatamente a segunda ocorrência real de que fala a regra — subiram.
+
+Ficaram em `dashboard_admin/widgets/` e não em `lib/widgets/` porque ambos os consumidores estão no dashboard do administrador. Sobem a `lib/widgets/` se o portal do cliente ou o terminal do operador vierem a precisar deles.
+
+### 15.3 Contrato: editar devolve, adicionar grava
+
+A distinção é a mesma da sessão 3, e pela mesma razão.
+
+**`DialogoEditarUtilizador` devolve** um `EdicaoUtilizador(nome, perfil, estadoConta)` e não escreve nada. A gravação passa por `_atualizarUtilizador`, que liga o `_isLoading` do ecrã e recarrega a lista no fim — estado que é do ecrã, não do diálogo. A tradução da etiqueta 'Administrador' para o valor de coluna 'Admin' foi com o diálogo, que é quem apresenta a etiqueta.
+
+**`DialogoAdicionarFuncionario` grava** e devolve a mensagem de sucesso. Tem estado próprio de gravação (`_aGravar` desativa os campos e põe o spinner no botão) e só fecha quando a conta existe mesmo; se a criação falhar, mostra o erro e fica aberto com o que já foi escrito. Devolver a decisão e gravar fora obrigaria a reabrir o diálogo em caso de erro, perdendo o formulário.
+
+**`DialogoRejeitarRegisto` devolve `bool`.** É uma confirmação, não um formulário.
+
+Como na sessão 3, os `TextEditingController` passaram a ser libertados no `dispose` do `State`. Nos dois diálogos convertidos não eram libertados de todo — eram criados dentro de `_abrirDialogEditar` / `_abrirDialogAdicionar` e ficavam sem dono quando o diálogo fechava.
+
+### 15.4 `PainelDetalheUtilizador` lê as suas próprias métricas
+
+É a única exceção à regra "o widget extraído não sabe de rede", e é deliberada: as métricas (`obterMetricas`) só existem para este painel, já eram carregadas dentro dele por um `FutureBuilder`, e esse `FutureBuilder` já trata da espera e do erro. Trazê-las para o ecrã seria acrescentar-lhe estado que mais nada usa. Recebe o `UtilizadoresRepository` por parâmetro, sem instanciar o seu.
+
+O botão "Editar Utilizador" do painel continua a fechar o painel antes de abrir o diálogo — a ordem importa e está preservada no callback `aoEditar`.
+
+### 15.5 Duas mudanças que não são extração pura
+
+1. **Erro ao criar funcionário** — mostrava `e.toString().replaceAll('Exception: ', '')`; passou a `mensagemDeErro(e)`, a mesma função que os diálogos da sessão 3 usam. Era o último sítio do ficheiro com tratamento de erro próprio.
+2. **Deprecações corrigidas ao passar** — `withOpacity` → `.withValues(alpha:)` no avatar e nas linhas de detalhe, e `Switch.activeColor` → `activeThumbColor` na linha da tabela. São substituições diretas, sem alteração de cor. Reduz em três a lista da sessão 8 (secção 5).
+
+Os `DropdownButtonFormField.value` **não** foram tocados: `initialValue` tem semântica diferente na reconstrução do formulário e trocá-los merece ser feito de uma vez, com verificação, na sessão 8.
+
+### 15.6 Comportamento da aplicação
+
+Nenhuma alteração funcional, tirando o texto do erro em 15.5.1. A árvore construída é a mesma; `LinhaUtilizador`, `EtiquetaPerfil` e `EtiquetaEstadoConta` passaram de métodos `_build...` a `StatelessWidget`.
+
+**Por confirmar com a aplicação a correr:** aprovar e rejeitar um registo pendente, o toggle ativo/inativo, abrir o painel de detalhe de um operador com e sem posto atribuído, editar a partir da linha e a partir do painel, e criar um funcionário novo (incluindo o caso do email já existente, para ver o diálogo manter-se aberto com o erro). Continua sem teste de widget.
+
+---
+
+## 16. Sessão 6 — `informacoes_clientes`: tabela, drawer, formulário e KPIs
+
+**Data:** 5 de agosto de 2026. Fecha a sessão 6 da secção 8. `informacoes_clientes_screen.dart`: **1306 → 528 linhas** — o maior corte até agora. `flutter analyze lib` sem erros nem warnings; 234 testes verdes.
+
+### 16.1 O que saiu do ecrã
+
+| Ficheiro | Contém | Linhas |
+|---|---|---|
+| `widgets/linha_cliente.dart` | `LinhaCliente`, `CabecalhoTabelaClientes`, `LinhaIcone` e as cinco colunas privadas | 297 |
+| `widgets/painel_detalhe_cliente.dart` | `PainelDetalheCliente` e, privados, `_Cabecalho`, `_SeccaoFiscal`, `_SeccaoPedidos`, `_SeccaoEncomendas`, `_TituloSeccao`, `_ItemSeccao`, `_SeccaoVazia`, `_LinhaDetalhe` | 395 |
+| `dialogos/dialogo_cliente.dart` | `DialogoCliente`, `DadosCliente`, `TelefoneInputFormatter` | 213 |
+| `widgets/barra_filtros_clientes.dart` | `BarraFiltrosClientes` | 98 |
+| `widgets/kpis_carteira_clientes.dart` | `KpisCarteiraClientes` | 70 |
+
+O que **ficou**: paginação, realtime com debounce, pesquisa, as escritas (`_inserirCliente`, `_atualizarCliente`), `_sincronizarDetalhe` e a árvore que distingue os quatro estados da tabela (falha, carteira vazia, filtros sem resultados, lista).
+
+### 16.2 `RodapePaginacao` subiu para `lib/widgets/`
+
+A sessão 4 deixou-o em `dashboard_admin/widgets/` com a nota de que subiria à segunda ocorrência real. É esta: a carteira de clientes tem o mesmo rodapé, com o mesmo par `aCarregar` / `erro`, mudando só o texto — que já era parâmetro (`tituloErro`).
+
+Está agora em [lib/widgets/rodape_paginacao.dart](lib/widgets/rodape_paginacao.dart), ao lado do `EstadoErro` de que depende, e o painel de controlo passou a importá-lo de lá. O `_buildRodapePaginacao` do ecrã de clientes — que era uma segunda cópia do mesmo código — desapareceu.
+
+### 16.3 `TelefoneInputFormatter` foi com o formulário
+
+Era uma classe pública no topo do ficheiro do ecrã, mas o seu único utilizador é o campo de contacto do diálogo. Foi para `dialogo_cliente.dart` sem alteração. A regra de formatação continua a ser a do modelo (`ClienteModel.formatarTelefone`), partilhada com `contactoFormatado` — não há aqui nenhuma segunda implementação.
+
+### 16.4 Contrato: o formulário é um só, a decisão de gravar é do ecrã
+
+`DialogoCliente` serve criar e editar — a diferença é o título e os valores iniciais. Devolve `DadosCliente` e não escreve nada; `_abrirDialogCliente` decide entre `_inserirCliente` e `_atualizarCliente` conforme tenha recebido um cliente existente. Como nas sessões 3 e 5, a razão é o `_isLoading`: quem o liga tem de ser quem o desliga.
+
+A validação mínima — nome e contacto obrigatórios — ficou no diálogo, que é onde estava: com os campos vazios, o botão Gravar não fecha nem devolve nada.
+
+Os seis `TextEditingController` passaram a ser libertados no `dispose`. Eram criados dentro de `_abrirDialogCliente` e ficavam sem dono quando o diálogo fechava.
+
+### 16.5 Uma mudança de mecanismo: o botão de limpar a pesquisa
+
+O ecrã fazia `setState(() {})` a cada tecla, só para o ícone de limpar aparecer e desaparecer — redesenhava a tabela inteira para mudar um ícone. A `BarraFiltrosClientes` observa agora o próprio `TextEditingController` com um `ValueListenableBuilder`, e o `setState` saiu do `_aoEscreverPesquisa`.
+
+O comportamento visível é o mesmo; o que muda é o que se reconstrói a cada tecla. O debounce da pesquisa continua no ecrã, onde tem de estar.
+
+### 16.6 Comportamento da aplicação
+
+Sem alterações funcionais. A árvore construída é a mesma; o método de 191 linhas que desenhava a linha da tabela é agora cinco widgets com nome, um por coluna.
+
+**Por confirmar com a aplicação a correr:** criar e editar um cliente (incluindo o telefone a formatar-se enquanto se escreve e o switch do portal), abrir o drawer de um cliente com e sem pedidos/encomendas, os quatro estados da tabela (erro, carteira vazia, filtros sem resultados, lista com "Carregar mais"), e o botão de limpar a pesquisa. Continua sem teste de widget.
