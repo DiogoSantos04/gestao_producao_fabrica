@@ -111,13 +111,16 @@ class FluxosRepository extends BaseRepository {
   /// Primeira fase do roteiro de um produto, ou `null` se não houver roteiro.
   Future<Map<String, dynamic>?> obterFaseInicial(int tipoProdutoId) {
     return guarda('procurar a fase inicial', () async {
+      // Pode existir mais do que uma fase com ordem 1 (dados legados/duplicados),
+      // por isso limitamos em vez de exigir uma linha única.
       final res = await client
           .from('fases_padrao')
           .select('id')
           .eq('tipos_produto_id', tipoProdutoId)
           .eq('ordem', 1)
-          .maybeSingle();
-      return res == null ? null : Map<String, dynamic>.from(res);
+          .order('id')
+          .limit(1);
+      return res.isEmpty ? null : Map<String, dynamic>.from(res.first);
     });
   }
 

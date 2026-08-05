@@ -127,11 +127,11 @@ class _DialogoLineClearanceState extends State<DialogoLineClearance> {
     final incidencia = widget.incidencia;
 
     return AlertDialog(
-      title: Row(
+      title: const Row(
         children: [
           Icon(Icons.verified_user_rounded, color: TemasCores.sucessoTexto),
-          const SizedBox(width: 8),
-          const Text('Aprovar Line Clearance (FAI)'),
+          SizedBox(width: 8),
+          Text('Aprovar Line Clearance (FAI)'),
         ],
       ),
       content: SizedBox(

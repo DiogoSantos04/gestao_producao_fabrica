@@ -13,7 +13,7 @@ import '../../../widgets/estado_erro.dart';
 /// painel de controlo usa. Antes, este ecrã fazia duas escritas soltas e
 /// **nunca** colocava `encomendas.em_suspenso = true`: o botão "Bloquear
 /// Produção" criava a incidência mas deixava a ordem a fluir para o admin e
-/// para os postos seguintes. Ver bugs (B), (C) e (D) em AlteracoesNoOperador.md.
+/// para os postos seguintes. Ver bugs (B), (C) e (D) em docs/AlteracoesNoOperador.md.
 ///
 /// O `historico_producao_id` deixou de ser fabricado aqui. Para obter um, o
 /// ecrã inseria um registo com `data_conclusao = agora` para uma fase que não

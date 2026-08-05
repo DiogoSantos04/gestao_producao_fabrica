@@ -370,14 +370,14 @@ class _ClientesScreenState extends State<ClientesScreen> {
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
-                                  Column(
+                                  const Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      const Text(
+                                      Text(
                                         'Base de Dados de Clientes',
                                         style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: TemasCores.textoPrimario),
                                       ),
-                                      const SizedBox(height: 4),
+                                      SizedBox(height: 4),
                                       Text(
                                         'Gestão de informações fiscais, logísticas e credenciais de acesso',
                                         style: TextStyle(fontSize: 13, color: TemasCores.textoTerciario),
@@ -504,7 +504,7 @@ class _ClientesScreenState extends State<ClientesScreen> {
                   GestureDetector(
                     onTap: () => setState(() => _clienteDetalhesSelecionado = null),
                     child: Container(
-                      color: TemasCores.sombraBase.withOpacity(0.35),
+                      color: TemasCores.sombraBase.withValues(alpha: 0.35),
                       width: double.infinity,
                       height: double.infinity,
                     ),

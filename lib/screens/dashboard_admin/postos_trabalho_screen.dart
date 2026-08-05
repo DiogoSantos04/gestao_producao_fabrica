@@ -183,7 +183,7 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-            color: TemasCores.sombraBase.withOpacity(0.04),
+            color: TemasCores.sombraBase.withValues(alpha: 0.04),
             blurRadius: 10,
             offset: const Offset(0, 4),
           )
@@ -315,7 +315,7 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(12),
                                   side: BorderSide(
-                                    color: corBadge.withOpacity(0.6),
+                                    color: corBadge.withValues(alpha: 0.6),
                                     width: temIncidencia ? 2.5 : 1.5,
                                   ),
                                 ),
@@ -340,7 +340,7 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
                                           ),
                                           EtiquetaEstado(
                                             rotulo: estadoBadge,
-                                            fundo: corBadge.withOpacity(0.15),
+                                            fundo: corBadge.withValues(alpha: 0.15),
                                             texto: corBadge,
                                             borda: corBadge,
                                             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -358,7 +358,7 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
                                       ),
                                       const SizedBox(height: 4),
                                       DropdownButtonFormField<String?>(
-                                        value: valorValidoDropdown,
+                                        initialValue: valorValidoDropdown,
                                         isExpanded: true,
                                         decoration: InputDecoration(
                                           contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -374,7 +374,7 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
                                               value: op['utilizador_id'].toString(),
                                               child: Text(op['nome_utilizador'] ?? 'Sem Nome', style: const TextStyle(fontSize: 13)),
                                             );
-                                          }).toList(),
+                                          }),
                                         ],
                                         onChanged: (novoVal) {
                                           _atualizarOperadorPosto(posto['id'], novoVal);

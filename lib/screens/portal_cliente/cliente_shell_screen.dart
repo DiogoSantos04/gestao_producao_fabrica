@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../core/iniciais.dart';
 import '../../repositories/base_repository.dart';
 import '../../repositories/portal_cliente_repository.dart';
 import '../../services/auth_service.dart';
@@ -49,6 +50,7 @@ class _ClienteShellScreenState extends State<ClienteShellScreen> {
   @override
   void initState() {
     super.initState();
+    _semearPerfilEmCache();
     _iniciarEscutaPerfilEmTempoReal();
     _iniciarEscutaNotificacoesEmTempoReal();
   }
@@ -58,6 +60,20 @@ class _ClienteShellScreenState extends State<ClienteShellScreen> {
     _utilizadorStreamSubscription?.cancel();
     _notificacoesStreamSubscription?.cancel();
     super.dispose();
+  }
+
+  /// Mostra já o perfil que o login carregou, para o cabeçalho não abrir com
+  /// "carregando..." até o stream de `utilizadores` entregar a primeira linha.
+  void _semearPerfilEmCache() {
+    if (!_authService.temPerfilEmCache) return;
+
+    final identidade = _authService.identidadeParaCabecalho(
+      nomeOmissao: 'Cliente',
+      emailOmissao: 'cliente@factory.com',
+    );
+    _nomeUtilizador = identidade.nome;
+    _emailUtilizador = identidade.email;
+    _carregandoPerfil = false;
   }
 
   void _iniciarEscutaPerfilEmTempoReal() {
@@ -151,14 +167,15 @@ class _ClienteShellScreenState extends State<ClienteShellScreen> {
     });
   }
 
-  String _obterIniciais(String? nome) {
-    if (nome == null || nome.trim().isEmpty) return 'CL';
-    final limpo = nome.trim();
-    final partes = limpo.split(' ');
-    if (partes.length >= 2 && partes[0].isNotEmpty && partes[1].isNotEmpty) {
-      return '${partes[0][0]}${partes[1][0]}'.toUpperCase();
-    }
-    return limpo.substring(0, limpo.length >= 2 ? 2 : 1).toUpperCase();
+  /// Iniciais do cliente, pela mesma implementação que os outros dois perfis.
+  String get _iniciais => obterIniciais(_nomeUtilizador, omissao: 'CL');
+
+  /// Identificador do cliente apresentado na interface.
+  ///
+  /// Mantém o formato anterior, mas deixa de estar escrito em dois sítios.
+  String get _idCliente {
+    final digitos = _nomeUtilizador.hashCode.abs().toString().padLeft(4, '0');
+    return 'CLI-2026-${digitos.substring(0, 4)}';
   }
 
   void _mostrarDialogoAlterarPalavraPasse() {
@@ -279,8 +296,8 @@ class _ClienteShellScreenState extends State<ClienteShellScreen> {
   }
 
   Widget _construirEcraPerfil() {
-    final String iniciais = _obterIniciais(_nomeUtilizador);
-    final String idDisplay = 'CLI-2026-${_nomeUtilizador.hashCode.abs().toString().padLeft(4, '0').substring(0, 4)}';
+    final String iniciais = _iniciais;
+    final String idDisplay = _idCliente;
 
     return Padding(
       padding: const EdgeInsets.all(40.0),
@@ -488,7 +505,7 @@ class _ClienteShellScreenState extends State<ClienteShellScreen> {
                   child: ListTile(
                     selected: estaSelecionado,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    selectedTileColor: Colors.white.withOpacity(0.08),
+                    selectedTileColor: Colors.white.withValues(alpha: 0.08),
                     leading: Icon(
                       item['icone'],
                       color: estaSelecionado ? Colors.deepPurpleAccent : Colors.grey.shade500,
@@ -521,8 +538,8 @@ class _ClienteShellScreenState extends State<ClienteShellScreen> {
 
   Widget _buildRodapeSidebar(bool dentroDrawer) {
     final bool estaNoPerfil = _indiceAtual == 3;
-    final String iniciais = _obterIniciais(_nomeUtilizador);
-    final String idDisplay = 'CLI-2026-${_nomeUtilizador.hashCode.abs().toString().padLeft(4, '0').substring(0, 4)}';
+    final String iniciais = _iniciais;
+    final String idDisplay = _idCliente;
 
     return Padding(
       padding: const EdgeInsets.all(16),
@@ -537,7 +554,7 @@ class _ClienteShellScreenState extends State<ClienteShellScreen> {
             child: Container(
               padding: const EdgeInsets.all(8.0),
               decoration: BoxDecoration(
-                color: estaNoPerfil ? Colors.white.withOpacity(0.08) : Colors.transparent,
+                color: estaNoPerfil ? Colors.white.withValues(alpha: 0.08) : Colors.transparent,
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Row(
@@ -576,7 +593,7 @@ class _ClienteShellScreenState extends State<ClienteShellScreen> {
           ElevatedButton.icon(
             onPressed: _efetuarLogout,
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red.withOpacity(0.15),
+              backgroundColor: Colors.red.withValues(alpha: 0.15),
               foregroundColor: Colors.redAccent,
               elevation: 0,
               minimumSize: const Size.fromHeight(38),

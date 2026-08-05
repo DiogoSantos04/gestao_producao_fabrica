@@ -22,12 +22,10 @@ jobs:
       - name: Instalar dependências (com as versões do pubspec.lock)
         run: flutter pub get --enforce-lockfile
 
-      # Os ~33 `info` que restam são deprecações conhecidas, tratadas na sessão 8
-      # (secção 5 do RevisaoGeral.md). Até lá o CI trava em erros e warnings; se
-      # também travasse nos infos, ficava vermelho desde o primeiro dia e
-      # ninguém voltava a olhar para ele.
+      # Sem exceções: o projeto está a zero problemas, incluindo os `info`. As
+      # regras ativas estão em analysis_options.yaml.
       - name: Análise estática
-        run: flutter analyze --no-fatal-infos
+        run: flutter analyze
 
       - name: Testes
         run: flutter test

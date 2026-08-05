@@ -13,10 +13,46 @@ import '../repositories/base_repository.dart';
 /// A gestão de contas do lado do administrador (listar, aprovar, inativar) vive
 /// em `UtilizadoresRepository` — este serviço trata apenas da sessão própria.
 class AuthService extends BaseRepository {
+  /// Instância única.
+  ///
+  /// Cada ecrã fazia `AuthService()`, o que dava quatro objetos com quatro
+  /// caches de perfil independentes: o perfil que o login carregava ficava numa
+  /// instância que mais nenhum ecrã via, e [utilizadorAtual] estava sempre nulo
+  /// fora do ecrã de login.
+  factory AuthService() => _instancia;
+  static final AuthService _instancia = AuthService._();
+  AuthService._();
+
   UtilizadorModel? _utilizadorAtual;
 
+  /// Perfil da sessão em curso, ou `null` se ainda não foi carregado.
+  ///
+  /// Serve para mostrar nome e email sem esperar pela base de dados; os ecrãs
+  /// que precisam de ver alterações feitas pelo administrador em tempo real
+  /// continuam a escutar a linha em `utilizadores`.
   UtilizadorModel? get utilizadorAtual => _utilizadorAtual;
 
+  /// Se já há perfil carregado nesta sessão.
+  bool get temPerfilEmCache => _utilizadorAtual != null;
+
+  /// Nome e email a mostrar no cabeçalho de um shell.
+  ///
+  /// Os três shells (admin, operador, cliente) repetiam a mesma cascata de
+  /// fallbacks: valor da base de dados, senão o email da sessão, senão um texto
+  /// de omissão. [nomeOmissao] e [emailOmissao] são o que cada perfil mostra
+  /// quando não há nada carregado (ex: `'Operador'`).
+  ({String nome, String email}) identidadeParaCabecalho({
+    required String nomeOmissao,
+    required String emailOmissao,
+  }) {
+    final String? nome = _utilizadorAtual?.nomeUtilizador.trim();
+    final String? email = _utilizadorAtual?.email?.trim() ?? utilizadorAtualEmail?.trim();
+
+    return (
+      nome: (nome != null && nome.isNotEmpty) ? nome : nomeOmissao,
+      email: (email != null && email.isNotEmpty) ? email : emailOmissao,
+    );
+  }
 
   /// Inicia sessão, carrega o perfil e valida se a conta está aprovada.
   ///

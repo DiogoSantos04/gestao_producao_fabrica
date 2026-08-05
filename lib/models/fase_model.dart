@@ -16,7 +16,7 @@ class FaseModel {
   /// Nome do posto em texto (coluna legada, mantida sincronizada por trigger).
   final String? postoTrabalho;
 
-  /// Ligação real ao posto de trabalho (ver bug (a) em BUGS_RESOLVIDOS.md).
+  /// Ligação real ao posto de trabalho (ver bug (a) em docs/BUGS_RESOLVIDOS.md).
   final int? postoTrabalhoId;
 
   final List<String> checklist;

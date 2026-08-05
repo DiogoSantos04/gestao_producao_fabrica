@@ -75,7 +75,7 @@ class BarraFiltrosClientes extends StatelessWidget {
 
   Widget _dropdownFiltro() {
     return DropdownButtonFormField<FiltroCliente>(
-      value: filtro,
+      initialValue: filtro,
       decoration: InputDecoration(
         fillColor: TemasCores.superficieSuave,
         filled: true,

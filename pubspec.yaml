@@ -1,8 +1,10 @@
 name: gestao_producao_fabrica
-description: "Aplicação de Gestão de Produção Industrial - Rastreabilidade 4.0"
+description: "Aplicação de gestão de produção industrial com rastreabilidade por ordem de fabrico."
 publish_to: 'none'
 
-version: 1.0.0+1
+# Sobe a cada entrega: o número de build é o que distingue instalações no chão
+# de fábrica quando é preciso saber que versão está num terminal.
+version: 1.1.0+2
 
 environment:
   sdk: ^3.12.2

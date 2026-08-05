@@ -183,7 +183,7 @@ class _CaixaIcone extends StatelessWidget {
     return Container(
       padding: EdgeInsets.all(estilo.paddingIcone),
       decoration: BoxDecoration(
-        color: fundo ?? cor.withOpacity(estilo.opacidadeFundoIcone),
+        color: fundo ?? cor.withValues(alpha: estilo.opacidadeFundoIcone),
         borderRadius: BorderRadius.circular(10),
       ),
       child: Icon(icone, color: cor, size: estilo.tamanhoIcone),

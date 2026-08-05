@@ -3,7 +3,7 @@
 /// Substitui a lista de cinco strings escrita em Dart que o terminal do
 /// operador usava e que era concatenada no campo de texto livre da incidência
 /// (`'[Motivo] observações'`). Sem código estruturado, uma análise de Pareto
-/// das paragens era impossível — ver bug (D) em AlteracoesNoOperador.md.
+/// das paragens era impossível — ver bug (D) em docs/AlteracoesNoOperador.md.
 class ReasonCodeModel {
   final int id;
   final String categoria;

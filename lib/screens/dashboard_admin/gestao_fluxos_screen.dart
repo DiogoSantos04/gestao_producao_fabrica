@@ -29,6 +29,8 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
   String? _erroTipologias;
   String? _erroFases;
 
+  final ScrollController _scrollTipologias = ScrollController();
+
   // Catálogo oficial e padronizado de Postos de Trabalho da Fábrica
   final List<String> _postosTrabalhoDisponiveis = [
     'Posto de Corte (CNC)',
@@ -44,6 +46,12 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
   void initState() {
     super.initState();
     _carregarTipologias();
+  }
+
+  @override
+  void dispose() {
+    _scrollTipologias.dispose();
+    super.dispose();
   }
 
   // --- FUNÇÕES DA BASE DE DADOS (SUPABASE) ---
@@ -198,9 +206,12 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
     }
   }
 
+  /// Move a fase de [oldIndex] para [newIndex] e persiste a nova ordenação.
+  ///
+  /// Ligado a `onReorderItem`, que já entrega [newIndex] descontado da remoção
+  /// do item — ao contrário do `onReorder` obsoleto, que obrigava a corrigi-lo
+  /// à mão.
   Future<void> _reordenarFases(int oldIndex, int newIndex) async {
-    if (newIndex > oldIndex) newIndex -= 1;
-    
     setState(() {
       final item = _fases.removeAt(oldIndex);
       _fases.insert(newIndex, item);
@@ -243,7 +254,10 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
                   ? Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Expanded(flex: 1, child: _buildPainelEsquerdoTipologias()),
+                        Expanded(
+                          flex: 1,
+                          child: _buildPainelEsquerdoTipologias(alturaLimitada: true),
+                        ),
                         const VerticalDivider(width: 32, thickness: 1),
                         Expanded(flex: 2, child: _buildPainelDireitoFluxo()),
                       ],
@@ -264,7 +278,7 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
     );
   }
 
-  Widget _buildPainelEsquerdoTipologias() {
+  Widget _buildPainelEsquerdoTipologias({bool alturaLimitada = false}) {
     return Card(
       color: TemasCores.superficie,
       elevation: 1,
@@ -282,7 +296,7 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 4),
-            Text(
+            const Text(
               'Selecione uma tipologia para desenhar o fluxo',
               style: TextStyle(fontSize: 12, color: TemasCores.textoTerciario),
             ),
@@ -299,11 +313,19 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
                 detalhe: _erroTipologias,
                 aoRepetir: _carregarTipologias,
               ),
-            _isLoadingTipologias
+            _envolverLista(
+              alturaLimitada,
+              _isLoadingTipologias
                 ? const Center(child: CircularProgressIndicator())
                 : ListView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
+                    controller: alturaLimitada ? _scrollTipologias : null,
+                    padding: alturaLimitada
+                        ? const EdgeInsets.only(right: 8)
+                        : EdgeInsets.zero,
+                    shrinkWrap: !alturaLimitada,
+                    physics: alturaLimitada
+                        ? const AlwaysScrollableScrollPhysics()
+                        : const NeverScrollableScrollPhysics(),
                     itemCount: _tipologias.length,
                     itemBuilder: (context, index) {
                       final tipo = _tipologias[index];
@@ -318,7 +340,7 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
                             color: eSelecionado ? TemasCores.marcaAcento : TemasCores.borda,
                             width: eSelecionado ? 2 : 1,
                           ),
-                          color: eSelecionado ? TemasCores.marcaAcento.withOpacity(0.05) : Colors.transparent,
+                          color: eSelecionado ? TemasCores.marcaAcento.withValues(alpha: 0.05) : Colors.transparent,
                         ),
                         child: ListTile(
                           title: Text(
@@ -344,6 +366,7 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
                       );
                     },
                   ),
+            ),
             const SizedBox(height: 16),
             ElevatedButton.icon(
               onPressed: _abrirDialogNovaTipologia,
@@ -359,6 +382,20 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  /// Em desktop a altura do cartão é limitada: a lista fica com scroll próprio
+  /// para o botão "Nova Tipologia" continuar visível sem overflow.
+  Widget _envolverLista(bool alturaLimitada, Widget lista) {
+    if (!alturaLimitada) return lista;
+    if (_isLoadingTipologias) return Expanded(child: lista);
+    return Expanded(
+      child: Scrollbar(
+        controller: _scrollTipologias,
+        thumbVisibility: true,
+        child: lista,
       ),
     );
   }
@@ -410,7 +447,7 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
               'Fluxo Produtivo: ${_tipoProdutoSelecionado!['nome_tipo_produto']}',
               style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
-            Text(
+            const Text(
               'Defina o circuito sequencial de produção das peças',
               style: TextStyle(fontSize: 12, color: TemasCores.textoTerciario),
             ),
@@ -480,7 +517,7 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
       child: ReorderableListView.builder(
         buildDefaultDragHandles: true,
         itemCount: _fases.length,
-        onReorder: _reordenarFases,
+        onReorderItem: _reordenarFases,
         itemBuilder: (context, index) => _buildCartaoFase(_fases[index], index),
       ),
     );
@@ -518,7 +555,7 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
                                                 ),
                                                 child: Text(
                                                   'Fase ${index + 1}',
-                                                  style: TextStyle(
+                                                  style: const TextStyle(
                                                     color: TemasCores.infoTexto,
                                                     fontWeight: FontWeight.bold,
                                                     fontSize: 11,
@@ -555,7 +592,7 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
                                           const SizedBox(height: 6),
                                           Text(
                                             fase.descricao ?? 'Sem descrição.',
-                                            style: TextStyle(color: TemasCores.textoApoio, fontSize: 13),
+                                            style: const TextStyle(color: TemasCores.textoApoio, fontSize: 13),
                                           ),
                                           if (checklistItems.isNotEmpty) ...[
                                             const SizedBox(height: 8),
@@ -765,7 +802,7 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
                       const SizedBox(height: 12),
                       
                       DropdownButtonFormField<String>(
-                        value: postoSelecionado,
+                        initialValue: postoSelecionado,
                         decoration: const InputDecoration(
                           labelText: 'Posto de Trabalho Associado *',
                           border: OutlineInputBorder(),

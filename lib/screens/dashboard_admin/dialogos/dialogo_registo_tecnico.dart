@@ -101,11 +101,11 @@ class _DialogoRegistoTecnicoState extends State<DialogoRegistoTecnico> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: Row(
+      title: const Row(
         children: [
           Icon(Icons.build_circle_rounded, color: TemasCores.avisoTextoForte),
-          const SizedBox(width: 8),
-          const Text('Registo Técnico de Intervenção'),
+          SizedBox(width: 8),
+          Text('Registo Técnico de Intervenção'),
         ],
       ),
       content: SizedBox(
@@ -158,7 +158,7 @@ class _DialogoRegistoTecnicoState extends State<DialogoRegistoTecnico> {
             const SizedBox(height: 16),
             if (_eInterna) ...[
               DropdownButtonFormField<String>(
-                value: _tecnicoId,
+                initialValue: _tecnicoId,
                 decoration: const InputDecoration(
                   labelText: 'Técnico Responsável *',
                   border: OutlineInputBorder(),

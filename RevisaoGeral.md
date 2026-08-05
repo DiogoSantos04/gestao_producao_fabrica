@@ -235,11 +235,11 @@ Aplicam-se a tudo o que falta. Existem porque o recurso escasso não é o códig
 | 1 | RLS + advisors + trigger de registo | 1 | ✅ concluída (2 ago 2026) |
 | 2 | Testes do `encomendas_repository` + `RecarregadorDebounced` + CI | 4 | ✅ concluída (3 ago 2026) |
 | 3 | `painel_controlo` — extrair os 5 diálogos (1761 → ~850 linhas) | 3.1 | ✅ concluída (3 ago 2026) — 1761 → 1053 |
-| 4 | `painel_controlo` — extrair cartão de ordem e botões de ação (~850 → ~450) | 3.1 | ⬜ |
-| 5 | `gestao_utilizadores` (1024 → ~400) | 3.1 | ⬜ |
-| 6 | `informacoes_clientes` (1230 → ~450) | 3.1 | ⬜ |
-| 7 | `criar_encomenda` (1100 → ~450) | 3.1 | ⬜ |
-| 8 | Promover widgets a partilhados, instância única de `AuthService`, lints, arrumar `docs/` | 3.2, 3.3, 3.4, 5 | ⬜ |
+| 4 | `painel_controlo` — extrair cartão de ordem e botões de ação (~850 → ~450) | 3.1 | ✅ concluída |
+| 5 | `gestao_utilizadores` (1024 → ~400) | 3.1 | ✅ concluída |
+| 6 | `informacoes_clientes` (1230 → ~450) | 3.1 | ✅ concluída |
+| 7 | `criar_encomenda` (1100 → ~450) | 3.1 | ✅ concluída (5 ago 2026) — 1184 → 379 |
+| 8 | Promover widgets a partilhados, instância única de `AuthService`, lints, arrumar `docs/` | 3.2, 3.3, 3.4, 5 | ✅ concluída (5 ago 2026) |
 
 **Porquê o RLS primeiro.** É trabalho de base de dados: custa quase zero contexto — são migrações SQL, sem leitura de ficheiros Flutter. É o item de maior risco do projeto e o mais barato de executar.
 
@@ -723,3 +723,73 @@ O comportamento visível é o mesmo; o que muda é o que se reconstrói a cada t
 Sem alterações funcionais. A árvore construída é a mesma; o método de 191 linhas que desenhava a linha da tabela é agora cinco widgets com nome, um por coluna.
 
 **Por confirmar com a aplicação a correr:** criar e editar um cliente (incluindo o telefone a formatar-se enquanto se escreve e o switch do portal), abrir o drawer de um cliente com e sem pedidos/encomendas, os quatro estados da tabela (erro, carteira vazia, filtros sem resultados, lista com "Carregar mais"), e o botão de limpar a pesquisa. Continua sem teste de widget.
+
+---
+
+## 17. Sessão 7 — `criar_encomenda`: formulário, pré-visualização e últimas ordens
+
+`criar_encomenda_screen.dart` passou de 1184 para 379 linhas. Cinco ficheiros novos em `lib/screens/dashboard_admin/widgets/`:
+
+| Ficheiro | Linhas | O que leva |
+|---|---|---|
+| `cartao_painel.dart` | 60 | A `Card` + cabeçalho que os três painéis repetiam |
+| `painel_pedidos_aprovados.dart` | 177 | Faixa horizontal dos pedidos da App e o seu cartão |
+| `formulario_lancamento.dart` | 445 | O método de 401 linhas, agora um widget por campo |
+| `painel_preview_fluxo.dart` | 245 | Fases, lead time, gargalo e `formatarTempo` |
+| `painel_ultimas_encomendas.dart` | 164 | Lista e cartão das últimas ordens |
+
+### 17.1 O estado fica no ecrã; os widgets recebem valores e devolvem eventos
+
+`FormularioLancamento` é `StatelessWidget`: recebe os controladores, os valores selecionados e cinco callbacks. Quem sabe gravar é o ecrã, pela mesma razão das sessões 3 a 6 — quem liga o `_isSaving` tem de ser quem o desliga.
+
+Os painéis que precisam de scroll são `StatefulWidget` apenas para terem o seu `ScrollController` e o poderem libertar. Os três controladores que viviam no estado do ecrã desapareceram de lá.
+
+### 17.2 Três correções, não só movimentação
+
+- **Reset do scroll da pré-visualização.** Era um `jumpTo(0)` a seguir ao fetch, e só no caminho sem erro. Passou a `didUpdateWidget`: dispara sempre que a lista de fases muda.
+- **`mounted` em falta.** `_selecionarData` fazia `setState` depois do `await showDatePicker` sem verificar.
+- **Lead time.** Deixou de reler `_quantidadeController.text` dentro do cálculo; o ecrã passa a quantidade já convertida.
+
+---
+
+## 18. Sessão 8 — transversal: partilhados, `AuthService`, lints e `docs/`
+
+### 18.1 `AuthService` é uma instância única
+
+Era `AuthService()` em quatro ecrãs, o que dava quatro objetos com quatro caches de perfil independentes. O perfil que o `login` carregava ficava numa instância que mais nenhum ecrã via, e `utilizadorAtual` era sempre `null` fora do ecrã de login — a cache existia mas nunca era lida.
+
+Passou a `factory AuthService() => _instancia`. A premissa da secção 3.3 estava parcialmente errada: os três shells **não** reliam o perfil por query, escutam a linha em `utilizadores` por WebSocket, e isso mantém-se — é o que faz aparecer uma correção do nome feita pelo administrador sem terminar sessão.
+
+O que muda é o arranque: `_semearPerfilEmCache` mostra já o perfil em cache, e o cabeçalho deixa de abrir com "carregando..." à espera da primeira emissão do stream. A cascata de fallbacks (base de dados → email da sessão → texto de omissão) estava escrita nos três shells e passou a `AuthService.identidadeParaCabecalho`.
+
+### 18.2 Promoções e duplicação removida
+
+- `cliente_shell_screen.dart` tinha a sua própria cópia de `_obterIniciais`; usa agora `obterIniciais` de `core/iniciais.dart`, como os outros dois perfis.
+- O identificador `CLI-2026-…` estava escrito em dois sítios do mesmo ficheiro; é um getter. O formato não mudou.
+- `CartaoPainel` (sessão 7) fica no `widgets/` do admin: por enquanto só o planeamento o usa. Sobe a `lib/widgets/` à segunda ocorrência real, conforme a regra.
+
+### 18.3 Zero problemas no analisador
+
+Os 33 `info` foram a zero:
+
+- 12 `withOpacity` → `withValues(alpha:)`
+- 14 `DropdownButtonFormField.value` → `initialValue` (é um alias: o `didUpdateWidget` do campo resincroniza na mesma)
+- `onReorder` → `onReorderItem` em `gestao_fluxos_screen.dart`, que já entrega o índice descontado da remoção — a correção manual `if (newIndex > oldIndex) newIndex -= 1` saiu
+- `SupabaseConfig.anonKey` → `publishableKey` (continua a ser a mesma chave do dashboard)
+- `unnecessary_to_list_in_spreads` em `postos_trabalho_screen.dart`
+
+`analysis_options.yaml` deixou de ser o ficheiro gerado: `avoid_print` é agora `error`, e estão ligados `prefer_single_quotes`, `use_build_context_synchronously`, `prefer_const_constructors` e `prefer_const_declarations`. As 58 ocorrências que os dois últimos levantaram foram corrigidas com `dart fix --apply`.
+
+Com isto, o CI perdeu o `--no-fatal-infos`: `flutter analyze` corre sem exceções.
+
+### 18.4 Arrumação
+
+Os cinco documentos de histórico foram para `docs/`, e as referências nos comentários do código passaram a `docs/BUGS_RESOLVIDOS.md` e afins. O `README.md` gerado pelo template foi substituído pela entrada real do projeto: os três perfis, como arrancar, a estrutura de `lib/`, os comandos de verificação e os links para `docs/`. `RevisaoGeral.md` fica na raiz por ser o plano em curso.
+
+No `pubspec.yaml`, a `description` tinha mojibake e a versão estava presa em `1.0.0+1` desde o arranque; passou a `1.1.0+2`.
+
+### 18.5 O que fica por fazer
+
+- `identidadeParaCabecalho` não tem teste: depende do cliente Supabase por via de `BaseRepository.utilizadorAtualEmail`, e testá-la implica um duplo do cliente que ainda não existe.
+- Nenhum dos widgets extraídos nas sessões 3 a 7 tem teste de widget.
+- Gestão de estado a sério (Provider/Riverpod) continua como decisão em aberto, agora com os ecrãs já pequenos o suficiente para a mudança ser avaliável.

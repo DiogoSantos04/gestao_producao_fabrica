@@ -88,7 +88,7 @@ class _DialogoEditarOrdemState extends State<DialogoEditarOrdem> {
           ),
           const SizedBox(height: 16),
           DropdownButtonFormField<int?>(
-            value: _faseId,
+            initialValue: _faseId,
             decoration:
                 const InputDecoration(labelText: 'Fase Atual de Produção'),
             items: [

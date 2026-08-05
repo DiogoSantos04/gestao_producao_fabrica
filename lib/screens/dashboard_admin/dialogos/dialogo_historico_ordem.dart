@@ -128,7 +128,7 @@ class _EventoTimeline extends StatelessWidget {
             children: [
               CircleAvatar(
                 radius: 14,
-                backgroundColor: cor.withOpacity(0.15),
+                backgroundColor: cor.withValues(alpha: 0.15),
                 child: Icon(evento['icone'] as IconData, size: 16, color: cor),
               ),
               if (!ultimo)

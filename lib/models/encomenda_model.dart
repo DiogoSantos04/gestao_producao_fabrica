@@ -18,7 +18,7 @@ class EncomendaModel {
   final String prioridade;
   final String? observacoes;
 
-  // Cancelamento (ver bug (e) em BUGS_RESOLVIDOS.md)
+  // Cancelamento (ver bug (e) em docs/BUGS_RESOLVIDOS.md)
   final bool cancelada;
   final String? motivoCancelamento;
   final DateTime? dataCancelamento;

@@ -84,11 +84,11 @@ class _DialogoWipHoldState extends State<DialogoWipHold> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: Row(
+      title: const Row(
         children: [
           Icon(Icons.pause_circle_filled_rounded, color: TemasCores.erroTexto),
-          const SizedBox(width: 8),
-          const Text('Suspender Ordem (WIP Hold)'),
+          SizedBox(width: 8),
+          Text('Suspender Ordem (WIP Hold)'),
         ],
       ),
       content: SizedBox(
@@ -105,7 +105,7 @@ class _DialogoWipHoldState extends State<DialogoWipHold> {
             // A deduplicação por `id` é feita no repositório: o dropdown lança
             // em runtime com dois itens de igual valor.
             DropdownButtonFormField<int>(
-              value: _reasonCodeId,
+              initialValue: _reasonCodeId,
               decoration: const InputDecoration(
                 labelText: 'Reason Code *',
                 border: OutlineInputBorder(),

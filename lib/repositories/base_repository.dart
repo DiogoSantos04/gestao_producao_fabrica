@@ -21,7 +21,7 @@ class RepositoryException implements Exception {
 /// `Supabase.instance.client` diretamente e repetia o mesmo `try/catch` com uma
 /// string de erro escrita à mão. As queries ficavam espalhadas pela UI, o que
 /// permitiu que a mesma entidade fosse lida de formas diferentes em ecrãs
-/// diferentes (ver bug (b) em BUGS_RESOLVIDOS.md).
+/// diferentes (ver bug (b) em docs/BUGS_RESOLVIDOS.md).
 abstract class BaseRepository {
   SupabaseClient get client => Supabase.instance.client;
 

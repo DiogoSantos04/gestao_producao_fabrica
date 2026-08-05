@@ -76,7 +76,7 @@ enum EstadoConta {
 /// Conta de utilizador.
 ///
 /// Não tem — nem pode ter — campo de palavra-passe: as credenciais vivem
-/// exclusivamente no Supabase Auth (ver bug (c) em BUGS_RESOLVIDOS.md).
+/// exclusivamente no Supabase Auth (ver bug (c) em docs/BUGS_RESOLVIDOS.md).
 class UtilizadorModel {
   final String utilizadorId;
   final String nomeUtilizador;

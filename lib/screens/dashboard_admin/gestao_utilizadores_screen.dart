@@ -374,7 +374,7 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
         Expanded(
           flex: 2,
           child: DropdownButtonFormField<String>(
-            value: _filtroCargo,
+            initialValue: _filtroCargo,
             decoration: InputDecoration(
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(8),

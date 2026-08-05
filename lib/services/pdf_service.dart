@@ -85,7 +85,7 @@ class PdfService {
       mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
       children: [
         pw.Text('SISTEMA INDUSTRIAL',
-            style: pw.TextStyle(
+            style: const pw.TextStyle(
                 fontSize: 22, fontWeight: pw.FontWeight.bold, color: PdfColors.blueGrey900)),
         pw.Text('Relatorio de Producao',
             style: const pw.TextStyle(fontSize: 12, color: PdfColors.grey600)),
@@ -101,7 +101,7 @@ class PdfService {
           mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
           children: [
             pw.Text('Periodo: ${p.periodoInicio} ate ${p.periodoFim}',
-                style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+                style: const pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
             pw.Text('Emitido por: ${p.utilizadorAuditoria}',
                 style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
           ],
@@ -110,7 +110,7 @@ class PdfService {
         pw.Row(
           children: [
             pw.Text('Filtros Aplicados: ',
-                style: pw.TextStyle(
+                style: const pw.TextStyle(
                     fontSize: 9, fontWeight: pw.FontWeight.bold, color: PdfColors.blueGrey800)),
             pw.Text('Cliente: ${p.nomeClienteFiltro}  |  Produto: ${p.nomeProdutoFiltro}',
                 style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey800)),
@@ -125,7 +125,7 @@ class PdfService {
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
         pw.Text('Indicadores de Desempenho do Periodo',
-            style: pw.TextStyle(
+            style: const pw.TextStyle(
                 fontSize: 14, fontWeight: pw.FontWeight.bold, color: PdfColors.blueGrey800)),
         pw.SizedBox(height: 8),
         pw.Container(
@@ -166,7 +166,7 @@ class PdfService {
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
         pw.Text('Listagem Analitica de Ordens Finalizadas',
-            style: pw.TextStyle(
+            style: const pw.TextStyle(
                 fontSize: 14, fontWeight: pw.FontWeight.bold, color: PdfColors.blueGrey800)),
         pw.SizedBox(height: 8),
         if (p.linhas.isEmpty)
@@ -174,7 +174,7 @@ class PdfService {
             padding: const pw.EdgeInsets.only(top: 16),
             child: pw.Center(
               child: pw.Text('Nenhuma ordem de producao corresponde aos filtros selecionados.',
-                  style: pw.TextStyle(fontStyle: pw.FontStyle.italic, color: PdfColors.grey600)),
+                  style: const pw.TextStyle(fontStyle: pw.FontStyle.italic, color: PdfColors.grey600)),
             ),
           )
         else
@@ -182,7 +182,7 @@ class PdfService {
             headers: const ['Codigo', 'Cliente', 'Produto', 'Data Conclusao', 'Estado'],
             data: p.linhas,
             headerStyle:
-                pw.TextStyle(fontWeight: pw.FontWeight.bold, color: PdfColors.white, fontSize: 11),
+                const pw.TextStyle(fontWeight: pw.FontWeight.bold, color: PdfColors.white, fontSize: 11),
             headerDecoration: const pw.BoxDecoration(color: PdfColors.blueGrey800),
             cellStyle: const pw.TextStyle(fontSize: 10),
             cellHeight: 24,
@@ -222,7 +222,7 @@ class PdfService {
                   children: [
                     pw.Text(
                       'SISTEMA INDUSTRIAL - RELATÓRIO DE TURNO',
-                      style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, color: PdfColors.grey700),
+                      style: const pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, color: PdfColors.grey700),
                     ),
                     pw.Text(
                       dataTurno,
@@ -234,7 +234,7 @@ class PdfService {
                 pw.SizedBox(height: 24),
 
                 // Dados do Operador
-                pw.Text('Resumo Operacional', style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold, color: PdfColors.blue900)),
+                pw.Text('Resumo Operacional', style: const pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold, color: PdfColors.blue900)),
                 pw.SizedBox(height: 16),
                 pw.Text('Operador responsável: $nomeOperador', style: const pw.TextStyle(fontSize: 14)),
                 pw.Text('Data de processamento: $dataTurno', style: const pw.TextStyle(fontSize: 14)),
@@ -249,11 +249,11 @@ class PdfService {
                       children: [
                         pw.Padding(
                           padding: const pw.EdgeInsets.all(8),
-                          child: pw.Text('Métrica Analisada', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+                          child: pw.Text('Métrica Analisada', style: const pw.TextStyle(fontWeight: pw.FontWeight.bold)),
                         ),
                         pw.Padding(
                           padding: const pw.EdgeInsets.all(8),
-                          child: pw.Text('Quantidade Real', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+                          child: pw.Text('Quantidade Real', style: const pw.TextStyle(fontWeight: pw.FontWeight.bold)),
                         ),
                       ],
                     ),
@@ -329,7 +329,7 @@ class PdfService {
                       children: [
                         pw.Text(
                           'CERTIFICADO DE CONFORMIDADE',
-                          style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold, color: PdfColors.deepPurple900),
+                          style: const pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold, color: PdfColors.deepPurple900),
                         ),
                         pw.Text(
                           'Garantia de Qualidade & Passaporte do Produto',
@@ -345,7 +345,7 @@ class PdfService {
                       ),
                       child: pw.Text(
                         'ISO 9001:OK',
-                        style: pw.TextStyle(fontWeight: pw.FontWeight.bold, color: PdfColors.deepPurple),
+                        style: const pw.TextStyle(fontWeight: pw.FontWeight.bold, color: PdfColors.deepPurple),
                       ),
                     ),
                   ],
@@ -369,7 +369,7 @@ class PdfService {
                 pw.SizedBox(height: 24),
 
                 // Tabela com Detalhes do Produto
-                pw.Text('Dados da Encomenda:', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 14)),
+                pw.Text('Dados da Encomenda:', style: const pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 14)),
                 pw.SizedBox(height: 10),
                 pw.TableHelper.fromTextArray(
                   headers: ['Campo', 'Especificação'],
@@ -381,7 +381,7 @@ class PdfService {
                     ['Data de Conclusão', dataEntrega],
                     ['Estado de Controlo', 'APROVADO (100% Conforme)'],
                   ],
-                  headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, color: PdfColors.white),
+                  headerStyle: const pw.TextStyle(fontWeight: pw.FontWeight.bold, color: PdfColors.white),
                   headerDecoration: const pw.BoxDecoration(color: PdfColors.deepPurple),
                   rowDecoration: const pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide(color: PdfColors.grey300))),
                   cellPadding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -403,7 +403,7 @@ class PdfService {
                           decoration: pw.BoxDecoration(border: pw.Border.all(color: PdfColors.green)),
                           child: pw.Text(
                             ' INSPEÇÃO TÉCNICA OK ',
-                            style: pw.TextStyle(color: PdfColors.green900, fontWeight: pw.FontWeight.bold),
+                            style: const pw.TextStyle(color: PdfColors.green900, fontWeight: pw.FontWeight.bold),
                           ),
                         ),
                       ],

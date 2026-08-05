@@ -4,7 +4,7 @@
 /// ecrã derivava o estado à sua maneira a partir de três colunas soltas
 /// (`cancelada`, `em_suspenso`, `fase_atual_id`), e as regras divergiam:
 /// os relatórios chegaram a considerar "concluída" uma ordem que estava apenas
-/// *na* última fase, o que inflacionava os KPIs (ver bug (b) em BUGS_RESOLVIDOS.md).
+/// *na* última fase, o que inflacionava os KPIs (ver bug (b) em docs/BUGS_RESOLVIDOS.md).
 ///
 /// A ordem de avaliação importa: uma ordem cancelada é cancelada mesmo que
 /// tenha ficado suspensa, e uma ordem suspensa continua a ter fase atual.
@@ -56,7 +56,7 @@ enum EstadoOrdem {
 /// sítio — o `EncomendasRepository`. Enquanto a filtragem era feita em memória
 /// bastava comparar com [EstadoOrdem]; agora que desce para o servidor, o risco
 /// é a regra ficar escrita duas vezes e divergir, que foi exatamente a origem do
-/// bug (b) em BUGS_RESOLVIDOS.md.
+/// bug (b) em docs/BUGS_RESOLVIDOS.md.
 enum FiltroEstadoOrdem {
   todos,
   emProducao,

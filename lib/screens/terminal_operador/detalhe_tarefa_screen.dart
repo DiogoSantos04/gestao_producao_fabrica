@@ -258,7 +258,7 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
   /// Dart qual era a fase seguinte ("índice + 1"). Uma falha entre as duas
   /// deixava um registo de histórico órfão com a ordem parada na mesma fase, e
   /// a regra duplicada podia divergir da do servidor. Ver bug (A) em
-  /// AlteracoesNoOperador.md.
+  /// docs/AlteracoesNoOperador.md.
   ///
   /// A RPC decide a fase seguinte, escreve o histórico e atualiza a ordem numa
   /// só transação, e recusa o avanço se a ordem estiver em WIP Hold ou

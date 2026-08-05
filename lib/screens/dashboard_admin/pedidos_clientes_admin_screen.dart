@@ -64,7 +64,7 @@ class _PedidosClientesAdminScreenState extends State<PedidosClientesAdminScreen>
   /// Nota sobre as cores: o estado "Aprovado" mostra-se em verde e **todos os
   /// outros estados não-pendentes em vermelho**, incluindo "Em Produção". Este
   /// comportamento vinha do código original e foi preservado deliberadamente
-  /// neste refactor — ver a nota em ARQUITETURA_REFACTOR.md.
+  /// neste refactor — ver a nota em docs/ARQUITETURA_REFACTOR.md.
   Widget _buildPedidoCard(PedidoModel p) {
     final bool isPendente = p.estado.aguardaDecisao;
     final bool isAprovado = p.estado == EstadoPedido.aprovado;

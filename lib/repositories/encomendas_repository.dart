@@ -66,7 +66,7 @@ class CondicaoEstado {
 ///
 /// As transições de estado (avançar fase, WIP hold, line clearance, cancelar)
 /// passam por funções RPC transacionais na base de dados — nunca por escritas
-/// soltas daqui. Ver bug (d) em BUGS_RESOLVIDOS.md.
+/// soltas daqui. Ver bug (d) em docs/BUGS_RESOLVIDOS.md.
 class EncomendasRepository extends BaseRepository {
   /// Projeção usada pelo painel de controlo: a ordem com cliente, produto,
   /// fase atual e incidências associadas.

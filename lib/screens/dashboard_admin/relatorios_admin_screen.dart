@@ -488,7 +488,7 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
             children: [
               const Text('Gerar Relatório', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: TemasCores.textoPrimario)),
               const SizedBox(height: 4),
-              Text('Selecione o período e os filtros para análise', style: TextStyle(fontSize: 12, color: TemasCores.textoTerciario)),
+              const Text('Selecione o período e os filtros para análise', style: TextStyle(fontSize: 12, color: TemasCores.textoTerciario)),
               const SizedBox(height: 24),
 
               const Text('Data de Início', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: TemasCores.textoPrimario)),
@@ -531,7 +531,7 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
               const Text('Filtrar por Cliente', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: TemasCores.textoPrimario)),
               const SizedBox(height: 8),
               DropdownButtonFormField<int?>(
-                value: _clienteSelecionadoId,
+                initialValue: _clienteSelecionadoId,
                 decoration: InputDecoration(
                   fillColor: TemasCores.superficieSuave,
                   filled: true,
@@ -558,7 +558,7 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
               const Text('Filtrar por Tipo de Produto', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: TemasCores.textoPrimario)),
               const SizedBox(height: 8),
               DropdownButtonFormField<int?>(
-                value: _tipoProdutoSelecionadoId,
+                initialValue: _tipoProdutoSelecionadoId,
                 decoration: InputDecoration(
                   fillColor: TemasCores.superficieSuave,
                   filled: true,
@@ -652,12 +652,12 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
               ),
               const Text('Histórico e Logs de Auditoria', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: TemasCores.textoPrimario)),
               const SizedBox(height: 4),
-              Text('Registos imutáveis com autoria das emissões', style: TextStyle(fontSize: 11, color: TemasCores.textoTerciario)),
+              const Text('Registos imutáveis com autoria das emissões', style: TextStyle(fontSize: 11, color: TemasCores.textoTerciario)),
               const SizedBox(height: 16),
 
               _historicoRelatorios.isEmpty
-                  ? Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
+                  ? const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 16),
                       child: Text('Nenhum relatório emitido guardado.', style: TextStyle(fontSize: 12, color: TemasCores.textoDesativado, fontStyle: FontStyle.italic)),
                     )
                   : Column(
@@ -698,7 +698,7 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
                                   children: [
                                     Text('$inicio até $fim', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: TemasCores.textoPrimario)),
                                     const SizedBox(height: 3),
-                                    Text('Ordens: $total  |  Prazo: ${taxa.toInt()}%', style: TextStyle(fontSize: 11, color: TemasCores.textoApoioForte)),
+                                    Text('Ordens: $total  |  Prazo: ${taxa.toInt()}%', style: const TextStyle(fontSize: 11, color: TemasCores.textoApoioForte)),
                                     const SizedBox(height: 3),
                                     Row(
                                       children: [
@@ -815,7 +815,7 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                               decoration: BoxDecoration(color: TemasCores.superficieSuave, borderRadius: BorderRadius.circular(4)),
-                              child: Text(cliente, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: TemasCores.textoApoioForte)),
+                              child: Text(cliente, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: TemasCores.textoApoioForte)),
                             ),
                           ],
                         ),
@@ -828,7 +828,7 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
                     ],
                   ),
                   const SizedBox(height: 4),
-                  Text(data, style: TextStyle(fontSize: 11, color: TemasCores.textoDesativado)),
+                  Text(data, style: const TextStyle(fontSize: 11, color: TemasCores.textoDesativado)),
                   const SizedBox(height: 12),
 
                   Container(
@@ -868,7 +868,7 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
           children: [
             const Text('Feedback dos Clientes', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: TemasCores.textoPrimario)),
             const SizedBox(height: 4),
-            Text('Avaliações recebidas após conclusão das encomendas', style: TextStyle(fontSize: 12, color: TemasCores.textoTerciario)),
+            const Text('Avaliações recebidas após conclusão das encomendas', style: TextStyle(fontSize: 12, color: TemasCores.textoTerciario)),
             const SizedBox(height: 20),
             eDesktop ? Expanded(child: conteudo) : SizedBox(height: 450, child: conteudo),
           ],

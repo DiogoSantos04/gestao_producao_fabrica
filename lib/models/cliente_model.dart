@@ -55,7 +55,7 @@ class ClienteModel {
   final bool ativo;
 
   /// Conta de utilizador associada, quando existe.
-  /// Ligação introduzida para corrigir o bug (f) — ver BUGS_RESOLVIDOS.md.
+  /// Ligação introduzida para corrigir o bug (f) — ver docs/BUGS_RESOLVIDOS.md.
   final String? utilizadorId;
 
   /// Histórico associado, quando a query o trouxe.

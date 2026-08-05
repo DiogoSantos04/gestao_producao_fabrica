@@ -27,7 +27,7 @@ class OrdemNaFila {
 
   /// Uma ordem em WIP Hold continua visível — escondê-la deixaria o operador
   /// sem saber para onde foi o trabalho —, mas não pode ser iniciada até o
-  /// Line Clearance ser aprovado. Ver bug (E) em AlteracoesNoOperador.md.
+  /// Line Clearance ser aprovado. Ver bug (E) em docs/AlteracoesNoOperador.md.
   bool get bloqueada => estado == EstadoOrdem.emHold;
 }
 

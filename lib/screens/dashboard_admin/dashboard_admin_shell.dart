@@ -55,7 +55,22 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
   @override
   void initState() {
     super.initState();
+    _semearPerfilEmCache();
     _iniciarEscutaEmTempoReal();
+  }
+
+  /// Mostra já o perfil que o login carregou, para o cabeçalho não abrir com
+  /// "carregando..." até o stream de `utilizadores` entregar a primeira linha.
+  void _semearPerfilEmCache() {
+    if (!_authService.temPerfilEmCache) return;
+
+    final identidade = _authService.identidadeParaCabecalho(
+      nomeOmissao: 'Administrador',
+      emailOmissao: 'admin@factory.com',
+    );
+    _nomeUtilizador = identidade.nome;
+    _emailUtilizador = identidade.email;
+    _carregandoPerfil = false;
   }
 
   @override
@@ -525,7 +540,7 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
           ElevatedButton.icon(
             onPressed: _efetuarLogout,
             style: ElevatedButton.styleFrom(
-              backgroundColor: TemasCores.erro.withOpacity(0.15),
+              backgroundColor: TemasCores.erro.withValues(alpha: 0.15),
               foregroundColor: TemasCores.erroVivo,
               elevation: 0,
               minimumSize: const Size.fromHeight(38),

@@ -9,7 +9,7 @@ class UtilizadoresRepository extends BaseRepository {
   /// Todos os utilizadores, ordenados por nome.
   ///
   /// A palavra-passe não é (nem pode ser) lida: a coluna foi eliminada e as
-  /// credenciais vivem apenas no Supabase Auth. Ver bug (c) em BUGS_RESOLVIDOS.md.
+  /// credenciais vivem apenas no Supabase Auth. Ver bug (c) em docs/BUGS_RESOLVIDOS.md.
   Future<List<UtilizadorModel>> obterTodos() {
     return guarda('carregar os utilizadores', () async {
       final dados = await client
@@ -107,7 +107,7 @@ class UtilizadoresRepository extends BaseRepository {
     return guarda('criar o funcionário', () async {
       final tempClient = SupabaseClient(
         SupabaseConfig.url,
-        SupabaseConfig.anonKey,
+        SupabaseConfig.publishableKey,
         // Fluxo 'implicit' evita o PKCE, que exigiria asyncStorage neste cliente
         // isolado. Aqui só criamos a conta, não persistimos sessão.
         authOptions: const AuthClientOptions(authFlowType: AuthFlowType.implicit),

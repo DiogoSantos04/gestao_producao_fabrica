@@ -60,7 +60,22 @@ class _OperadorShellScreenState extends State<OperadorShellScreen> {
   @override
   void initState() {
     super.initState();
+    _semearPerfilEmCache();
     _iniciarEscutaPerfil();
+  }
+
+  /// Mostra já o perfil que o login carregou, para o cabeçalho não abrir com
+  /// "a carregar…" até o stream de `utilizadores` entregar a primeira linha.
+  void _semearPerfilEmCache() {
+    if (!_authService.temPerfilEmCache) return;
+
+    final identidade = _authService.identidadeParaCabecalho(
+      nomeOmissao: 'Operador',
+      emailOmissao: 'sem email registado',
+    );
+    _nomeUtilizador = identidade.nome;
+    _emailUtilizador = identidade.email;
+    _carregandoPerfil = false;
   }
 
   @override

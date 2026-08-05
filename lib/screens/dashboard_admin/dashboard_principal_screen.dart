@@ -359,7 +359,7 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                Text(
+                const Text(
                   'Ligação ao Chão de Fábrica Ativa',
                   style: TextStyle(fontSize: 13, color: TemasCores.textoApoio, fontWeight: FontWeight.w500),
                 ),
@@ -399,7 +399,7 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
 
   Widget _buildChartCard() {
     final int valorMaximo = _fasesDistribuicao.values.fold(0, (max, e) => e > max ? e : max);
-    final double alturaGrafico = 250.0;
+    const double alturaGrafico = 250.0;
 
     return Card(
       color: TemasCores.superficie,
@@ -418,7 +418,7 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: TemasCores.textoPrimario),
             ),
             const SizedBox(height: 4),
-            Text(
+            const Text(
               'Quantidade de encomendas atualmente ativas em cada etapa',
               style: TextStyle(fontSize: 13, color: TemasCores.textoTerciario),
             ),
@@ -454,7 +454,7 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
                             curve: Curves.easeOutBack,
                             width: 24,
                             height: (alturaGrafico - 65) * percentagemAltura,
-                            decoration: BoxDecoration(
+                            decoration: const BoxDecoration(
                               gradient: LinearGradient(
                                 colors: [
                                   TemasCores.graficoBarraTopo,
@@ -463,7 +463,7 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
                                 begin: Alignment.topCenter,
                                 end: Alignment.bottomCenter,
                               ),
-                              borderRadius: const BorderRadius.only(
+                              borderRadius: BorderRadius.only(
                                 topLeft: Radius.circular(4),
                                 topRight: Radius.circular(4),
                               ),
@@ -472,7 +472,7 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
                           const SizedBox(height: 6),
                           Text(
                             fase,
-                            style: TextStyle(fontSize: 10, fontWeight: FontWeight.w500, color: TemasCores.textoApoio),
+                            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w500, color: TemasCores.textoApoio),
                             textAlign: TextAlign.center,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -519,13 +519,13 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
                     ),
                     child: Text(
                       '${_alertasIncidencias.length} Paragens',
-                      style: TextStyle(fontSize: 11, color: TemasCores.erroForte, fontWeight: FontWeight.bold),
+                      style: const TextStyle(fontSize: 11, color: TemasCores.erroForte, fontWeight: FontWeight.bold),
                     ),
                   ),
               ],
             ),
             const SizedBox(height: 4),
-            Text(
+            const Text(
               'Paragens registadas no chão de fábrica',
               style: TextStyle(fontSize: 13, color: TemasCores.textoTerciario),
             ),
@@ -644,7 +644,7 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
                 const SizedBox(height: 2),
                 Text(
                   inc['motivo'] ?? 'Sem motivo indicado.',
-                  style: TextStyle(fontSize: 12, color: TemasCores.textoApoio),
+                  style: const TextStyle(fontSize: 12, color: TemasCores.textoApoio),
                 ),
                 const SizedBox(height: 6),
                 Row(
@@ -652,12 +652,12 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
                   children: [
                     Text(
                       '⏱️ Ativo: ${_calcularTempoDowntime(inc['created_at'] ?? DateTime.now().toIso8601String())}',
-                      style: TextStyle(
+                      style: const TextStyle(
                           fontSize: 11, color: TemasCores.erroMedio, fontWeight: FontWeight.bold),
                     ),
                     Text(
                       'Op: ${dados.operador}',
-                      style: TextStyle(fontSize: 11, color: TemasCores.textoDesativado),
+                      style: const TextStyle(fontSize: 11, color: TemasCores.textoDesativado),
                     ),
                   ],
                 ),

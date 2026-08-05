@@ -5,7 +5,7 @@ import 'base_repository.dart';
 ///
 /// Têm de coincidir exatamente com o CHECK definido na base de dados. Estavam
 /// escritos à mão no ecrã com valores diferentes dos aceites, o que fazia falhar
-/// todos os updates em silêncio — ver bug (a) em BUGS_RESOLVIDOS.md.
+/// todos os updates em silêncio — ver bug (a) em docs/BUGS_RESOLVIDOS.md.
 abstract class EstadoPosto {
   static const String livre = 'Livre';
   static const String emProducao = 'Em Produção';

@@ -131,8 +131,8 @@ class _LoginScreenState extends State<LoginScreen> {
         await _authService.logout();
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('O seu perfil de acesso é inválido ou desconhecido.'),
+          const SnackBar(
+            content: Text('O seu perfil de acesso é inválido ou desconhecido.'),
             backgroundColor: TemasCores.vermelhoErro,
           ),
         );
