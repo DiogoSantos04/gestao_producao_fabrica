@@ -84,6 +84,15 @@ class Paleta {
   static const Color roxo50 = Color(0xFFEDE7F6); // Colors.deepPurple.shade50
   static const Color roxo500 = Color(0xFF673AB7); // Colors.deepPurple
   static const Color roxo600 = Color(0xFF5E35B1); // Colors.deepPurple.shade600
+
+  // ── Violeta: acento de marca do portal cliente ──
+  // Fora da rampa Material (que só tinha deepPurple, mais frio e menos saturado).
+  static const Color violeta50 = Color(0xFFF1EFFE);
+  static const Color violeta100 = Color(0xFFE3DFFC);
+  static const Color violeta400 = Color(0xFF8F7FF7);
+  static const Color violeta500 = Color(0xFF6C5CE7);
+  static const Color violeta600 = Color(0xFF5B4BD6);
+  static const Color violeta700 = Color(0xFF4C3FC0);
   static const Color indigo500 = Color(0xFF3F51B5); // Colors.indigo
   static const Color turquesa500 = Color(0xFF009688); // Colors.teal
   static const Color laranjaEscuro500 = Color(0xFFFF5722); // Colors.deepOrange
@@ -354,6 +363,25 @@ class TemasCores {
   static const Color acentoAzulAcinzentado = Paleta.azulAcinzentado500;
   static const Color acentoLaranjaEscuro = Paleta.laranjaEscuro500;
   static const Color acentoArdosia = Paleta.ardosia500;
+
+  // ───────────────────────── Portal cliente ─────────────────────────
+  // Acento próprio do portal do cliente — distinto do azul do admin/operador,
+  // para o cliente reconhecer visualmente que está noutra área da aplicação.
+  // Substitui o `Colors.deepPurple` que estava espalhado pelos ecrãs do portal.
+
+  /// Cor de destaque do portal cliente (botão principal, item de menu ativo).
+  static const Color clienteAcento = Paleta.violeta500;
+
+  /// Variante mais escura, para gradientes e estados de pressão/hover.
+  static const Color clienteAcentoForte = Paleta.violeta600;
+  static const Color clienteAcentoEscuro = Paleta.violeta700;
+
+  /// Variante mais clara, para ícones e traços decorativos.
+  static const Color clienteAcentoClaro = Paleta.violeta400;
+
+  /// Tintas para preencher etiquetas, badges e fundos suaves.
+  static const Color clienteAcentoFundo = Paleta.violeta50;
+  static const Color clienteAcentoFundoForte = Paleta.violeta100;
 
   // ───────────────────────────── Avatares ─────────────────────────────
 

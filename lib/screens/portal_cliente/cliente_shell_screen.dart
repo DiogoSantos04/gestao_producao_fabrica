@@ -2,6 +2,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/iniciais.dart';
+import '../../core/mensagens.dart';
+import '../../core/temas_cores.dart';
 import '../../repositories/base_repository.dart';
 import '../../repositories/portal_cliente_repository.dart';
 import '../../services/auth_service.dart';
@@ -136,11 +138,12 @@ class _ClienteShellScreenState extends State<ClienteShellScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           duration: const Duration(seconds: 8),
-          backgroundColor: Colors.deepPurple,
+          backgroundColor: TemasCores.clienteAcentoForte,
           behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           content: Row(
             children: [
-              const Icon(Icons.notifications_active, color: Colors.amber, size: 28),
+              const Icon(Icons.notifications_active, color: TemasCores.avisoBorda, size: 28),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -193,7 +196,7 @@ class _ClienteShellScreenState extends State<ClienteShellScreen> {
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               title: const Row(
                 children: [
-                  Icon(Icons.lock_reset_outlined, color: Colors.deepPurple),
+                  Icon(Icons.lock_reset_outlined, color: TemasCores.clienteAcento),
                   SizedBox(width: 10),
                   Text('Alterar Palavra-passe'),
                 ],
@@ -256,28 +259,18 @@ class _ClienteShellScreenState extends State<ClienteShellScreen> {
 
                             if (context.mounted) {
                               Navigator.pop(context);
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Palavra-passe alterada com sucesso!'),
-                                  backgroundColor: Colors.green,
-                                ),
-                              );
+                              context.mostrarMensagem('Palavra-passe alterada com sucesso!');
                             }
                           } catch (e) {
                             setDialogState(() => aCarregar = false);
                             if (context.mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text('Erro ao alterar palavra-passe: $e'),
-                                  backgroundColor: Colors.red,
-                                ),
-                              );
+                              context.mostrarMensagem('Erro ao alterar palavra-passe: $e', eErro: true);
                             }
                           }
                         },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.deepPurple,
-                    foregroundColor: Colors.white,
+                    backgroundColor: TemasCores.clienteAcento,
+                    foregroundColor: TemasCores.textoInverso,
                   ),
                   child: aCarregar
                       ? const SizedBox(
@@ -299,80 +292,121 @@ class _ClienteShellScreenState extends State<ClienteShellScreen> {
     final String iniciais = _iniciais;
     final String idDisplay = _idCliente;
 
-    return Padding(
-      padding: const EdgeInsets.all(40.0),
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(32.0),
       child: Center(
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 550),
+          constraints: const BoxConstraints(maxWidth: 480),
           child: Card(
-            elevation: 4,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            child: Padding(
-              padding: const EdgeInsets.all(32.0),
-              child: _carregandoPerfil
-                  ? const Center(child: CircularProgressIndicator())
-                  : Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        CircleAvatar(
-                          radius: 45,
-                          backgroundColor: Colors.deepPurple,
-                          child: Text(
-                            iniciais,
-                            style: const TextStyle(fontSize: 28, color: Colors.white, fontWeight: FontWeight.bold),
+            elevation: 3,
+            clipBehavior: Clip.antiAlias,
+            shadowColor: TemasCores.clienteAcento.withValues(alpha: 0.25),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+            child: _carregandoPerfil
+                ? const Padding(
+                    padding: EdgeInsets.all(64.0),
+                    child: Center(child: CircularProgressIndicator()),
+                  )
+                : Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Stack(
+                        clipBehavior: Clip.none,
+                        alignment: Alignment.topCenter,
+                        children: [
+                          Container(
+                            height: 88,
+                            decoration: const BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [TemasCores.clienteAcentoClaro, TemasCores.clienteAcentoForte],
+                              ),
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 20),
-                        Text(
-                          _nomeUtilizador,
-                          style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-                        ),
-                        const SizedBox(height: 4),
-                        const Text(
-                          'Cliente Comercial',
-                          style: TextStyle(fontSize: 14, color: Colors.grey, fontWeight: FontWeight.w500),
-                        ),
-                        const Divider(height: 40),
-                        
-                        _construirCampoInformativo(
-                          label: 'Email Registado',
-                          valor: _emailUtilizador,
-                          icone: Icons.email_outlined,
-                        ),
-                        const SizedBox(height: 16),
-                        _construirCampoInformativo(
-                          label: 'Código do Cliente',
-                          valor: idDisplay,
-                          icone: Icons.badge_outlined,
-                        ),
-                        const SizedBox(height: 32),
-                        
-                        OutlinedButton.icon(
-                          onPressed: _mostrarDialogoAlterarPalavraPasse,
-                          style: OutlinedButton.styleFrom(
-                            minimumSize: const Size.fromHeight(50),
-                            side: BorderSide(color: Colors.grey.shade300),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          Positioned(
+                            top: 46,
+                            child: Container(
+                              padding: const EdgeInsets.all(4),
+                              decoration: const BoxDecoration(color: TemasCores.superficie, shape: BoxShape.circle),
+                              child: CircleAvatar(
+                                radius: 42,
+                                backgroundColor: TemasCores.clienteAcento,
+                                child: Text(
+                                  iniciais,
+                                  style: const TextStyle(fontSize: 26, color: TemasCores.textoInverso, fontWeight: FontWeight.bold),
+                                ),
+                              ),
+                            ),
                           ),
-                          icon: const Icon(Icons.vpn_key_outlined, color: Colors.black87),
-                          label: const Text('Alterar Palavra-passe', style: TextStyle(color: Colors.black87)),
+                        ],
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(32, 56, 32, 32),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              _nomeUtilizador,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: TemasCores.textoPrimario),
+                            ),
+                            const SizedBox(height: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                              decoration: BoxDecoration(
+                                color: TemasCores.clienteAcentoFundo,
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: const Text(
+                                'Cliente Comercial',
+                                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: TemasCores.clienteAcentoForte),
+                              ),
+                            ),
+                            const SizedBox(height: 28),
+
+                            _construirCampoInformativo(
+                              label: 'Email Registado',
+                              valor: _emailUtilizador,
+                              icone: Icons.email_outlined,
+                            ),
+                            const SizedBox(height: 12),
+                            _construirCampoInformativo(
+                              label: 'Código do Cliente',
+                              valor: idDisplay,
+                              icone: Icons.badge_outlined,
+                            ),
+                            const SizedBox(height: 28),
+
+                            OutlinedButton.icon(
+                              onPressed: _mostrarDialogoAlterarPalavraPasse,
+                              style: OutlinedButton.styleFrom(
+                                minimumSize: const Size.fromHeight(48),
+                                foregroundColor: TemasCores.textoPrimario,
+                                side: const BorderSide(color: TemasCores.bordaForte),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              ),
+                              icon: const Icon(Icons.vpn_key_outlined, size: 18),
+                              label: const Text('Alterar Palavra-passe'),
+                            ),
+                            const SizedBox(height: 10),
+
+                            OutlinedButton.icon(
+                              onPressed: _efetuarLogout,
+                              style: OutlinedButton.styleFrom(
+                                minimumSize: const Size.fromHeight(48),
+                                foregroundColor: TemasCores.erroForte,
+                                side: const BorderSide(color: TemasCores.erroBorda),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              ),
+                              icon: const Icon(Icons.logout_rounded, size: 18),
+                              label: const Text('Terminar Sessão'),
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 12),
-                        
-                        ElevatedButton.icon(
-                          onPressed: _efetuarLogout,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.red.shade600,
-                            foregroundColor: Colors.white,
-                            minimumSize: const Size.fromHeight(50),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                          ),
-                          icon: const Icon(Icons.logout),
-                          label: const Text('Terminar Sessão'),
-                        ),
-                      ],
-                    ),
-            ),
+                      ),
+                    ],
+                  ),
           ),
         ),
       ),
@@ -385,24 +419,37 @@ class _ClienteShellScreenState extends State<ClienteShellScreen> {
     required IconData icone,
   }) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
-        color: Colors.grey.shade50,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(width: 1, color: Colors.grey.shade200),
+        color: TemasCores.superficieTenue,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(width: 1, color: TemasCores.borda),
       ),
       child: Row(
         children: [
-          Icon(icone, color: Colors.grey),
-          const SizedBox(width: 16),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
-              const SizedBox(height: 2),
-              Text(valor, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
-            ],
-          )
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: TemasCores.clienteAcentoFundo,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icone, color: TemasCores.clienteAcentoForte, size: 18),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: const TextStyle(fontSize: 11, color: TemasCores.textoTerciario, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 2),
+                Text(
+                  valor,
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: TemasCores.textoPrimario),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -427,12 +474,9 @@ class _ClienteShellScreenState extends State<ClienteShellScreen> {
             _indiceAtual = 2; // Redireciona para o separador Novo Pedido
           });
 
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Pedido preenchido com sucesso! Reveja os dados e submeta.'),
-              backgroundColor: Colors.deepPurple,
-              duration: Duration(seconds: 4),
-            ),
+          context.mostrarSnack(
+            'Pedido preenchido com sucesso! Reveja os dados e submeta.',
+            cor: TemasCores.clienteAcento,
           );
         },
       ),
@@ -441,10 +485,21 @@ class _ClienteShellScreenState extends State<ClienteShellScreen> {
     ];
 
     return Scaffold(
+      backgroundColor: TemasCores.fundoEcra,
       appBar: !eDesktop
           ? AppBar(
-              title: Text(_indiceAtual == 3 ? 'O Meu Perfil' : _menuItens[_indiceAtual]['titulo']),
-              backgroundColor: Colors.deepPurple.shade50,
+              backgroundColor: TemasCores.superficie,
+              foregroundColor: TemasCores.textoPrimario,
+              elevation: 0,
+              scrolledUnderElevation: 1,
+              surfaceTintColor: TemasCores.superficie,
+              title: Row(
+                children: [
+                  const Icon(Icons.local_shipping_outlined, color: TemasCores.clienteAcento, size: 20),
+                  const SizedBox(width: 10),
+                  Text(_indiceAtual == 3 ? 'O Meu Perfil' : _menuItens[_indiceAtual]['titulo']),
+                ],
+              ),
             )
           : null,
       drawer: !eDesktop ? Drawer(child: _buildSidebar(dentroDrawer: true)) : null,
@@ -468,68 +523,116 @@ class _ClienteShellScreenState extends State<ClienteShellScreen> {
 
   Widget _buildSidebar({required bool dentroDrawer}) {
     return Material(
-      color: const Color(0xFF111625),
+      color: TemasCores.marcaEscura,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
-            child: const Row(
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 28, 20, 20),
+            child: Row(
               children: [
-                Icon(Icons.local_shipping_outlined, color: Colors.deepPurpleAccent, size: 28),
-                SizedBox(width: 12),
-                Text(
-                  'Portal Cliente',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 0.5,
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [TemasCores.clienteAcentoClaro, TemasCores.clienteAcentoForte],
+                    ),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(Icons.local_shipping_outlined, color: TemasCores.textoInverso, size: 20),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'PORTAL',
+                        style: TextStyle(
+                          color: TemasCores.textoInversoTenue,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 1.4,
+                        ),
+                      ),
+                      Text(
+                        'Cliente',
+                        style: TextStyle(color: TemasCores.textoInverso, fontSize: 17, fontWeight: FontWeight.bold),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
           ),
-          const Divider(color: Colors.white10, height: 1),
-          const SizedBox(height: 16),
+          const Divider(color: TemasCores.separadorEscuro, height: 1),
+          const SizedBox(height: 12),
 
           Expanded(
             child: ListView.builder(
+              padding: const EdgeInsets.symmetric(vertical: 4),
               itemCount: _menuItens.length,
               itemBuilder: (context, index) {
                 final item = _menuItens[index];
                 final bool estaSelecionado = _indiceAtual == index;
 
                 return Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-                  child: ListTile(
-                    selected: estaSelecionado,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    selectedTileColor: Colors.white.withValues(alpha: 0.08),
-                    leading: Icon(
-                      item['icone'],
-                      color: estaSelecionado ? Colors.deepPurpleAccent : Colors.grey.shade500,
-                      size: 20,
-                    ),
-                    title: Text(
-                      item['titulo'],
-                      style: TextStyle(
-                        color: estaSelecionado ? Colors.white : Colors.grey.shade400,
-                        fontSize: 14,
-                        fontWeight: estaSelecionado ? FontWeight.w600 : FontWeight.normal,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(12),
+                      onTap: () {
+                        setState(() => _indiceAtual = index);
+                        if (dentroDrawer) Navigator.pop(context);
+                      },
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 150),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+                        decoration: BoxDecoration(
+                          color: estaSelecionado
+                              ? TemasCores.clienteAcento.withValues(alpha: 0.16)
+                              : Colors.transparent,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border(
+                            left: BorderSide(
+                              color: estaSelecionado ? TemasCores.clienteAcentoClaro : Colors.transparent,
+                              width: 3,
+                            ),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            const SizedBox(width: 4),
+                            Icon(
+                              item['icone'],
+                              color: estaSelecionado ? TemasCores.clienteAcentoClaro : TemasCores.textoInversoTenue,
+                              size: 20,
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Text(
+                                item['titulo'],
+                                style: TextStyle(
+                                  color: estaSelecionado ? TemasCores.textoInverso : TemasCores.textoInversoClaro,
+                                  fontSize: 14,
+                                  fontWeight: estaSelecionado ? FontWeight.w600 : FontWeight.normal,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                    onTap: () {
-                      setState(() => _indiceAtual = index);
-                      if (dentroDrawer) Navigator.pop(context);
-                    },
                   ),
                 );
               },
             ),
           ),
 
-          const Divider(color: Colors.white10, height: 1),
+          const Divider(color: TemasCores.separadorEscuro, height: 1),
           _buildRodapeSidebar(dentroDrawer),
         ],
       ),
@@ -542,65 +645,83 @@ class _ClienteShellScreenState extends State<ClienteShellScreen> {
     final String idDisplay = _idCliente;
 
     return Padding(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(14),
       child: Column(
         children: [
-          InkWell(
-            onTap: () {
-              setState(() => _indiceAtual = 3);
-              if (dentroDrawer) Navigator.pop(context);
-            },
-            borderRadius: BorderRadius.circular(8),
-            child: Container(
-              padding: const EdgeInsets.all(8.0),
-              decoration: BoxDecoration(
-                color: estaNoPerfil ? Colors.white.withValues(alpha: 0.08) : Colors.transparent,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
-                children: [
-                  CircleAvatar(
-                    backgroundColor: Colors.deepPurple.shade100,
-                    radius: 18,
-                    child: Text(
-                      iniciais,
-                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.deepPurple),
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: () {
+                setState(() => _indiceAtual = 3);
+                if (dentroDrawer) Navigator.pop(context);
+              },
+              borderRadius: BorderRadius.circular(12),
+              child: Container(
+                padding: const EdgeInsets.all(10.0),
+                decoration: BoxDecoration(
+                  color: estaNoPerfil ? TemasCores.clienteAcento.withValues(alpha: 0.16) : Colors.transparent,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      backgroundColor: TemasCores.clienteAcentoClaro,
+                      radius: 18,
+                      child: Text(
+                        iniciais,
+                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: TemasCores.textoInverso),
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          _nomeUtilizador,
-                          style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        Text(
-                          idDisplay,
-                          style: TextStyle(color: Colors.grey.shade500, fontSize: 11),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _nomeUtilizador,
+                            style: const TextStyle(color: TemasCores.textoInverso, fontSize: 13, fontWeight: FontWeight.bold),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          Text(
+                            idDisplay,
+                            style: const TextStyle(color: TemasCores.textoInversoTenue, fontSize: 11),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                    const Icon(Icons.chevron_right, color: TemasCores.textoInversoTenue, size: 18),
+                  ],
+                ),
               ),
             ),
           ),
-          const SizedBox(height: 12),
-          ElevatedButton.icon(
-            onPressed: _efetuarLogout,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red.withValues(alpha: 0.15),
-              foregroundColor: Colors.redAccent,
-              elevation: 0,
-              minimumSize: const Size.fromHeight(38),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          const SizedBox(height: 8),
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: _efetuarLogout,
+              borderRadius: BorderRadius.circular(10),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                decoration: BoxDecoration(
+                  color: TemasCores.erro.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.logout_rounded, size: 15, color: TemasCores.erroClaro),
+                    SizedBox(width: 8),
+                    Text(
+                      'Terminar Sessão',
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: TemasCores.erroClaro),
+                    ),
+                  ],
+                ),
+              ),
             ),
-            icon: const Icon(Icons.logout_rounded, size: 16),
-            label: const Text('Terminar Sessão', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
