@@ -43,6 +43,27 @@ class PostosRepository extends BaseRepository {
     });
   }
 
+  /// Contagem de postos por estado, para a disponibilidade do dashboard.
+  ///
+  /// A coluna `estado` é a fonte de verdade do chão de fábrica — o dashboard
+  /// inferia-a a partir das incidências abertas, o que ignorava postos parados
+  /// sem incidência registada e contava fases em vez de postos físicos.
+  /// A projeção traz só `estado`: a tabela é pequena e a alternativa (um
+  /// `count` por estado) exigiria uma RPC ou uma view novas.
+  Future<Map<String, int>> contarPorEstado() {
+    return guarda('carregar o estado dos postos', () async {
+      final dados = await client.from('postos_trabalho').select('estado');
+
+      final contagem = <String, int>{};
+      for (final p in comoLista(dados)) {
+        final estado = (p['estado'] as String?)?.trim();
+        if (estado == null || estado.isEmpty) continue;
+        contagem[estado] = (contagem[estado] ?? 0) + 1;
+      }
+      return contagem;
+    });
+  }
+
   Future<void> atribuirOperador({
     required int postoId,
     required String? operadorId,

@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "skills": {
+    "coding-standards": {
+      "source": "affaan-m/ecc",
+      "sourceType": "github",
+      "skillPath": "skills/coding-standards/SKILL.md",
+      "computedHash": "1bc198a6205b2ba5e39cc835702557772bffbbcb3cb63bf509114c5df5ec4d45"
+    },
+    "content-hash-cache-pattern": {
+      "source": "affaan-m/ecc",
+      "sourceType": "github",
+      "skillPath": "skills/content-hash-cache-pattern/SKILL.md",
+      "computedHash": "c452a3bc6cf9a77132d8ab9091223b7d748cb1e6740e2d325201b9428f2dc3d9"
+    },
+    "context-budget": {
+      "source": "affaan-m/ecc",
+      "sourceType": "github",
+      "skillPath": "skills/context-budget/SKILL.md",
+      "computedHash": "647c8336f11cff418bca7dbd348aed780e2ac17b77cb323238054c75f8cc0ab2"
+    },
+    "continuous-learning": {
+      "source": "affaan-m/ecc",
+      "sourceType": "github",
+      "skillPath": "skills/continuous-learning/SKILL.md",
+      "computedHash": "ea18d8f5924bc8a111c196d0220d51404516c2bca1d8de9d627ef467f755c026"
+    },
+    "dart-flutter-patterns": {
+      "source": "affaan-m/ecc",
+      "sourceType": "github",
+      "skillPath": "skills/dart-flutter-patterns/SKILL.md",
+      "computedHash": "d2a29be233f68ccb84d966f9a6501b849407367db58c56f330a36777048b4fbc"
+    },
+    "e2e-testing": {
+      "source": "affaan-m/ecc",
+      "sourceType": "github",
+      "skillPath": "skills/e2e-testing/SKILL.md",
+      "computedHash": "98eabe06f213ad8c7f8446988f9a9603aa6e251d20e157dbdb69a5785f11fcf4"
+    },
+    "flutter-dart-code-review": {
+      "source": "affaan-m/ecc",
+      "sourceType": "github",
+      "skillPath": "skills/flutter-dart-code-review/SKILL.md",
+      "computedHash": "87ac583f7e370bb3869cae02a4cf0a4cb94aa91d6e16160da89d91ad3714165b"
+    },
+    "postgres-patterns": {
+      "source": "affaan-m/ecc",
+      "sourceType": "github",
+      "skillPath": "skills/postgres-patterns/SKILL.md",
+      "computedHash": "ccf7be21533b50c43a821f8f6d415938d5e33a768029efd2c15ab14d670bf119"
+    },
+    "repo-scan": {
+      "source": "affaan-m/ecc",
+      "sourceType": "github",
+      "skillPath": "skills/repo-scan/SKILL.md",
+      "computedHash": "0caca229242d0d5a5bd9b8c33c783a658917016e4952ff584bd9535263df2839"
+    },
+    "security-review": {
+      "source": "affaan-m/ecc",
+      "sourceType": "github",
+      "skillPath": "skills/security-review/SKILL.md",
+      "computedHash": "6a0469eb33a482e79afe390b868714d653c20079e3f22719fb4526c5b720dc99"
+    }
+  }
+}

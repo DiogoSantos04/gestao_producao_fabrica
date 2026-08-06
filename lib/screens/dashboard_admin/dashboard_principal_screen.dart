@@ -4,8 +4,10 @@ import 'package:supabase_flutter/supabase_flutter.dart' show RealtimeChannel;
 import '../../core/realtime.dart';
 import '../../core/temas_cores.dart';
 import '../../models/encomenda_model.dart';
+import '../../models/estado_ordem.dart';
 import '../../repositories/encomendas_repository.dart';
 import '../../repositories/fluxos_repository.dart';
+import '../../repositories/postos_repository.dart';
 import '../../widgets/estado_erro.dart';
 import 'widgets/cartao_kpi.dart';
 
@@ -19,8 +21,10 @@ class DashboardPrincipalScreen extends StatefulWidget {
 class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
   final _encomendasRepo = EncomendasRepository();
   final _fluxosRepo = FluxosRepository();
+  final _postosRepo = PostosRepository();
 
   RealtimeChannel? _factorySubscription;
+  RealtimeChannel? _postosSubscription;
   Timer? _everySecondTimer;
 
   bool _isLoading = true;
@@ -35,11 +39,20 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
   /// erro, o segundo mostra só uma barra por cima dos dados antigos.
   bool _carregouUmaVez = false;
 
-  // KPIs de Produção & OEE
+  // KPIs de Produção
   int _encomendasAtivas = 0;
   int _encomendasAtrasadas = 0;
   int _concluidasHoje = 0;
-  double _disponibilidadeOEE = 100.0;
+
+  /// Ordens suspensas (WIP Hold). Estavam só visíveis dentro dos alertas.
+  int _encomendasEmHold = 0;
+
+  /// Percentagem de postos que não estão em estado 'Parado'.
+  double _disponibilidadePostos = 100.0;
+
+  /// Quantos postos estão 'Parado' agora — dá contexto à percentagem.
+  int _postosParados = 0;
+  int _totalPostos = 0;
 
   // Distribuição de Encomendas por Fase (Ocupação Estrita por Posto)
   Map<String, int> _fasesDistribuicao = {};
@@ -67,15 +80,18 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
     if (_factorySubscription != null) {
       _encomendasRepo.client.removeChannel(_factorySubscription!);
     }
+    if (_postosSubscription != null) {
+      _postosRepo.client.removeChannel(_postosSubscription!);
+    }
     super.dispose();
   }
 
   /// Junta os eventos de uma rajada num só recarregamento.
   ///
   /// Todos os números deste ecrã são agregados sobre o conjunto inteiro
-  /// (ocupação por fase, OEE, atrasadas, concluídas hoje): não há como os
-  /// incrementar a partir de um evento isolado sem arriscar deriva acumulada, e
-  /// cada recarregamento custa quatro queries. Aqui a resposta é só o debounce —
+  /// (ocupação por fase, disponibilidade, atrasadas, concluídas hoje): não há
+  /// como os incrementar a partir de um evento isolado sem arriscar deriva
+  /// acumulada, e cada recarregamento custa cinco queries. Aqui a resposta é só o debounce —
   /// mas com janela larga, porque estes indicadores são de leitura e não de
   /// reação. A primeira alteração continua a aparecer de imediato.
   late final RecarregadorDebounced _recarregador = RecarregadorDebounced(
@@ -89,6 +105,13 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
     _factorySubscription = _encomendasRepo.escutarProducao(
       'db-factory-changes',
       (_) => _recarregador.pedir(),
+    );
+    // A disponibilidade passou a vir de `postos_trabalho.estado`, que muda sem
+    // tocar em encomendas nem incidências. Canal separado (é outra tabela), mas
+    // alimenta o mesmo recarregador — não há um segundo mecanismo de atualização.
+    _postosSubscription = _postosRepo.escutar(
+      'db-postos-changes',
+      _recarregador.pedir,
     );
   }
 
@@ -130,7 +153,8 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
       int ativas = 0;
       int atrasadas = 0;
       int concluidasHoje = 0;
-      
+      int emHold = 0;
+
       final DateTime hoje = DateTime.now();
 
       // 4. Carrega o histórico de produção do dia para validar encomendas finalizadas hoje
@@ -141,15 +165,23 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
           .toSet();
 
       // 5. Processamento posicional das encomendas
+      //
+      // A classificação passa por [EstadoOrdem.derivar] em vez de reler
+      // `fase_atual_id` à mão: é a mesma regra que o painel de controlo e os
+      // relatórios usam, e é o que permite separar as ordens em hold das que
+      // estão mesmo a produzir — antes ambas caíam em "ativas" sem distinção.
       for (final enc in encomendas) {
-        if (enc.faseAtualId == null) {
+        final estado = enc.estado;
+
+        if (estado == EstadoOrdem.concluida) {
           // Encomenda Concluída (Não aparece em nenhuma barra ativa)
           if (encomendasAtivasHojeIds.contains(enc.id)) {
             concluidasHoje++;
           }
         } else {
-          // Encomenda ATIVA!
+          // Em produção ou suspensa: continua a ocupar um posto na linha.
           ativas++;
+          if (estado == EstadoOrdem.emHold) emHold++;
 
           // 📊 LÓGICA DE POSIÇÃO ESTRITA: Soma +1 APENAS na barra da fase atual onde o produto está parado
           final String nomeFase = enc.nomeFaseAtual ?? '';
@@ -168,28 +200,33 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
         }
       }
 
-      // 6. Cálculo da Disponibilidade de Postos de Trabalho (OEE)
-      final Set<String> postosBloqueados = {};
-      for (var inc in incidenciasRaw) {
-        final hist = inc['historico_producao'];
-        if (hist != null && hist['fases_padrao'] != null) {
-          final String? posto = hist['fases_padrao']['posto_trabalho'] as String?;
-          if (posto != null && posto.isNotEmpty) {
-            postosBloqueados.add(posto);
-          }
-        }
-      }
+      // 6. Disponibilidade dos postos de trabalho.
+      //
+      // Lê-se a coluna `postos_trabalho.estado` em vez de a inferir a partir das
+      // incidências abertas: um posto pode estar 'Parado' por setup, falta de
+      // material ou operador sem que exista incidência, e o denominador antigo
+      // eram nomes de fase (que se repetem entre produtos), não postos físicos.
+      // Isto é só a Disponibilidade — não é OEE, que exigiria também
+      // Performance (tempo_estimado vs real) e Qualidade.
+      final Map<String, int> postosPorEstado = await _postosRepo.contarPorEstado();
 
-      final int totalPostos = tempFases.length;
+      if (!mounted) return;
+
+      final int totalPostos =
+          postosPorEstado.values.fold(0, (soma, n) => soma + n);
+      final int postosParados = postosPorEstado[EstadoPosto.parado] ?? 0;
       final double disponibilidade = totalPostos > 0
-          ? (((totalPostos - postosBloqueados.length) / totalPostos) * 100).clamp(0.0, 100.0)
+          ? (((totalPostos - postosParados) / totalPostos) * 100).clamp(0.0, 100.0)
           : 100.0;
 
       setState(() {
         _encomendasAtivas = ativas;
         _encomendasAtrasadas = atrasadas;
         _concluidasHoje = concluidasHoje;
-        _disponibilidadeOEE = disponibilidade;
+        _encomendasEmHold = emHold;
+        _disponibilidadePostos = disponibilidade;
+        _postosParados = postosParados;
+        _totalPostos = totalPostos;
         _fasesDistribuicao = tempFases;
         _alertasIncidencias = List<Map<String, dynamic>>.from(incidenciasRaw);
         _isLoading = false;
@@ -267,18 +304,19 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
                   const SizedBox(height: 24),
                   LayoutBuilder(
                     builder: (context, constraints) {
+                      final int colunas = _colunasKpi(larguraEcra);
                       return GridView.count(
-                        crossAxisCount: larguraEcra < 600 ? 1 : (larguraEcra < 1100 ? 2 : 4),
+                        crossAxisCount: colunas,
                         crossAxisSpacing: 16,
                         mainAxisSpacing: 16,
                         shrinkWrap: true,
                         physics: const NeverScrollableScrollPhysics(),
-                        childAspectRatio: 2.2,
+                        childAspectRatio: _proporcaoKpi(colunas),
                         children: [
                           _buildKpiCard(
                             titulo: 'Encomendas Ativas',
                             valor: '$_encomendasAtivas',
-                            subtitulo: 'A decorrer na fábrica',
+                            subtitulo: 'Na linha (inclui as em hold)',
                             corIcone: TemasCores.infoForte,
                             fundoIcone: TemasCores.infoFundo,
                             icone: Icons.precision_manufacturing_outlined,
@@ -293,6 +331,15 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
                             alerta: _encomendasAtrasadas > 0,
                           ),
                           _buildKpiCard(
+                            titulo: 'Encomendas em Hold',
+                            valor: '$_encomendasEmHold',
+                            subtitulo: 'Suspensas por WIP Hold',
+                            corIcone: TemasCores.avisoTextoForte,
+                            fundoIcone: TemasCores.avisoFundo,
+                            icone: Icons.pause_circle_outline,
+                            alerta: _encomendasEmHold > 0,
+                          ),
+                          _buildKpiCard(
                             titulo: 'Concluídas Hoje',
                             valor: '$_concluidasHoje',
                             subtitulo: 'Finalizadas nas últimas 24h',
@@ -302,12 +349,14 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
                           ),
                           _buildKpiCard(
                             titulo: 'Disponibilidade de Postos',
-                            valor: '${_disponibilidadeOEE.toStringAsFixed(0)}%',
-                            subtitulo: 'Métrica de OEE Industrial',
+                            valor: '${_disponibilidadePostos.toStringAsFixed(0)}%',
+                            subtitulo: _totalPostos == 0
+                                ? 'Sem postos registados'
+                                : '% de postos operacionais · $_postosParados de $_totalPostos parados',
                             corIcone: TemasCores.acentoRoxoForte,
                             fundoIcone: TemasCores.acentoRoxoFundo,
                             icone: Icons.bolt_outlined,
-                            alerta: _disponibilidadeOEE < 90,
+                            alerta: _disponibilidadePostos < 90,
                           ),
                         ],
                       );
@@ -375,6 +424,28 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
       ],
     );
   }
+
+  /// Número de colunas da grelha de KPIs para a largura disponível.
+  ///
+  /// Com o quinto cartão (em hold), pôr cinco colunas logo aos 1100 px deixava
+  /// cada cartão com ~200 px — estreito de mais para o valor e o subtítulo. Só
+  /// acima dos 1500 px é que os cinco cabem lado a lado; entre os dois, três
+  /// colunas mantêm-nos legíveis mesmo que a segunda linha fique incompleta.
+  static int _colunasKpi(double largura) {
+    if (largura < 600) return 1;
+    if (largura < 1100) return 2;
+    if (largura < 1500) return 3;
+    return 5;
+  }
+
+  /// Proporção de cada cartão de KPI: quanto menos colunas, mais largo fica o
+  /// cartão, pelo que a proporção tem de acompanhar para a altura não disparar.
+  static double _proporcaoKpi(int colunas) => switch (colunas) {
+        1 => 4.0,
+        2 => 2.6,
+        3 => 2.4,
+        _ => 1.9,
+      };
 
   Widget _buildKpiCard({
     required String titulo,
