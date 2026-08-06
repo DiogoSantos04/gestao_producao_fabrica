@@ -4,12 +4,15 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/ecra_recarregavel.dart';
+import '../../core/mensagens.dart';
 import '../../core/paginacao.dart';
+import '../../core/temas_cores.dart';
 import '../../models/encomenda_model.dart';
 import '../../models/estado_ordem.dart';
 import '../../repositories/base_repository.dart';
 import '../../repositories/portal_cliente_repository.dart';
 import '../../services/pdf_service.dart';
+import '../../widgets/etiqueta_estado.dart';
 
 /// Histórico de encomendas do cliente autenticado.
 class HistoricoClienteScreen extends StatefulWidget {
@@ -139,9 +142,7 @@ class HistoricoClienteScreenState extends State<HistoricoClienteScreen> implemen
     } on RepositoryException catch (e) {
       if (!mounted) return;
       setState(() => _aCarregarMais = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.mensagem), backgroundColor: Colors.red),
-      );
+      context.mostrarMensagem(e.mensagem, eErro: true);
     }
   }
 
@@ -182,7 +183,7 @@ class HistoricoClienteScreenState extends State<HistoricoClienteScreen> implemen
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               title: Row(
                 children: [
-                  const Icon(Icons.star_rounded, color: Colors.amber, size: 28),
+                  const Icon(Icons.star_rounded, color: TemasCores.avaliacaoEstrela, size: 28),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
@@ -197,7 +198,7 @@ class HistoricoClienteScreenState extends State<HistoricoClienteScreen> implemen
                 children: [
                   const Text(
                     'Como avalia a qualidade de fabrico e o cumprimento do prazo?',
-                    style: TextStyle(fontSize: 13, color: Colors.grey),
+                    style: TextStyle(fontSize: 13, color: TemasCores.textoSecundario),
                   ),
                   const SizedBox(height: 16),
                   Row(
@@ -207,7 +208,7 @@ class HistoricoClienteScreenState extends State<HistoricoClienteScreen> implemen
                       return IconButton(
                         icon: Icon(
                           estrelaIndex <= notaSelecionada ? Icons.star_rounded : Icons.star_border_rounded,
-                          color: Colors.amber,
+                          color: TemasCores.avaliacaoEstrela,
                           size: 32,
                         ),
                         onPressed: () {
@@ -248,24 +249,24 @@ class HistoricoClienteScreenState extends State<HistoricoClienteScreen> implemen
 
                             if (!context.mounted) return;
                             Navigator.pop(context);
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Agradecemos a sua avaliação! ⭐'),
-                                backgroundColor: Colors.green,
-                              ),
-                            );
+                            context.mostrarMensagem('Agradecemos a sua avaliação! ⭐');
                             _carregarHistorico();
                           } on RepositoryException catch (e) {
                             setDialogState(() => enviando = false);
                             if (!context.mounted) return;
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text(e.mensagem), backgroundColor: Colors.red),
-                            );
+                            context.mostrarMensagem(e.mensagem, eErro: true);
                           }
                         },
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.deepPurple, foregroundColor: Colors.white),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: TemasCores.clienteAcento,
+                    foregroundColor: TemasCores.textoInverso,
+                  ),
                   child: enviando
-                      ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: TemasCores.textoInverso),
+                        )
                       : const Text('Submeter Avaliação'),
                 ),
               ],
@@ -290,9 +291,9 @@ class HistoricoClienteScreenState extends State<HistoricoClienteScreen> implemen
     final bool estreito = MediaQuery.of(context).size.width < 760;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
+      backgroundColor: TemasCores.fundoEcraFrio,
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
+          ? const Center(child: CircularProgressIndicator(color: TemasCores.clienteAcento))
           : Padding(
               padding: EdgeInsets.all(estreito ? 16.0 : 40.0),
               child: Column(
@@ -310,19 +311,20 @@ class HistoricoClienteScreenState extends State<HistoricoClienteScreen> implemen
                               style: TextStyle(
                                 fontSize: estreito ? 22 : 28,
                                 fontWeight: FontWeight.bold,
-                                color: const Color(0xFF0F172A),
+                                color: TemasCores.textoPrimarioFrio,
                               ),
                             ),
                             const SizedBox(height: 4),
                             const Text(
                               'Consulte todas as suas encomendas, avalie a qualidade, repita um pedido ou baixe o certificado.',
-                              style: TextStyle(fontSize: 14, color: Color(0xFF64748B)),
+                              style: TextStyle(fontSize: 14, color: TemasCores.textoSecundarioFrio),
                             ),
                           ],
                         ),
                       ),
                       IconButton(
                         icon: const Icon(Icons.refresh),
+                        color: TemasCores.clienteAcento,
                         tooltip: 'Recarregar',
                         onPressed: _carregarHistorico,
                       ),
@@ -342,16 +344,17 @@ class HistoricoClienteScreenState extends State<HistoricoClienteScreen> implemen
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.error_outline, color: Colors.red, size: 40),
+            const Icon(Icons.error_outline, color: TemasCores.erro, size: 40),
             const SizedBox(height: 12),
             Text(
               _erro!,
               textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+              style: const TextStyle(color: TemasCores.erroTextoForte, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 16),
             OutlinedButton.icon(
               onPressed: _carregarHistorico,
+              style: OutlinedButton.styleFrom(foregroundColor: TemasCores.clienteAcento),
               icon: const Icon(Icons.refresh),
               label: const Text('Tentar novamente'),
             ),
@@ -362,7 +365,7 @@ class HistoricoClienteScreenState extends State<HistoricoClienteScreen> implemen
 
     if (_encomendas.isEmpty) {
       return const Center(
-        child: Text('Ainda não tem encomendas registadas.', style: TextStyle(color: Colors.grey)),
+        child: Text('Ainda não tem encomendas registadas.', style: TextStyle(color: TemasCores.textoSecundarioFrio)),
       );
     }
 
@@ -381,9 +384,14 @@ class HistoricoClienteScreenState extends State<HistoricoClienteScreen> implemen
       padding: const EdgeInsets.only(top: 8, bottom: 24),
       child: Center(
         child: _aCarregarMais
-            ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
+            ? const SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(strokeWidth: 2, color: TemasCores.clienteAcento),
+              )
             : OutlinedButton.icon(
                 onPressed: _carregarMais,
+                style: OutlinedButton.styleFrom(foregroundColor: TemasCores.clienteAcento),
                 icon: const Icon(Icons.expand_more),
                 label: const Text('Carregar mais encomendas'),
               ),
@@ -399,15 +407,16 @@ class HistoricoClienteScreenState extends State<HistoricoClienteScreen> implemen
     final estado = enc.estado;
     final bool eConcluida = estado == EstadoOrdem.concluida;
     final bool eCancelada = estado == EstadoOrdem.cancelada;
+    final cores = coresEstadoOrdem(estado);
 
     final produto = enc.nomeProduto ?? 'Artigo';
     final jaAvaliado = _encomendasAvaliadasIds.contains(enc.id);
 
-    final (Color corFundoBadge, Color corTextoBadge, Color corIcone, IconData icone) = switch (estado) {
-      EstadoOrdem.concluida => (Colors.green.shade100, Colors.green.shade900, Colors.green, Icons.task_alt_rounded),
-      EstadoOrdem.cancelada => (Colors.red.shade100, Colors.red.shade900, Colors.red, Icons.cancel_outlined),
-      EstadoOrdem.emHold => (Colors.orange.shade100, Colors.orange.shade900, Colors.orange, Icons.pause_circle_outline),
-      EstadoOrdem.emProducao => (Colors.blue.shade100, Colors.blue.shade900, Colors.deepPurple, Icons.receipt_long),
+    final IconData icone = switch (estado) {
+      EstadoOrdem.concluida => Icons.task_alt_rounded,
+      EstadoOrdem.cancelada => Icons.cancel_outlined,
+      EstadoOrdem.emHold => Icons.pause_circle_outline,
+      EstadoOrdem.emProducao => Icons.receipt_long,
     };
 
     // Em produção mostra-se a fase concreta; nos restantes estados a etiqueta do
@@ -422,10 +431,10 @@ class HistoricoClienteScreenState extends State<HistoricoClienteScreen> implemen
         Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: corFundoBadge.withValues(alpha: 0.4),
+            color: cores.fundo,
             shape: BoxShape.circle,
           ),
-          child: Icon(icone, color: corIcone, size: 24),
+          child: Icon(icone, color: cores.texto, size: 24),
         ),
         const SizedBox(width: 16),
         Expanded(
@@ -439,36 +448,26 @@ class HistoricoClienteScreenState extends State<HistoricoClienteScreen> implemen
                 children: [
                   Text(
                     enc.codigoRastreio ?? 'Sem Código',
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: TemasCores.textoApoioIntensoFrio),
                   ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: corFundoBadge,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      estadoTexto,
-                      style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: corTextoBadge),
-                    ),
-                  ),
+                  EtiquetaEstado.pilula(rotulo: estadoTexto, fundo: cores.fundo, texto: cores.texto),
                 ],
               ),
               const SizedBox(height: 4),
               Text(
                 'Artigo: $produto (${enc.quantidade} unid.)',
-                style: const TextStyle(color: Color(0xFF475569), fontWeight: FontWeight.w500),
+                style: const TextStyle(color: TemasCores.textoApoioFrio, fontWeight: FontWeight.w500),
               ),
               Text(
                 'Data de Entrega: ${_formatarData(enc.dataEntrega)}',
-                style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                style: const TextStyle(fontSize: 12, color: TemasCores.textoSecundarioFrio),
               ),
               if (eCancelada && (enc.motivoCancelamento ?? '').isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: 4),
                   child: Text(
                     'Motivo: ${enc.motivoCancelamento}',
-                    style: TextStyle(fontSize: 12, color: Colors.red.shade700),
+                    style: const TextStyle(fontSize: 12, color: TemasCores.erroTexto),
                   ),
                 ),
             ],
@@ -487,7 +486,7 @@ class HistoricoClienteScreenState extends State<HistoricoClienteScreen> implemen
         // efetivamente concluída, nunca numa cancelada.
         if (eConcluida) ...[
           IconButton(
-            icon: const Icon(Icons.picture_as_pdf_outlined, color: Colors.redAccent),
+            icon: const Icon(Icons.picture_as_pdf_outlined, color: TemasCores.erroVivo),
             tooltip: 'Certificado de Conformidade PDF',
             onPressed: () {
               PdfService.descarregarCertificadoConformidade(
@@ -503,15 +502,15 @@ class HistoricoClienteScreenState extends State<HistoricoClienteScreen> implemen
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
-                color: Colors.amber.shade50,
+                color: TemasCores.avisoFundo,
                 borderRadius: BorderRadius.circular(8),
               ),
               child: const Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.star_rounded, color: Colors.amber, size: 16),
+                  Icon(Icons.star_rounded, color: TemasCores.avaliacaoEstrela, size: 16),
                   SizedBox(width: 4),
-                  Text('Avaliado', style: TextStyle(fontSize: 12, color: Colors.amber, fontWeight: FontWeight.bold)),
+                  Text('Avaliado', style: TextStyle(fontSize: 12, color: TemasCores.avisoTextoForte, fontWeight: FontWeight.bold)),
                 ],
               ),
             )
@@ -519,8 +518,8 @@ class HistoricoClienteScreenState extends State<HistoricoClienteScreen> implemen
             OutlinedButton.icon(
               onPressed: () => _mostrarDialogoAvaliacao(enc),
               style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.amber.shade900,
-                side: BorderSide(color: Colors.amber.shade300),
+                foregroundColor: TemasCores.avisoTextoForte,
+                side: const BorderSide(color: TemasCores.avisoBorda),
               ),
               icon: const Icon(Icons.star_outline_rounded, size: 18),
               label: const Text('Avaliar'),
@@ -531,8 +530,8 @@ class HistoricoClienteScreenState extends State<HistoricoClienteScreen> implemen
               ? null
               : () => widget.onRepetirEncomenda?.call(enc.tipoProdutoId!, enc.quantidade),
           style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.deepPurple,
-            foregroundColor: Colors.white,
+            backgroundColor: TemasCores.clienteAcento,
+            foregroundColor: TemasCores.textoInverso,
           ),
           icon: const Icon(Icons.replay_rounded, size: 16),
           label: const Text('Repetir Pedido'),
@@ -544,10 +543,10 @@ class HistoricoClienteScreenState extends State<HistoricoClienteScreen> implemen
       margin: const EdgeInsets.only(bottom: 16),
       elevation: 0,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: Colors.grey.shade200),
+        borderRadius: BorderRadius.circular(14),
+        side: const BorderSide(color: TemasCores.borda),
       ),
-      color: Colors.white,
+      color: TemasCores.superficie,
       child: Padding(
         padding: EdgeInsets.all(estreito ? 16 : 20),
         // Em ecrã estreito as ações descem para baixo da identificação, em vez

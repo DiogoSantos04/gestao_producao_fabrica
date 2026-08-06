@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 
+import '../../core/mensagens.dart';
+import '../../core/temas_cores.dart';
 import '../../models/pedido_model.dart';
 import '../../repositories/base_repository.dart';
 import '../../repositories/portal_cliente_repository.dart';
+import '../../widgets/etiqueta_estado.dart';
 
 class SolicitarEncomendaScreen extends StatefulWidget {
   const SolicitarEncomendaScreen({super.key});
@@ -70,11 +73,9 @@ class SolicitarEncomendaScreenState extends State<SolicitarEncomendaScreen> {
       return;
     }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('O artigo dessa encomenda já não está disponível. Selecione outro da lista.'),
-        backgroundColor: Colors.orange,
-      ),
+    context.mostrarSnack(
+      'O artigo dessa encomenda já não está disponível. Selecione outro da lista.',
+      cor: TemasCores.alerta,
     );
   }
 
@@ -124,24 +125,17 @@ class SolicitarEncomendaScreenState extends State<SolicitarEncomendaScreen> {
 
     final clienteId = _clienteId;
     if (clienteId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('A sua conta ainda não está associada a um registo de cliente. '
-              'Contacte-nos para concluir o registo.'),
-          backgroundColor: Colors.orange,
-        ),
+      context.mostrarSnack(
+        'A sua conta ainda não está associada a um registo de cliente. '
+        'Contacte-nos para concluir o registo.',
+        cor: TemasCores.alerta,
       );
       return;
     }
 
     final tipoProdutoId = _tipoProdutoSelecionadoId;
     if (tipoProdutoId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Por favor, selecione um artigo da lista.'),
-          backgroundColor: Colors.orange,
-        ),
-      );
+      context.mostrarSnack('Por favor, selecione um artigo da lista.', cor: TemasCores.alerta);
       return;
     }
 
@@ -168,27 +162,20 @@ class SolicitarEncomendaScreenState extends State<SolicitarEncomendaScreen> {
         _meusPedidos = pedidos;
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Pedido enviado com sucesso! O Administrador irá analisar a solicitação.'),
-          backgroundColor: Colors.green,
-        ),
-      );
+      context.mostrarMensagem('Pedido enviado com sucesso! O Administrador irá analisar a solicitação.');
     } on RepositoryException catch (e) {
       if (!mounted) return;
       setState(() => _submetendo = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.mensagem), backgroundColor: Colors.red),
-      );
+      context.mostrarMensagem(e.mensagem, eErro: true);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
+      backgroundColor: TemasCores.fundoEcraFrio,
       body: _carregandoInicial
-          ? const Center(child: CircularProgressIndicator())
+          ? const Center(child: CircularProgressIndicator(color: TemasCores.clienteAcento))
           : _erroInicial != null
               ? _construirErroInicial()
               : Center(
@@ -204,13 +191,13 @@ class SolicitarEncomendaScreenState extends State<SolicitarEncomendaScreen> {
                             style: TextStyle(
                               fontSize: 28,
                               fontWeight: FontWeight.bold,
-                              color: Color(0xFF0F172A),
+                              color: TemasCores.textoPrimarioFrio,
                             ),
                           ),
                           const SizedBox(height: 4),
                           const Text(
                             'Selecione o artigo pretendido e submeta o pedido para a nossa equipa de produção.',
-                            style: TextStyle(fontSize: 14, color: Color(0xFF64748B)),
+                            style: TextStyle(fontSize: 14, color: TemasCores.textoSecundarioFrio),
                           ),
                           const SizedBox(height: 32),
                           _construirFormulario(),
@@ -229,16 +216,17 @@ class SolicitarEncomendaScreenState extends State<SolicitarEncomendaScreen> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.error_outline, color: Colors.red, size: 40),
+          const Icon(Icons.error_outline, color: TemasCores.erro, size: 40),
           const SizedBox(height: 12),
           Text(
             _erroInicial!,
             textAlign: TextAlign.center,
-            style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+            style: const TextStyle(color: TemasCores.erroTextoForte, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 16),
           OutlinedButton.icon(
             onPressed: _carregarDadosIniciais,
+            style: OutlinedButton.styleFrom(foregroundColor: TemasCores.clienteAcento),
             icon: const Icon(Icons.refresh),
             label: const Text('Tentar novamente'),
           ),
@@ -261,10 +249,11 @@ class SolicitarEncomendaScreenState extends State<SolicitarEncomendaScreen> {
           children: [
             const Text(
               'Os Meus Pedidos',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: TemasCores.textoPrimarioFrio),
             ),
             IconButton(
               icon: const Icon(Icons.refresh),
+              color: TemasCores.clienteAcento,
               tooltip: 'Atualizar',
               onPressed: _carregarDadosIniciais,
             ),
@@ -273,7 +262,7 @@ class SolicitarEncomendaScreenState extends State<SolicitarEncomendaScreen> {
         const SizedBox(height: 4),
         const Text(
           'Estado das solicitações que enviou para a nossa equipa.',
-          style: TextStyle(fontSize: 13, color: Color(0xFF64748B)),
+          style: TextStyle(fontSize: 13, color: TemasCores.textoSecundarioFrio),
         ),
         const SizedBox(height: 16),
         if (_meusPedidos.isEmpty)
@@ -281,13 +270,13 @@ class SolicitarEncomendaScreenState extends State<SolicitarEncomendaScreen> {
             width: double.infinity,
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.grey.shade200),
+              color: TemasCores.superficie,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: TemasCores.borda),
             ),
             child: const Text(
               'Ainda não submeteu nenhum pedido.',
-              style: TextStyle(color: Colors.grey),
+              style: TextStyle(color: TemasCores.textoSecundarioFrio),
             ),
           )
         else
@@ -297,27 +286,28 @@ class SolicitarEncomendaScreenState extends State<SolicitarEncomendaScreen> {
   }
 
   Widget _construirCartaoPedido(PedidoModel pedido) {
-    final (Color fundo, Color texto, IconData icone) = switch (pedido.estado) {
-      EstadoPedido.pendente => (Colors.amber.shade100, Colors.amber.shade900, Icons.hourglass_empty),
-      EstadoPedido.aprovado => (Colors.green.shade100, Colors.green.shade900, Icons.check_circle_outline),
-      EstadoPedido.emProducao => (Colors.blue.shade100, Colors.blue.shade900, Icons.precision_manufacturing_outlined),
-      EstadoPedido.rejeitado => (Colors.red.shade100, Colors.red.shade900, Icons.cancel_outlined),
+    final cores = coresEstadoPedido(pedido.estado);
+    final IconData icone = switch (pedido.estado) {
+      EstadoPedido.pendente => Icons.hourglass_empty,
+      EstadoPedido.aprovado => Icons.check_circle_outline,
+      EstadoPedido.emProducao => Icons.precision_manufacturing_outlined,
+      EstadoPedido.rejeitado => Icons.cancel_outlined,
     };
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       elevation: 0,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: Colors.grey.shade200),
+        borderRadius: BorderRadius.circular(14),
+        side: const BorderSide(color: TemasCores.borda),
       ),
-      color: Colors.white,
+      color: TemasCores.superficie,
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(icone, color: texto, size: 22),
+            Icon(icone, color: cores.texto, size: 22),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
@@ -332,27 +322,24 @@ class SolicitarEncomendaScreenState extends State<SolicitarEncomendaScreen> {
                         '${pedido.nomeProduto ?? 'Artigo'} (${pedido.quantidade} unid.)',
                         style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                       ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(color: fundo, borderRadius: BorderRadius.circular(12)),
-                        child: Text(
-                          pedido.estado.etiqueta.toUpperCase(),
-                          style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: texto),
-                        ),
+                      EtiquetaEstado.pilula(
+                        rotulo: pedido.estado.etiqueta.toUpperCase(),
+                        fundo: cores.fundo,
+                        texto: cores.texto,
                       ),
                     ],
                   ),
                   const SizedBox(height: 4),
                   Text(
                     'Submetido a ${_formatarData(pedido.createdAt)}',
-                    style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                    style: const TextStyle(fontSize: 12, color: TemasCores.textoSecundarioFrio),
                   ),
                   if (pedido.temObservacoes)
                     Padding(
                       padding: const EdgeInsets.only(top: 4),
                       child: Text(
                         pedido.observacoes!,
-                        style: const TextStyle(fontSize: 12, color: Color(0xFF475569)),
+                        style: const TextStyle(fontSize: 12, color: TemasCores.textoApoioFrio),
                       ),
                     ),
                   if (pedido.estado == EstadoPedido.pendente)
@@ -360,7 +347,7 @@ class SolicitarEncomendaScreenState extends State<SolicitarEncomendaScreen> {
                       padding: EdgeInsets.only(top: 6),
                       child: Text(
                         'A aguardar análise da nossa equipa.',
-                        style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
+                        style: TextStyle(fontSize: 12, color: TemasCores.textoTerciarioFrio),
                       ),
                     ),
                 ],
@@ -383,9 +370,9 @@ class SolicitarEncomendaScreenState extends State<SolicitarEncomendaScreen> {
       elevation: 0,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: Colors.grey.shade200),
+        side: const BorderSide(color: TemasCores.borda),
       ),
-      color: Colors.white,
+      color: TemasCores.superficie,
       child: Padding(
         padding: const EdgeInsets.all(32.0),
         child: Form(
@@ -395,7 +382,7 @@ class SolicitarEncomendaScreenState extends State<SolicitarEncomendaScreen> {
             children: [
               const Text(
                 'Artigo / Tipo de Produto',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF334155)),
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: TemasCores.textoApoioForteFrio),
               ),
               const SizedBox(height: 8),
               DropdownButtonFormField<int>(
@@ -406,9 +393,9 @@ class SolicitarEncomendaScreenState extends State<SolicitarEncomendaScreen> {
                 // ignore: deprecated_member_use
                 value: _tipoProdutoSelecionadoId,
                 decoration: InputDecoration(
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                   contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                  prefixIcon: const Icon(Icons.inventory_2_outlined, color: Colors.deepPurple),
+                  prefixIcon: const Icon(Icons.inventory_2_outlined, color: TemasCores.clienteAcento),
                 ),
                 hint: const Text('Selecione um artigo'),
                 items: _tiposProduto
@@ -420,15 +407,15 @@ class SolicitarEncomendaScreenState extends State<SolicitarEncomendaScreen> {
               const SizedBox(height: 20),
               const Text(
                 'Quantidade Pretendida',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF334155)),
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: TemasCores.textoApoioForteFrio),
               ),
               const SizedBox(height: 8),
               TextFormField(
                 controller: _quantidadeController,
                 keyboardType: TextInputType.number,
                 decoration: InputDecoration(
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                  prefixIcon: const Icon(Icons.format_list_numbered, color: Colors.deepPurple),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  prefixIcon: const Icon(Icons.format_list_numbered, color: TemasCores.clienteAcento),
                 ),
                 validator: (val) {
                   if (val == null || val.trim().isEmpty) return 'Insira a quantidade.';
@@ -440,7 +427,7 @@ class SolicitarEncomendaScreenState extends State<SolicitarEncomendaScreen> {
               const SizedBox(height: 20),
               const Text(
                 'Observações / Especificações Especiais',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF334155)),
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: TemasCores.textoApoioForteFrio),
               ),
               const SizedBox(height: 8),
               TextFormField(
@@ -448,24 +435,24 @@ class SolicitarEncomendaScreenState extends State<SolicitarEncomendaScreen> {
                 maxLines: 4,
                 decoration: InputDecoration(
                   hintText: 'Escreva detalhes adicionais sobre cores, acabamentos ou prazos pretendidos...',
-                  hintStyle: const TextStyle(color: Colors.grey, fontSize: 13),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  hintStyle: const TextStyle(color: TemasCores.textoTerciarioFrio, fontSize: 13),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                 ),
               ),
               const SizedBox(height: 32),
               ElevatedButton.icon(
                 onPressed: _submetendo ? null : _submeterPedido,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.deepPurple,
-                  foregroundColor: Colors.white,
+                  backgroundColor: TemasCores.clienteAcento,
+                  foregroundColor: TemasCores.textoInverso,
                   minimumSize: const Size.fromHeight(50),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                 ),
                 icon: _submetendo
                     ? const SizedBox(
                         width: 20,
                         height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        child: CircularProgressIndicator(strokeWidth: 2, color: TemasCores.textoInverso),
                       )
                     : const Icon(Icons.send_rounded),
                 label: Text(

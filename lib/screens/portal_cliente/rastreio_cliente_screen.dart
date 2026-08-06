@@ -2,10 +2,14 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 
+import '../../core/mensagens.dart';
+import '../../core/temas_cores.dart';
 import '../../models/estado_ordem.dart';
 import '../../repositories/base_repository.dart';
 import '../../repositories/portal_cliente_repository.dart';
+import '../../widgets/etiqueta_estado.dart';
 
 /// Consulta pública do estado de fabrico de uma encomenda.
 ///
@@ -35,6 +39,8 @@ class _RastreioClienteScreenState extends State<RastreioClienteScreen> {
 
   RealtimeChannel? _canal;
   Timer? _agendamentoRecarga;
+
+  bool _aContactarSuporte = false;
 
   @override
   void dispose() {
@@ -110,6 +116,43 @@ class _RastreioClienteScreenState extends State<RastreioClienteScreen> {
     });
   }
 
+  /// Abre o email pré-preenchido para o administrador, com o código de
+  /// rastreio no assunto — fecha o "Contactar Suporte" que o protótipo
+  /// (Figura 20, "Estado da Encomenda") previa mas nunca chegou a implementar.
+  Future<void> _contactarSuporte(RastreioEncomenda enc) async {
+    if (_aContactarSuporte) return;
+    setState(() => _aContactarSuporte = true);
+
+    try {
+      final email = await _repositorio.obterEmailSuporte();
+      if (!mounted) return;
+
+      if (email == null || email.isEmpty) {
+        context.mostrarMensagem('Não foi possível obter o contacto de suporte.', eErro: true);
+        return;
+      }
+
+      final uri = Uri(
+        scheme: 'mailto',
+        path: email,
+        queryParameters: {
+          'subject': 'Suporte - Encomenda ${enc.codigoRastreio.isEmpty ? '(sem código)' : enc.codigoRastreio}',
+        },
+      );
+
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri);
+      } else if (mounted) {
+        context.mostrarMensagem('Não foi possível abrir o cliente de email.', eErro: true);
+      }
+    } on RepositoryException catch (e) {
+      if (!mounted) return;
+      context.mostrarMensagem(e.mensagem, eErro: true);
+    } finally {
+      if (mounted) setState(() => _aContactarSuporte = false);
+    }
+  }
+
   String _formatarData(DateTime? data) {
     if (data == null) return 'A definir';
     final d = data.toLocal();
@@ -119,7 +162,7 @@ class _RastreioClienteScreenState extends State<RastreioClienteScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
+      backgroundColor: TemasCores.fundoEcraFrio,
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(32.0),
@@ -128,22 +171,31 @@ class _RastreioClienteScreenState extends State<RastreioClienteScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Icon(
-                  Icons.local_shipping_outlined,
-                  size: 64,
-                  color: Colors.deepPurple,
+                Container(
+                  width: 72,
+                  height: 72,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [TemasCores.clienteAcentoClaro, TemasCores.clienteAcentoForte],
+                    ),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: const Icon(Icons.local_shipping_outlined, size: 34, color: TemasCores.textoInverso),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 20),
                 const Text(
                   'Rastreio de Encomendas',
                   textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                  style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: TemasCores.textoPrimarioFrio),
                 ),
                 const SizedBox(height: 8),
                 const Text(
                   'Insira o código de rastreio para acompanhar o estado do seu pedido em tempo real.',
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: Color(0xFF64748B), fontSize: 14),
+                  style: TextStyle(color: TemasCores.textoSecundarioFrio, fontSize: 14),
                 ),
                 const SizedBox(height: 28),
 
@@ -151,10 +203,10 @@ class _RastreioClienteScreenState extends State<RastreioClienteScreen> {
                 Card(
                   elevation: 0,
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    side: BorderSide(color: Colors.grey.shade200),
+                    borderRadius: BorderRadius.circular(14),
+                    side: const BorderSide(color: TemasCores.borda),
                   ),
-                  color: Colors.white,
+                  color: TemasCores.superficie,
                   child: Padding(
                     padding: const EdgeInsets.all(8.0),
                     child: Row(
@@ -165,7 +217,7 @@ class _RastreioClienteScreenState extends State<RastreioClienteScreen> {
                             decoration: const InputDecoration(
                               hintText: 'Código de Rastreio (Ex: TRC-XXXXXX)',
                               border: InputBorder.none,
-                              prefixIcon: Icon(Icons.search, color: Color(0xFF94A3B8)),
+                              prefixIcon: Icon(Icons.search, color: TemasCores.textoTerciarioFrio),
                               contentPadding: EdgeInsets.symmetric(vertical: 14),
                             ),
                             textCapitalization: TextCapitalization.characters,
@@ -176,9 +228,9 @@ class _RastreioClienteScreenState extends State<RastreioClienteScreen> {
                           onPressed: _isLoading ? null : _buscarRastreio,
                           style: ElevatedButton.styleFrom(
                             padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
-                            backgroundColor: Colors.deepPurple,
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            backgroundColor: TemasCores.clienteAcento,
+                            foregroundColor: TemasCores.textoInverso,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                           ),
                           child: const Icon(Icons.arrow_forward),
                         ),
@@ -188,20 +240,20 @@ class _RastreioClienteScreenState extends State<RastreioClienteScreen> {
                 ),
                 const SizedBox(height: 28),
 
-                if (_isLoading) const Center(child: CircularProgressIndicator()),
+                if (_isLoading) const Center(child: CircularProgressIndicator(color: TemasCores.clienteAcento)),
 
                 if (_erro != null)
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: Colors.red.shade50,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.red.shade200),
+                      color: TemasCores.erroFundo,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: TemasCores.erroBorda),
                     ),
                     child: Text(
                       _erro!,
                       textAlign: TextAlign.center,
-                      style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+                      style: const TextStyle(color: TemasCores.erroTextoForte, fontWeight: FontWeight.bold),
                     ),
                   ),
 
@@ -227,10 +279,10 @@ class _RastreioClienteScreenState extends State<RastreioClienteScreen> {
     return Card(
       elevation: 0,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: Colors.grey.shade200),
+        borderRadius: BorderRadius.circular(14),
+        side: const BorderSide(color: TemasCores.borda),
       ),
-      color: Colors.white,
+      color: TemasCores.superficie,
       child: Padding(
         padding: const EdgeInsets.all(24.0),
         child: Column(
@@ -244,18 +296,12 @@ class _RastreioClienteScreenState extends State<RastreioClienteScreen> {
               children: [
                 Text(
                   enc.codigoRastreio.isEmpty ? 'Sem código' : enc.codigoRastreio,
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 20, color: Color(0xFF1E293B)),
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 20, color: TemasCores.textoApoioIntensoFrio),
                 ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: Colors.deepPurple.shade50,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    enc.nomeProduto ?? 'Artigo',
-                    style: const TextStyle(color: Colors.deepPurple, fontWeight: FontWeight.bold, fontSize: 12),
-                  ),
+                EtiquetaEstado.destacada(
+                  rotulo: enc.nomeProduto ?? 'Artigo',
+                  fundo: TemasCores.clienteAcentoFundo,
+                  texto: TemasCores.clienteAcentoForte,
                 ),
               ],
             ),
@@ -264,18 +310,18 @@ class _RastreioClienteScreenState extends State<RastreioClienteScreen> {
             const SizedBox(height: 12),
             Row(
               children: [
-                const Icon(Icons.event, size: 16, color: Color(0xFF64748B)),
+                const Icon(Icons.event, size: 16, color: TemasCores.textoSecundarioFrio),
                 const SizedBox(width: 6),
                 Text(
                   'Data Prevista de Entrega: ${_formatarData(enc.dataEntrega)}',
-                  style: const TextStyle(color: Color(0xFF64748B), fontSize: 14, fontWeight: FontWeight.w500),
+                  style: const TextStyle(color: TemasCores.textoSecundarioFrio, fontSize: 14, fontWeight: FontWeight.w500),
                 ),
               ],
             ),
-            const Divider(height: 32),
+            const Divider(height: 32, color: TemasCores.borda),
             const Text(
               'Etapas de Fabrico',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF0F172A)),
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: TemasCores.textoPrimarioFrio),
             ),
             const SizedBox(height: 20),
             if (enc.faseAtualDesconhecida)
@@ -284,24 +330,42 @@ class _RastreioClienteScreenState extends State<RastreioClienteScreen> {
                 child: Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Colors.orange.shade50,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.orange.shade200),
+                    color: TemasCores.alertaFundo,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: TemasCores.alertaBorda),
                   ),
                   child: const Text(
                     'A etapa em curso não consta do roteiro atual deste artigo. '
                     'O progresso detalhado não pode ser apresentado — contacte-nos para mais informação.',
-                    style: TextStyle(fontSize: 12, color: Color(0xFF9A3412)),
+                    style: TextStyle(fontSize: 12, color: TemasCores.alertaTextoForte),
                   ),
                 ),
               ),
             if (enc.fases.isEmpty)
               const Text(
                 'Ainda não há um roteiro de fabrico associado a este artigo.',
-                style: TextStyle(fontSize: 13, color: Color(0xFF64748B)),
+                style: TextStyle(fontSize: 13, color: TemasCores.textoSecundarioFrio),
               )
             else
               ...List.generate(enc.fases.length, (index) => _construirEtapa(enc, estado, index)),
+            const Divider(height: 32, color: TemasCores.borda),
+            OutlinedButton.icon(
+              onPressed: _aContactarSuporte ? null : () => _contactarSuporte(enc),
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size.fromHeight(46),
+                foregroundColor: TemasCores.clienteAcento,
+                side: const BorderSide(color: TemasCores.clienteAcentoClaro),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              icon: _aContactarSuporte
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: TemasCores.clienteAcento),
+                    )
+                  : const Icon(Icons.mail_outline_rounded, size: 18),
+              label: const Text('Contactar Suporte'),
+            ),
           ],
         ),
       ),
@@ -309,26 +373,19 @@ class _RastreioClienteScreenState extends State<RastreioClienteScreen> {
   }
 
   Widget _construirBadgeEstado(EstadoOrdem estado) {
-    final (Color fundo, Color texto) = switch (estado) {
-      EstadoOrdem.cancelada => (Colors.red.shade50, Colors.red.shade900),
-      EstadoOrdem.emHold => (Colors.orange.shade50, Colors.orange.shade900),
-      EstadoOrdem.concluida => (Colors.green.shade50, Colors.green.shade900),
-      EstadoOrdem.emProducao => (Colors.blue.shade50, Colors.blue.shade900),
-    };
+    final cores = coresEstadoOrdem(estado);
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(color: fundo, borderRadius: BorderRadius.circular(20)),
-      child: Text(
-        estado == EstadoOrdem.emHold ? 'PRODUÇÃO SUSPENSA' : estado.etiqueta,
-        style: TextStyle(color: texto, fontWeight: FontWeight.bold, fontSize: 11),
-      ),
+    return EtiquetaEstado.destacada(
+      rotulo: estado == EstadoOrdem.emHold ? 'PRODUÇÃO SUSPENSA' : estado.etiqueta,
+      fundo: cores.fundo,
+      texto: cores.texto,
     );
   }
 
   Widget _construirEtapa(RastreioEncomenda enc, EstadoOrdem estado, int index) {
     final fase = enc.fases[index];
     final indiceAtual = enc.indiceFaseAtual;
+    final bool emHold = estado == EstadoOrdem.emHold;
 
     // Sem fase atual conhecida há dois casos distintos: a ordem percorreu o
     // roteiro todo (concluída) ou a fase gravada já não existe. Só o primeiro
@@ -339,15 +396,15 @@ class _RastreioClienteScreenState extends State<RastreioClienteScreen> {
     final bool isFaseAtual = indiceAtual != null && index == indiceAtual;
 
     final Color corIcone = isConcluida
-        ? Colors.green
+        ? TemasCores.sucesso
         : isFaseAtual
-            ? (estado == EstadoOrdem.emHold ? Colors.orange.shade700 : Colors.orange)
-            : Colors.grey.shade300;
+            ? (emHold ? TemasCores.erro : TemasCores.clienteAcento)
+            : TemasCores.textoTerciarioFrio;
 
     final String legenda = isConcluida
         ? 'Concluída'
         : isFaseAtual
-            ? (estado == EstadoOrdem.emHold ? 'Suspensa' : 'Em Processamento')
+            ? (emHold ? 'Suspensa' : 'Em Processamento')
             : 'Pendente';
 
     return Row(
@@ -359,7 +416,7 @@ class _RastreioClienteScreenState extends State<RastreioClienteScreen> {
               isConcluida
                   ? Icons.check_circle
                   : isFaseAtual
-                      ? (estado == EstadoOrdem.emHold ? Icons.pause_circle_filled : Icons.play_circle_filled)
+                      ? (emHold ? Icons.pause_circle_filled : Icons.play_circle_filled)
                       : Icons.radio_button_unchecked,
               color: corIcone,
               size: 22,
@@ -368,7 +425,7 @@ class _RastreioClienteScreenState extends State<RastreioClienteScreen> {
               Container(
                 width: 2,
                 height: 36,
-                color: isConcluida ? Colors.green : Colors.grey.shade200,
+                color: isConcluida ? TemasCores.sucesso : TemasCores.borda,
               ),
           ],
         ),
@@ -382,16 +439,16 @@ class _RastreioClienteScreenState extends State<RastreioClienteScreen> {
                 style: TextStyle(
                   fontWeight: (isFaseAtual || isConcluida) ? FontWeight.bold : FontWeight.normal,
                   color: isFaseAtual
-                      ? Colors.orange.shade800
+                      ? (emHold ? TemasCores.erroTextoForte : TemasCores.clienteAcentoForte)
                       : isConcluida
-                          ? Colors.green.shade800
-                          : const Color(0xFF64748B),
+                          ? TemasCores.sucessoTextoForte
+                          : TemasCores.textoSecundarioFrio,
                   fontSize: 14,
                 ),
               ),
               Text(
                 legenda,
-                style: const TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
+                style: const TextStyle(fontSize: 12, color: TemasCores.textoTerciarioFrio),
               ),
               const SizedBox(height: 12),
             ],

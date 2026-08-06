@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../core/iniciais.dart';
 import '../../../core/temas_cores.dart';
 import '../../../models/utilizador_model.dart';
-import 'etiqueta_estado.dart';
+import '../../../widgets/etiqueta_estado.dart';
 
 /// Avatar circular com as iniciais do nome, colorido de forma estável a partir
 /// do próprio nome.

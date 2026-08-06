@@ -106,9 +106,13 @@ class Paleta {
   static const Color azulAcinzentado800 = Color(0xFF37474F);
   static const Color azulAcinzentado900 = Color(0xFF263238);
 
-  // ── Ardósia: neutros frios usados nos ecrãs de relatórios/postos ──
+  // ── Ardósia: neutros frios usados nos ecrãs de relatórios/postos/portal cliente ──
   static const Color ardosia50 = Color(0xFFF8FAFC);
+  static const Color ardosia400 = Color(0xFF94A3B8);
   static const Color ardosia500 = Color(0xFF64748B);
+  static const Color ardosia600 = Color(0xFF475569);
+  static const Color ardosia700 = Color(0xFF334155);
+  static const Color ardosia800 = Color(0xFF1E293B);
   static const Color ardosia900 = Color(0xFF0F172A);
 
   // ── Absolutos e transparências ──
@@ -231,6 +235,18 @@ class TemasCores {
 
   /// Texto de apoio em tom frio (ecrãs com [fundoEcraFrio]).
   static const Color textoSecundarioFrio = Paleta.ardosia500;
+
+  /// Texto terciário em tom frio: placeholders, ícones ténues, legendas.
+  static const Color textoTerciarioFrio = Paleta.ardosia400;
+
+  /// Texto de apoio em tom frio, com mais peso (valores de campos, subtítulos).
+  static const Color textoApoioFrio = Paleta.ardosia600;
+
+  /// Texto de apoio em tom frio, de maior contraste (rótulos de formulário).
+  static const Color textoApoioForteFrio = Paleta.ardosia700;
+
+  /// Texto em tom frio de contraste máximo (códigos, títulos secundários).
+  static const Color textoApoioIntensoFrio = Paleta.ardosia800;
 
   /// Texto sobre fundos escuros ou coloridos.
   static const Color textoInverso = Paleta.branco;

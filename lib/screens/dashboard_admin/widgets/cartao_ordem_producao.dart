@@ -4,7 +4,7 @@ import '../../../core/formatos.dart';
 import '../../../core/temas_cores.dart';
 import '../../../models/encomenda_model.dart';
 import '../../../models/estado_ordem.dart';
-import 'etiqueta_estado.dart';
+import '../../../widgets/etiqueta_estado.dart';
 
 /// Cartão de uma ordem de produção na lista do painel de controlo.
 ///

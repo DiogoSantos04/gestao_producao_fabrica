@@ -5,7 +5,7 @@ import '../../core/temas_cores.dart';
 import '../../models/pedido_model.dart';
 import '../../repositories/clientes_repository.dart';
 import '../../widgets/estado_erro.dart';
-import 'widgets/etiqueta_estado.dart';
+import '../../widgets/etiqueta_estado.dart';
 
 class PedidosClientesAdminScreen extends StatefulWidget {
   const PedidosClientesAdminScreen({super.key});

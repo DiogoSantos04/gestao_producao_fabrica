@@ -327,4 +327,16 @@ class PortalClienteRepository extends BaseRepository {
       return RastreioEncomenda.fromJson(Map<String, dynamic>.from(resposta as Map));
     });
   }
+
+  /// Email de contacto do administrador, para o botão "Contactar Suporte".
+  ///
+  /// Passa pela função `obter_email_suporte` (SECURITY DEFINER): a política de
+  /// RLS de `utilizadores` só deixa um cliente ler a sua própria linha, e não
+  /// há (ainda) um email geral da empresa — é sempre o do administrador ativo.
+  Future<String?> obterEmailSuporte() {
+    return guarda('obter o contacto de suporte', () async {
+      final resposta = await client.rpc('obter_email_suporte');
+      return resposta as String?;
+    });
+  }
 }

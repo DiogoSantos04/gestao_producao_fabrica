@@ -9,7 +9,7 @@ import '../../repositories/postos_repository.dart';
 import '../../repositories/utilizadores_repository.dart';
 import '../../widgets/estado_erro.dart';
 import 'widgets/cartao_kpi.dart';
-import 'widgets/etiqueta_estado.dart';
+import '../../widgets/etiqueta_estado.dart';
 
 class PostosTrabalhoScreen extends StatefulWidget {
   const PostosTrabalhoScreen({super.key});

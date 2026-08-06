@@ -1,5 +1,30 @@
 import 'package:flutter/material.dart';
 
+import '../core/temas_cores.dart';
+import '../models/estado_ordem.dart';
+import '../models/pedido_model.dart';
+
+/// Cores do badge de estado de uma ordem de produção.
+///
+/// Cancelada é neutra — saiu da linha sem incidente; em hold é a urgente,
+/// não a cancelada. Mesma regra usada em
+/// `dashboard_admin/widgets/cartao_ordem_producao.dart`, centralizada aqui
+/// para não voltar a divergir por ecrã (ver docs/BUGS_RESOLVIDOS.md, bug b).
+({Color fundo, Color texto}) coresEstadoOrdem(EstadoOrdem estado) => switch (estado) {
+      EstadoOrdem.cancelada => (fundo: TemasCores.superficieInerte, texto: TemasCores.inativoTexto),
+      EstadoOrdem.emHold => (fundo: TemasCores.erroFundo, texto: TemasCores.erroTextoForte),
+      EstadoOrdem.concluida => (fundo: TemasCores.sucessoFundo, texto: TemasCores.sucessoTextoForte),
+      EstadoOrdem.emProducao => (fundo: TemasCores.infoFundo, texto: TemasCores.infoTextoForte),
+    };
+
+/// Cores do badge de estado de um pedido submetido pelo portal cliente.
+({Color fundo, Color texto}) coresEstadoPedido(EstadoPedido estado) => switch (estado) {
+      EstadoPedido.pendente => (fundo: TemasCores.avisoFundo, texto: TemasCores.avisoTextoForte),
+      EstadoPedido.aprovado => (fundo: TemasCores.sucessoFundo, texto: TemasCores.sucessoTextoForte),
+      EstadoPedido.emProducao => (fundo: TemasCores.infoFundo, texto: TemasCores.infoTextoForte),
+      EstadoPedido.rejeitado => (fundo: TemasCores.erroFundo, texto: TemasCores.erroTextoForte),
+    };
+
 /// Etiqueta de estado: texto curto sobre um fundo colorido arredondado.
 ///
 /// Os três construtores nomeados correspondem às métricas que já existiam nos
