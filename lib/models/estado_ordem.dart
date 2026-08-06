@@ -61,15 +61,36 @@ enum FiltroEstadoOrdem {
   todos,
   emProducao,
   emHold,
+
+  /// Ordens ainda na linha cujo prazo de entrega já passou.
+  ///
+  /// É o único filtro que não corresponde a um [EstadoOrdem]: o atraso não é um
+  /// estado guardado, é o cruzamento de "ainda não saiu da linha" com
+  /// `data_entrega`. Uma ordem atrasada está ao mesmo tempo em produção ou em
+  /// hold — por isso [estado] é `null` aqui.
+  atrasada,
+
   concluida,
   cancelada;
 
-  /// O estado que este filtro seleciona, ou `null` para [todos].
+  /// O estado que este filtro seleciona, ou `null` quando não seleciona um
+  /// estado único ([todos] e [atrasada]).
   EstadoOrdem? get estado => switch (this) {
         FiltroEstadoOrdem.todos => null,
+        FiltroEstadoOrdem.atrasada => null,
         FiltroEstadoOrdem.emProducao => EstadoOrdem.emProducao,
         FiltroEstadoOrdem.emHold => EstadoOrdem.emHold,
         FiltroEstadoOrdem.concluida => EstadoOrdem.concluida,
         FiltroEstadoOrdem.cancelada => EstadoOrdem.cancelada,
+      };
+
+  /// Texto do cabeçalho quando o filtro chega já aplicado de outro ecrã.
+  String get etiqueta => switch (this) {
+        FiltroEstadoOrdem.todos => 'Todas',
+        FiltroEstadoOrdem.emProducao => 'Em Produção',
+        FiltroEstadoOrdem.emHold => 'ON HOLD',
+        FiltroEstadoOrdem.atrasada => 'Atrasadas',
+        FiltroEstadoOrdem.concluida => 'Concluídas',
+        FiltroEstadoOrdem.cancelada => 'Canceladas',
       };
 }

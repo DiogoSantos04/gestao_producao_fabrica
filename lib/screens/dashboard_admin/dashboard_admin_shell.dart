@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/iniciais.dart';
 import '../../core/mensagens.dart';
 import '../../core/temas_cores.dart';
+import '../../models/estado_ordem.dart';
 import '../../repositories/utilizadores_repository.dart';
 import '../../services/auth_service.dart';
 import '../login_screen.dart';
@@ -30,6 +31,26 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
   final _utilizadoresRepo = UtilizadoresRepository();
 
   int _indiceAtual = 0; // 0 a 8: Menus Principais, 9: O Meu Perfil
+
+  /// Índice de "Ordens em Curso" na barra lateral.
+  static const int _indiceOrdens = 5;
+
+  /// Filtro com que "Ordens em Curso" abre. Muda quando um KPI do dashboard
+  /// pede para ver as ordens por trás do número.
+  FiltroEstadoOrdem _filtroOrdens = FiltroEstadoOrdem.todos;
+
+  /// Leva o utilizador ao painel de controlo já filtrado.
+  ///
+  /// A `ValueKey` é deliberada: obriga o painel a ser reconstruído de raiz
+  /// quando o filtro muda. Sem ela, o `IndexedStack` reaproveitaria o `State`
+  /// que já existe, o `initState` não voltaria a correr e o ecrã abria com a
+  /// lista e a paginação do filtro anterior.
+  void _abrirOrdens(FiltroEstadoOrdem filtro) {
+    setState(() {
+      _filtroOrdens = filtro;
+      _indiceAtual = _indiceOrdens;
+    });
+  }
 
   // Dados dinâmicos do administrador autenticado
   String _nomeUtilizador = 'Administrador';
@@ -359,12 +380,15 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
 
     // Lista de ecrãs renderizados à direita (Postos de Trabalho no índice 6 e Perfil no índice 9)
     final List<Widget> telas = [
-      const DashboardPrincipalScreen(),
-      const GestaoFluxosScreen(), 
+      DashboardPrincipalScreen(aoAbrirOrdens: _abrirOrdens),
+      const GestaoFluxosScreen(),
       const GestaoUtilizadoresScreen(),
       const PedidosClientesAdminScreen(),
       const CriarEncomendaScreen(),
-      const PainelControloScreen(),
+      PainelControloScreen(
+        key: ValueKey(_filtroOrdens),
+        filtroInicial: _filtroOrdens,
+      ),
       const PostosTrabalhoScreen(),        // 👈 Index 6: Postos de Trabalho
       const ClientesScreen(),
       const RelatoriosAdminScreen(),
@@ -459,6 +483,12 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
                     onTap: () {
                       setState(() {
                         _indiceAtual = index;
+                        // Entrar pelo menu é um pedido para ver as ordens
+                        // todas: o filtro que veio de um KPI não pode ficar
+                        // agarrado ao ecrã sem que ninguém o tenha pedido.
+                        if (index == _indiceOrdens) {
+                          _filtroOrdens = FiltroEstadoOrdem.todos;
+                        }
                       });
                       if (dentroDrawer) {
                         Navigator.pop(context); 

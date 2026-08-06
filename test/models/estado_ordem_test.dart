@@ -117,11 +117,26 @@ void main() {
       expect(FiltroEstadoOrdem.cancelada.estado, EstadoOrdem.cancelada);
     });
 
-    test('existe um filtro para cada estado, mais o "todos"', () {
+    test('existe um filtro para cada estado', () {
       final cobertos =
           FiltroEstadoOrdem.values.map((f) => f.estado).whereType<EstadoOrdem>().toSet();
       expect(cobertos, EstadoOrdem.values.toSet());
-      expect(FiltroEstadoOrdem.values.length, EstadoOrdem.values.length + 1);
+    });
+
+    test('só "todos" e "atrasada" não correspondem a um estado', () {
+      // O atraso não é um estado guardado: é o cruzamento de "ainda na linha"
+      // com `data_entrega`. Quem consumir `estado` tem de tratar os dois casos
+      // nulos, não só o "todos".
+      final semEstado =
+          FiltroEstadoOrdem.values.where((f) => f.estado == null).toSet();
+
+      expect(semEstado, {FiltroEstadoOrdem.todos, FiltroEstadoOrdem.atrasada});
+    });
+
+    test('cada filtro tem uma etiqueta própria', () {
+      final etiquetas = FiltroEstadoOrdem.values.map((f) => f.etiqueta).toSet();
+
+      expect(etiquetas, hasLength(FiltroEstadoOrdem.values.length));
     });
   });
 }

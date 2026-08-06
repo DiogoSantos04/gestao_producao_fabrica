@@ -204,6 +204,8 @@ class CartaoKpi extends StatelessWidget {
     this.fundoIcone,
     this.largura,
     this.alerta = false,
+    this.aoTocar,
+    this.dicaToque,
   });
 
   final EstiloKpi estilo;
@@ -218,31 +220,61 @@ class CartaoKpi extends StatelessWidget {
   final double? largura;
   final bool alerta;
 
+  /// Torna o cartão navegável. Nulo deixa-o como indicador só de leitura.
+  final VoidCallback? aoTocar;
+
+  /// Texto do tooltip quando o cartão é navegável. Sem ele, nada no aspeto do
+  /// cartão diria para onde o clique leva — só o cursor mudaria, e no telemóvel
+  /// nem isso.
+  final String? dicaToque;
+
   @override
   Widget build(BuildContext context) {
-    return _comMoldura(
+    final conteudo = Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: estilo.alinhamentoColuna,
+            children: [
+              Text(titulo, style: estilo.estiloTitulo),
+              SizedBox(height: estilo.espacoTituloValor),
+              Text(valor, style: estilo.estiloValor),
+              SizedBox(height: estilo.espacoValorSubtitulo),
+              Text(subtitulo, style: estilo.estiloSubtitulo),
+            ],
+          ),
+        ),
+        _CaixaIcone(estilo: estilo, icone: icone, cor: corIcone, fundo: fundoIcone),
+      ],
+    );
+
+    final cartao = _comMoldura(
       estilo: estilo,
       largura: largura,
       alerta: alerta,
-      filho: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: estilo.alinhamentoColuna,
-              children: [
-                Text(titulo, style: estilo.estiloTitulo),
-                SizedBox(height: estilo.espacoTituloValor),
-                Text(valor, style: estilo.estiloValor),
-                SizedBox(height: estilo.espacoValorSubtitulo),
-                Text(subtitulo, style: estilo.estiloSubtitulo),
-              ],
-            ),
-          ),
-          _CaixaIcone(estilo: estilo, icone: icone, cor: corIcone, fundo: fundoIcone),
-        ],
+      filho: conteudo,
+    );
+
+    if (aoTocar == null) return cartao;
+
+    // O `InkWell` vai por fora da moldura: por dentro, o `Card` desenha o seu
+    // próprio fundo por cima e o efeito de toque desaparecia.
+    final navegavel = Semantics(
+      button: true,
+      label: dicaToque,
+      child: InkWell(
+        onTap: aoTocar,
+        borderRadius: BorderRadius.circular(12),
+        child: cartao,
       ),
     );
+
+    // Sem dica não há tooltip: um `Tooltip` de mensagem vazia continua a
+    // aparecer, como uma caixa preta sem texto.
+    final dica = dicaToque;
+    if (dica == null || dica.isEmpty) return navegavel;
+    return Tooltip(message: dica, child: navegavel);
   }
 }
 

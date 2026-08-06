@@ -5,14 +5,39 @@ import '../../core/realtime.dart';
 import '../../core/temas_cores.dart';
 import '../../models/encomenda_model.dart';
 import '../../models/estado_ordem.dart';
+import '../../models/incidencia_model.dart';
 import '../../repositories/encomendas_repository.dart';
 import '../../repositories/fluxos_repository.dart';
 import '../../repositories/postos_repository.dart';
 import '../../widgets/estado_erro.dart';
 import 'widgets/cartao_kpi.dart';
 
+/// Descreve, em texto, como o valor de hoje se compara com o de ontem.
+///
+/// Fica no subtítulo do KPI em vez de num segundo número: o cartão tem uma
+/// linha só e "+2 vs ontem" diz mais do que um "2" ao lado de um "4" sem
+/// contexto. A percentagem é omitida de propósito — com totais de um dígito,
+/// uma ordem a mais dava "+100%" e parecia um salto de produtividade.
+String descreverVariacaoDiaria(int hoje, int ontem) {
+  final diferenca = hoje - ontem;
+  if (diferenca == 0) {
+    // Zero e zero não é "estável": é uma linha que não produziu nada em dois
+    // dias, e dizer "igual a ontem" mascarava-o.
+    return hoje == 0 ? 'Nada concluído ontem nem hoje' : 'Igual a ontem ($ontem)';
+  }
+  final sinal = diferenca > 0 ? '+' : '−';
+  return '$sinal${diferenca.abs()} vs ontem ($ontem)';
+}
+
 class DashboardPrincipalScreen extends StatefulWidget {
-  const DashboardPrincipalScreen({super.key});
+  const DashboardPrincipalScreen({super.key, this.aoAbrirOrdens});
+
+  /// Pedido para mostrar as ordens por trás de um KPI, já filtradas.
+  ///
+  /// O dashboard não navega sozinho: os ecrãs vivem num `IndexedStack` e é o
+  /// shell que decide qual está à frente. Nulo deixa os cartões só de leitura,
+  /// que é o que interessa se este ecrã for reutilizado fora do shell.
+  final void Function(FiltroEstadoOrdem filtro)? aoAbrirOrdens;
 
   @override
   State<DashboardPrincipalScreen> createState() => _DashboardPrincipalScreenState();
@@ -44,6 +69,14 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
   int _encomendasAtrasadas = 0;
   int _concluidasHoje = 0;
 
+  /// Ordens que fecharam ontem, para dar escala ao número de hoje.
+  ///
+  /// É o único KPI deste ecrã com comparação: os outros quatro são fotografias
+  /// do estado atual (`fase_atual_id`, `em_suspenso`, `postos_trabalho.estado`)
+  /// e a base de dados não guarda o estado de ontem em lado nenhum. Inventar
+  /// uma variação a partir do que existe hoje seria uma comparação falsa.
+  int _concluidasOntem = 0;
+
   /// Ordens suspensas (WIP Hold). Estavam só visíveis dentro dos alertas.
   int _encomendasEmHold = 0;
 
@@ -54,11 +87,18 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
   int _postosParados = 0;
   int _totalPostos = 0;
 
-  // Distribuição de Encomendas por Fase (Ocupação Estrita por Posto)
-  Map<String, int> _fasesDistribuicao = {};
+  /// Ordens ativas em cada posto físico da fábrica.
+  List<OcupacaoPosto> _ocupacaoPostos = [];
 
   // Alertas de Incidência Ativos
   List<Map<String, dynamic>> _alertasIncidencias = [];
+
+  /// Motivos de paragem mais frequentes do último mês (análise de Pareto).
+  List<ParagemAgregada> _paretoParagens = [];
+
+  /// Janela do Pareto, em dias. Fixa por agora, mas nomeada porque aparece
+  /// tanto na query como no subtítulo do cartão.
+  static const int _diasPareto = 30;
 
   @override
   void initState() {
@@ -120,26 +160,11 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
     try {
       if (!mounted) return;
 
-      // 1. Carrega todas as fases padrão definidas no sistema (para estruturar o gráfico)
-      final List<Map<String, dynamic>> fasesPadrao = await _fluxosRepo.obterNomesDasFases();
-
-      Map<String, int> tempFases = {};
-      for (var f in fasesPadrao) {
-        final String nome = f['nome_fase_padrao'] ?? '';
-        if (nome.isNotEmpty) {
-          tempFases[nome] = 0; // Inicializa todos os postos de trabalho a zeros
-        }
-      }
-
-      if (tempFases.isEmpty) {
-        tempFases = {
-          'Corte': 0,
-          'Montagem': 0,
-          'Acabamento': 0,
-          'Controlo': 0,
-          'Embalagem': 0,
-        };
-      }
+      // 1. Traduz cada fase do roteiro no posto físico que a executa. O gráfico
+      // deixou de ser por `nome_fase_padrao`: esse nome repete-se entre
+      // roteiros de produtos diferentes e a barra não correspondia a nenhum
+      // recurso real da fábrica.
+      final Map<int, int> postoPorFase = await _fluxosRepo.obterPostoPorFase();
 
       // 2. Carrega as encomendas trazendo o nome da fase onde se encontram atualmente
       // Ordens canceladas não contam para nenhum indicador operacional.
@@ -148,21 +173,35 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
       // 3. Carrega as incidências ativas (as resolvidas não são paragens)
       final List<Map<String, dynamic>> incidenciasRaw = await _encomendasRepo.obterIncidenciasAbertas();
 
+      // 3b. Motivos de paragem mais frequentes do último mês. Inclui as já
+      // resolvidas de propósito: o Pareto serve para decidir onde atacar a
+      // causa raiz, e uma avaria que se repete e se resolve depressa é
+      // exatamente o que se quer ver.
+      final List<ParagemAgregada> pareto =
+          await _encomendasRepo.obterParetoParagens(dias: _diasPareto);
+
       if (!mounted) return;
 
       int ativas = 0;
       int atrasadas = 0;
-      int concluidasHoje = 0;
       int emHold = 0;
+
+      // Ordens já concluídas, para depois as datar pelo dia em que fecharam.
+      final Set<int> idsConcluidas = {};
+
+      // Fase onde está cada ordem na linha — uma entrada por ordem, com
+      // repetições, porque duas ordens no mesmo posto contam duas vezes.
+      final List<int> fasesAtuais = [];
 
       final DateTime hoje = DateTime.now();
 
-      // 4. Carrega o histórico de produção do dia para validar encomendas finalizadas hoje
-      final List<Map<String, dynamic>> historicoHoje = await _encomendasRepo.obterHistoricoDoDia(hoje);
+      final DateTime ontem = hoje.subtract(const Duration(days: 1));
 
-      final Set<int> encomendasAtivasHojeIds = historicoHoje
-          .map((h) => h['encomenda_id'] is int ? h['encomenda_id'] as int : int.tryParse(h['encomenda_id'].toString()) ?? 0)
-          .toSet();
+      // 4. Última fase concluída de cada ordem nos dois dias. Uma janela só,
+      // em vez de uma leitura por dia: são poucas linhas e evita que os dois
+      // lados da comparação venham de instantes diferentes.
+      final Map<int, DateTime> ultimasConclusoes =
+          await _encomendasRepo.obterUltimasConclusoes(desde: ontem, ate: hoje);
 
       // 5. Processamento posicional das encomendas
       //
@@ -174,20 +213,18 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
         final estado = enc.estado;
 
         if (estado == EstadoOrdem.concluida) {
-          // Encomenda Concluída (Não aparece em nenhuma barra ativa)
-          if (encomendasAtivasHojeIds.contains(enc.id)) {
-            concluidasHoje++;
-          }
+          // Concluída: não ocupa posto nenhum. Em que dia fechou decide-se
+          // mais abaixo, pela data da última fase.
+          idsConcluidas.add(enc.id);
         } else {
           // Em produção ou suspensa: continua a ocupar um posto na linha.
           ativas++;
           if (estado == EstadoOrdem.emHold) emHold++;
 
-          // 📊 LÓGICA DE POSIÇÃO ESTRITA: Soma +1 APENAS na barra da fase atual onde o produto está parado
-          final String nomeFase = enc.nomeFaseAtual ?? '';
-          if (nomeFase.isNotEmpty && tempFases.containsKey(nomeFase)) {
-            tempFases[nomeFase] = (tempFases[nomeFase] ?? 0) + 1;
-          }
+          // Posição estrita: a ordem conta só no posto onde está agora, e as
+          // suspensas contam na mesma — continuam a ocupar o posto.
+          final int? faseAtual = enc.faseAtualId;
+          if (faseAtual != null) fasesAtuais.add(faseAtual);
 
           // Verifica se a encomenda ativa está atrasada
           final DateTime? prazo = enc.dataEntrega;
@@ -200,6 +237,19 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
         }
       }
 
+      // 5b. Ritmo de saída: quantas ordens fecharam hoje e quantas fecharam
+      // ontem, pela mesma regra.
+      final int concluidasHoje = EncomendasRepository.contarConcluidasEm(
+        hoje,
+        idsConcluidas: idsConcluidas,
+        ultimasConclusoes: ultimasConclusoes,
+      );
+      final int concluidasOntem = EncomendasRepository.contarConcluidasEm(
+        ontem,
+        idsConcluidas: idsConcluidas,
+        ultimasConclusoes: ultimasConclusoes,
+      );
+
       // 6. Disponibilidade dos postos de trabalho.
       //
       // Lê-se a coluna `postos_trabalho.estado` em vez de a inferir a partir das
@@ -208,9 +258,17 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
       // eram nomes de fase (que se repetem entre produtos), não postos físicos.
       // Isto é só a Disponibilidade — não é OEE, que exigiria também
       // Performance (tempo_estimado vs real) e Qualidade.
-      final Map<String, int> postosPorEstado = await _postosRepo.contarPorEstado();
+      final List<PostoResumo> postos = await _postosRepo.obterResumo();
 
       if (!mounted) return;
+
+      final Map<String, int> postosPorEstado =
+          PostosRepository.contarPorEstado(postos);
+      final List<OcupacaoPosto> ocupacao = PostosRepository.distribuirOrdens(
+        postos: postos,
+        postoPorFase: postoPorFase,
+        fasesAtuais: fasesAtuais,
+      );
 
       final int totalPostos =
           postosPorEstado.values.fold(0, (soma, n) => soma + n);
@@ -223,12 +281,14 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
         _encomendasAtivas = ativas;
         _encomendasAtrasadas = atrasadas;
         _concluidasHoje = concluidasHoje;
+        _concluidasOntem = concluidasOntem;
         _encomendasEmHold = emHold;
         _disponibilidadePostos = disponibilidade;
         _postosParados = postosParados;
         _totalPostos = totalPostos;
-        _fasesDistribuicao = tempFases;
+        _ocupacaoPostos = ocupacao;
         _alertasIncidencias = List<Map<String, dynamic>>.from(incidenciasRaw);
+        _paretoParagens = pareto;
         _isLoading = false;
         _erroCarregamento = null;
         _carregouUmaVez = true;
@@ -329,6 +389,7 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
                             fundoIcone: TemasCores.erroFundo,
                             icone: Icons.warning_amber_rounded,
                             alerta: _encomendasAtrasadas > 0,
+                            filtro: FiltroEstadoOrdem.atrasada,
                           ),
                           _buildKpiCard(
                             titulo: 'Encomendas em Hold',
@@ -338,11 +399,12 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
                             fundoIcone: TemasCores.avisoFundo,
                             icone: Icons.pause_circle_outline,
                             alerta: _encomendasEmHold > 0,
+                            filtro: FiltroEstadoOrdem.emHold,
                           ),
                           _buildKpiCard(
                             titulo: 'Concluídas Hoje',
                             valor: '$_concluidasHoje',
-                            subtitulo: 'Finalizadas nas últimas 24h',
+                            subtitulo: descreverVariacaoDiaria(_concluidasHoje, _concluidasOntem),
                             corIcone: TemasCores.sucessoForte,
                             fundoIcone: TemasCores.sucessoFundo,
                             icone: Icons.check_circle_outline,
@@ -379,6 +441,8 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
                             _buildIncidentsCard(),
                           ],
                         ),
+                  const SizedBox(height: 24),
+                  _buildParetoCard(),
                 ],
               ),
             ),
@@ -447,6 +511,12 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
         _ => 1.9,
       };
 
+  /// Um cartão de KPI, navegável quando [filtro] identifica as ordens que estão
+  /// por trás do número.
+  ///
+  /// Só "Atrasadas" e "Em Hold" o são: são os dois KPIs que exigem uma decisão
+  /// e cujas ordens o painel de controlo sabe listar. "Ativas" corresponderia a
+  /// quase toda a lista, e a disponibilidade é sobre postos, não sobre ordens.
   Widget _buildKpiCard({
     required String titulo,
     required String valor,
@@ -455,7 +525,11 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
     required Color fundoIcone,
     required IconData icone,
     bool alerta = false,
+    FiltroEstadoOrdem? filtro,
   }) {
+    final aoAbrir = widget.aoAbrirOrdens;
+    final navegavel = filtro != null && aoAbrir != null;
+
     return CartaoKpi(
       estilo: EstiloKpi.principal,
       titulo: titulo,
@@ -465,11 +539,14 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
       corIcone: corIcone,
       fundoIcone: fundoIcone,
       alerta: alerta,
+      aoTocar: navegavel ? () => aoAbrir(filtro) : null,
+      dicaToque: navegavel ? 'Ver as ordens em "${filtro.etiqueta}"' : null,
     );
   }
 
   Widget _buildChartCard() {
-    final int valorMaximo = _fasesDistribuicao.values.fold(0, (max, e) => e > max ? e : max);
+    final int valorMaximo =
+        _ocupacaoPostos.fold(0, (max, o) => o.ordens > max ? o.ordens : max);
     const double alturaGrafico = 250.0;
 
     return Card(
@@ -485,80 +562,228 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Distribuição por Fase de Produção',
+              'Ocupação dos Postos de Trabalho',
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: TemasCores.textoPrimario),
             ),
             const SizedBox(height: 4),
             const Text(
-              'Quantidade de encomendas atualmente ativas em cada etapa',
+              'Encomendas ativas em cada posto físico · a vermelho, postos parados',
               style: TextStyle(fontSize: 13, color: TemasCores.textoTerciario),
             ),
             const SizedBox(height: 32),
-            SizedBox(
-              height: alturaGrafico,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: _fasesDistribuicao.entries.map((entry) {
-                  final String fase = entry.key;
-                  final int quantidade = entry.value;
+            if (_ocupacaoPostos.isEmpty)
+              const SizedBox(
+                height: alturaGrafico,
+                child: Center(
+                  child: Text(
+                    'Sem postos de trabalho registados.',
+                    style: TextStyle(fontSize: 12, color: TemasCores.textoTerciario),
+                  ),
+                ),
+              )
+            else
+              SizedBox(
+                height: alturaGrafico,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: _ocupacaoPostos.map((ocupacao) {
+                    final int quantidade = ocupacao.ordens;
+                    final bool parado = ocupacao.posto.parado;
 
-                  final double percentagemAltura = valorMaximo == 0 ? 0.05 : (quantidade / valorMaximo);
+                    final double percentagemAltura = valorMaximo == 0 ? 0.05 : (quantidade / valorMaximo);
 
-                  return Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 2.0),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          AnimatedOpacity(
-                            duration: const Duration(milliseconds: 300),
-                            opacity: quantidade > 0 ? 1.0 : 0.4,
-                            child: Text(
-                              '$quantidade',
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          AnimatedContainer(
-                            duration: const Duration(milliseconds: 500),
-                            curve: Curves.easeOutBack,
-                            width: 24,
-                            height: (alturaGrafico - 65) * percentagemAltura,
-                            decoration: const BoxDecoration(
-                              gradient: LinearGradient(
-                                colors: [
-                                  TemasCores.graficoBarraTopo,
-                                  TemasCores.graficoBarraBase,
-                                ],
-                                begin: Alignment.topCenter,
-                                end: Alignment.bottomCenter,
-                              ),
-                              borderRadius: BorderRadius.only(
-                                topLeft: Radius.circular(4),
-                                topRight: Radius.circular(4),
+                    return Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 2.0),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            AnimatedOpacity(
+                              duration: const Duration(milliseconds: 300),
+                              opacity: quantidade > 0 ? 1.0 : 0.4,
+                              child: Text(
+                                '$quantidade',
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
                               ),
                             ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            fase,
-                            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w500, color: TemasCores.textoApoio),
-                            textAlign: TextAlign.center,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ],
+                            const SizedBox(height: 6),
+                            AnimatedContainer(
+                              duration: const Duration(milliseconds: 500),
+                              curve: Curves.easeOutBack,
+                              width: 24,
+                              height: (alturaGrafico - 65) * percentagemAltura,
+                              decoration: BoxDecoration(
+                                // Um posto parado com ordens em cima é o pior
+                                // caso do chão de fábrica: a barra diz-se logo,
+                                // sem obrigar a cruzar com o cartão de
+                                // disponibilidade.
+                                gradient: LinearGradient(
+                                  colors: parado
+                                      ? const [TemasCores.erroMedio, TemasCores.erroForte]
+                                      : const [
+                                          TemasCores.graficoBarraTopo,
+                                          TemasCores.graficoBarraBase,
+                                        ],
+                                  begin: Alignment.topCenter,
+                                  end: Alignment.bottomCenter,
+                                ),
+                                borderRadius: const BorderRadius.only(
+                                  topLeft: Radius.circular(4),
+                                  topRight: Radius.circular(4),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              ocupacao.posto.nome,
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w500,
+                                color: parado ? TemasCores.erroForte : TemasCores.textoApoio,
+                              ),
+                              textAlign: TextAlign.center,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                  );
-                }).toList(),
+                    );
+                  }).toList(),
+                ),
               ),
-            ),
           ],
         ),
       ),
     );
+  }
+
+  /// Pareto dos motivos de paragem: onde atacar primeiro.
+  ///
+  /// As barras são relativas ao motivo mais frequente e não ao total, porque o
+  /// que interessa é a ordem de grandeza entre eles — com cinco motivos, uma
+  /// escala sobre o total deixaria todas as barras curtas e indistinguíveis.
+  Widget _buildParetoCard() {
+    final int maxOcorrencias =
+        _paretoParagens.fold(0, (max, p) => p.ocorrencias > max ? p.ocorrencias : max);
+
+    return Card(
+      color: TemasCores.superficie,
+      elevation: 1,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: const BorderSide(color: TemasCores.borda),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Motivos de Paragem Mais Frequentes',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: TemasCores.textoPrimario),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Top 5 por motivo oficial, nos últimos $_diasPareto dias',
+              style: TextStyle(fontSize: 13, color: TemasCores.textoTerciario),
+            ),
+            const SizedBox(height: 20),
+            if (_paretoParagens.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 24),
+                child: Center(
+                  child: Text(
+                    'Sem paragens com motivo registado no período.',
+                    style: TextStyle(fontSize: 12, color: TemasCores.textoTerciario),
+                  ),
+                ),
+              )
+            else
+              ...List.generate(
+                _paretoParagens.length,
+                (i) => _buildLinhaPareto(i + 1, _paretoParagens[i], maxOcorrencias),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLinhaPareto(int posicao, ParagemAgregada paragem, int maxOcorrencias) {
+    final double fracao =
+        maxOcorrencias == 0 ? 0 : paragem.ocorrencias / maxOcorrencias;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              SizedBox(
+                width: 20,
+                child: Text(
+                  '$posicao.',
+                  style: const TextStyle(
+                      fontSize: 12, fontWeight: FontWeight.bold, color: TemasCores.textoTerciario),
+                ),
+              ),
+              Expanded(
+                child: Text(
+                  paragem.rotulo,
+                  style: const TextStyle(
+                      fontSize: 13, fontWeight: FontWeight.w600, color: TemasCores.textoPrimario),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '${paragem.ocorrencias}×',
+                style: const TextStyle(
+                    fontSize: 13, fontWeight: FontWeight.bold, color: TemasCores.textoSecundario),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Padding(
+            padding: const EdgeInsets.only(left: 20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: LinearProgressIndicator(
+                    value: fracao,
+                    minHeight: 8,
+                    backgroundColor: TemasCores.superficieTenue,
+                    valueColor: const AlwaysStoppedAnimation<Color>(TemasCores.graficoBarraBase),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${paragem.categoria} · ${_formatarDuracao(paragem.minutosTotais)} no total '
+                  '· ${_formatarDuracao(paragem.minutosMedios)} em média',
+                  style: const TextStyle(fontSize: 11, color: TemasCores.textoTerciario),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Duração em minutos para texto curto: `45 min` ou `2h 05m`.
+  static String _formatarDuracao(int minutos) {
+    if (minutos < 60) return '$minutos min';
+    final horas = minutos ~/ 60;
+    final resto = minutos % 60;
+    return '${horas}h ${resto.toString().padLeft(2, '0')}m';
   }
 
   Widget _buildIncidentsCard() {
@@ -600,6 +825,7 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
               'Paragens registadas no chão de fábrica',
               style: TextStyle(fontSize: 13, color: TemasCores.textoTerciario),
             ),
+            _buildTempoMedioParagem(),
             const SizedBox(height: 20),
 
             if (_alertasIncidencias.isEmpty)
@@ -611,6 +837,48 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
                 itemCount: _alertasIncidencias.length,
                 itemBuilder: (context, index) => _buildCartaoAlerta(_alertasIncidencias[index]),
               ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Há quanto tempo, em média, as paragens abertas estão a bloquear a linha.
+  ///
+  /// É calculado no `build` e não guardado no estado de propósito: o contador
+  /// "há X min" de cada cartão avança de 30 em 30 segundos com o timer, e uma
+  /// média congelada até ao próximo recarregamento passaria a contradizer os
+  /// cartões que tem por baixo.
+  Widget _buildTempoMedioParagem() {
+    if (_alertasIncidencias.isEmpty) return const SizedBox.shrink();
+
+    final media = EncomendasRepository.tempoMedioParagemAberta(
+      _alertasIncidencias.map(IncidenciaModel.fromJson).toList(),
+    );
+    if (media == null) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: TemasCores.erroFundo,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.timer_outlined, size: 16, color: TemasCores.erroForte),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Tempo médio de paragem ativa: ${_formatarDuracao(media.inMinutes)}',
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: TemasCores.erroForte,
+                ),
+              ),
+            ),
           ],
         ),
       ),

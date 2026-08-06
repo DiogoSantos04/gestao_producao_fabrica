@@ -20,8 +20,36 @@ class TimelineOrdem {
   bool get vazia => producao.isEmpty && incidencias.isEmpty;
 }
 
+/// Um motivo de paragem agregado, para a análise de Pareto do dashboard.
+///
+/// A agregação é sempre feita pelo `reason_code`, nunca pela coluna de texto
+/// livre `motivo`: essa é escrita pelo operador, não tem vocabulário fechado e
+/// ficou vazia desde que o terminal passou a gravar motivos estruturados — ver
+/// bug (D) em docs/AlteracoesNoOperador.md. Duas frases diferentes para a mesma
+/// avaria contariam como dois motivos distintos e o Pareto mentiria.
+class ParagemAgregada {
+  /// Descrição do motivo, ou a categoria quando não há descrição.
+  final String rotulo;
+  final String categoria;
+  final int ocorrencias;
+
+  /// Soma da duração das paragens deste motivo. As que ainda estão abertas
+  /// contam até ao instante da leitura.
+  final int minutosTotais;
+
+  const ParagemAgregada({
+    required this.rotulo,
+    required this.categoria,
+    required this.ocorrencias,
+    required this.minutosTotais,
+  });
+
+  int get minutosMedios =>
+      ocorrencias == 0 ? 0 : (minutosTotais / ocorrencias).round();
+}
+
 /// Forma como uma [CondicaoEstado] compara a coluna.
-enum OperadorCondicao { igual, ehNulo, naoEhNulo }
+enum OperadorCondicao { igual, ehNulo, naoEhNulo, menorQue }
 
 /// Uma condição sobre uma das colunas de estado de `encomendas`.
 ///
@@ -32,7 +60,7 @@ class CondicaoEstado {
   final String coluna;
   final OperadorCondicao operador;
 
-  /// Só é usado com [OperadorCondicao.igual].
+  /// Só é usado com [OperadorCondicao.igual] e [OperadorCondicao.menorQue].
   final Object? valor;
 
   const CondicaoEstado.igual(this.coluna, this.valor)
@@ -43,6 +71,8 @@ class CondicaoEstado {
   const CondicaoEstado.naoEhNulo(this.coluna)
       : operador = OperadorCondicao.naoEhNulo,
         valor = null;
+  const CondicaoEstado.menorQue(this.coluna, this.valor)
+      : operador = OperadorCondicao.menorQue;
 
   @override
   bool operator ==(Object other) =>
@@ -59,6 +89,7 @@ class CondicaoEstado {
         OperadorCondicao.igual => '$coluna = $valor',
         OperadorCondicao.ehNulo => '$coluna is null',
         OperadorCondicao.naoEhNulo => '$coluna is not null',
+        OperadorCondicao.menorQue => '$coluna < $valor',
       };
 }
 
@@ -169,13 +200,28 @@ class EncomendasRepository extends BaseRepository {
   /// Segue a mesma precedência de [EstadoOrdem.derivar] — cancelada → em hold →
   /// concluída → em produção. As canceladas só aparecem no seu próprio filtro,
   /// tal como acontecia quando a filtragem era feita em memória.
-  static List<CondicaoEstado> condicoesDoFiltro(FiltroEstadoOrdem filtro) {
+  ///
+  /// [hoje] só é usado por [FiltroEstadoOrdem.atrasada] e existe como parâmetro
+  /// para a regra do atraso poder ser verificada sem depender do relógio.
+  static List<CondicaoEstado> condicoesDoFiltro(
+    FiltroEstadoOrdem filtro, {
+    DateTime? hoje,
+  }) {
     if (filtro == FiltroEstadoOrdem.cancelada) {
       return const [CondicaoEstado.igual('cancelada', true)];
     }
     const base = CondicaoEstado.igual('cancelada', false);
     return switch (filtro) {
       FiltroEstadoOrdem.todos => const [base],
+      // Atrasada é "ainda na linha" (em produção ou em hold, logo com fase
+      // atual) e com o prazo ultrapassado. `data_entrega` é uma `date`, pelo
+      // que a comparação é feita com o dia de hoje sem horas: uma ordem que
+      // entrega hoje ainda está dentro do prazo até ao fim do dia.
+      FiltroEstadoOrdem.atrasada => [
+          base,
+          const CondicaoEstado.naoEhNulo('fase_atual_id'),
+          CondicaoEstado.menorQue('data_entrega', _dia(hoje ?? DateTime.now())),
+        ],
       FiltroEstadoOrdem.emHold => const [
           base,
           CondicaoEstado.igual('em_suspenso', true),
@@ -194,6 +240,39 @@ class EncomendasRepository extends BaseRepository {
     };
   }
 
+  /// A mesma decisão de [condicoesDoFiltro], mas sobre uma linha em memória.
+  ///
+  /// O painel de controlo precisa dela para decidir se uma linha que chegou por
+  /// realtime pertence ao filtro que está no ecrã. A regra vive aqui, ao lado
+  /// da tradução para SQL, para as duas não poderem divergir — foi a origem do
+  /// bug (b) em docs/BUGS_RESOLVIDOS.md.
+  static bool pertenceAoFiltro(
+    FiltroEstadoOrdem filtro, {
+    required bool cancelada,
+    required bool emSuspenso,
+    required bool temFaseAtual,
+    DateTime? dataEntrega,
+    DateTime? hoje,
+  }) {
+    // "Todas" exclui as canceladas, que só aparecem no seu próprio filtro.
+    if (filtro == FiltroEstadoOrdem.todos) return !cancelada;
+
+    if (filtro == FiltroEstadoOrdem.atrasada) {
+      if (cancelada || !temFaseAtual || dataEntrega == null) return false;
+      final agora = hoje ?? DateTime.now();
+      final diaDeHoje = DateTime(agora.year, agora.month, agora.day);
+      final prazo = DateTime(dataEntrega.year, dataEntrega.month, dataEntrega.day);
+      return prazo.isBefore(diaDeHoje);
+    }
+
+    return filtro.estado ==
+        EstadoOrdem.derivar(
+          cancelada: cancelada,
+          emSuspenso: emSuspenso,
+          temFaseAtual: temFaseAtual,
+        );
+  }
+
   /// Escreve as condições de [condicoesDoFiltro] na query.
   PostgrestFilterBuilder<T> _aplicarFiltroEstado<T>(
     PostgrestFilterBuilder<T> query,
@@ -205,6 +284,7 @@ class EncomendasRepository extends BaseRepository {
         OperadorCondicao.igual => q.eq(c.coluna, c.valor as Object),
         OperadorCondicao.ehNulo => q.isFilter(c.coluna, null),
         OperadorCondicao.naoEhNulo => q.not(c.coluna, 'is', null),
+        OperadorCondicao.menorQue => q.lt(c.coluna, c.valor as Object),
       };
     }
     return q;
@@ -293,18 +373,77 @@ class EncomendasRepository extends BaseRepository {
     });
   }
 
-  /// Fases concluídas num determinado dia, para o KPI "concluídas hoje".
-  Future<List<Map<String, dynamic>>> obterHistoricoDoDia(DateTime dia) {
+  /// Data da última fase concluída de cada ordem, dentro de uma janela de dias.
+  ///
+  /// Serve o KPI "concluídas hoje" e a sua comparação com ontem. A versão
+  /// anterior lia um dia de cada vez e devolvia só `encomenda_id`, o que
+  /// bastava para "esteve em produção neste dia" mas não para "acabou neste
+  /// dia": uma ordem que trabalhou ontem e fechou a última fase hoje aparecia
+  /// nos dois dias e inflacionava o total de ontem — precisamente o número com
+  /// que hoje passa a ser comparado.
+  ///
+  /// [desde] e [ate] são dias inclusivos; a janela cobre-os por inteiro.
+  ///
+  /// Os limites são dias **locais** convertidos para UTC antes de irem para a
+  /// query, e as datas que voltam são convertidas para local. `data_conclusao`
+  /// é `timestamptz` e chega em UTC: comparar o seu dia com o dia do relógio da
+  /// fábrica sem converter fazia o turno da noite contar no dia errado.
+  Future<Map<int, DateTime>> obterUltimasConclusoes({
+    required DateTime desde,
+    required DateTime ate,
+  }) {
     return guarda('carregar o histórico do dia', () async {
-      final d = '${dia.year}-${dia.month.toString().padLeft(2, '0')}-${dia.day.toString().padLeft(2, '0')}';
+      final inicio = DateTime(desde.year, desde.month, desde.day);
+      final fim = DateTime(ate.year, ate.month, ate.day, 23, 59, 59, 999);
+
       final dados = await client
           .from('historico_producao')
-          .select('encomenda_id')
-          .gte('data_conclusao', '${d}T00:00:00')
-          .lte('data_conclusao', '${d}T23:59:59');
-      return comoLista(dados);
+          .select('encomenda_id, data_conclusao')
+          .gte('data_conclusao', inicio.toUtc().toIso8601String())
+          .lte('data_conclusao', fim.toUtc().toIso8601String());
+
+      final ultimas = <int, DateTime>{};
+      for (final linha in comoLista(dados)) {
+        final id = (linha['encomenda_id'] as num?)?.toInt();
+        final data = DateTime.tryParse(linha['data_conclusao']?.toString() ?? '');
+        if (id == null || data == null) continue;
+
+        final local = data.toLocal();
+        final atual = ultimas[id];
+        if (atual == null || local.isAfter(atual)) ultimas[id] = local;
+      }
+      return ultimas;
     });
   }
+
+  /// Quantas das ordens em [idsConcluidas] fecharam a última fase em [dia].
+  ///
+  /// A contagem é a mesma para hoje e para ontem — uma comparação em que os
+  /// dois lados fossem medidos por regras diferentes não diria nada.
+  static int contarConcluidasEm(
+    DateTime dia, {
+    required Set<int> idsConcluidas,
+    required Map<int, DateTime> ultimasConclusoes,
+  }) {
+    // Ambos os lados em hora local: `data_conclusao` chega em UTC e o dia que
+    // interessa é o do calendário da fábrica, não o de Greenwich.
+    final alvo = dia.toLocal();
+
+    var total = 0;
+    for (final id in idsConcluidas) {
+      final ultima = ultimasConclusoes[id]?.toLocal();
+      if (ultima == null) continue;
+      if (ultima.year == alvo.year &&
+          ultima.month == alvo.month &&
+          ultima.day == alvo.day) {
+        total++;
+      }
+    }
+    return total;
+  }
+
+  static String _dia(DateTime d) =>
+      '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
   /// Timeline de rastreabilidade de uma ordem: produção + incidências.
   Future<TimelineOrdem> obterTimeline(int encomendaId) {
@@ -368,6 +507,142 @@ class EncomendasRepository extends BaseRepository {
           .where((inc) => inc.estaAberta)
           .toList();
     });
+  }
+
+  /// Os [limite] motivos de paragem mais frequentes dos últimos [dias] dias.
+  ///
+  /// A agregação é feita em Dart e não numa RPC com `GROUP BY` de propósito: a
+  /// projeção é estreita (sete colunas) e já vem filtrada por data, pelo que o
+  /// que atravessa a rede são as paragens de um mês — dezenas de linhas nesta
+  /// fábrica, não milhares. Uma RPC pouparia largura de banda irrelevante e
+  /// custaria uma migração e uma regra de negócio escrita em SQL, fora do
+  /// alcance dos testes. Se o volume crescer uma ordem de grandeza, a troca
+  /// afeta só este método.
+  Future<List<ParagemAgregada>> obterParetoParagens({
+    int dias = 30,
+    int limite = 5,
+  }) {
+    return guarda('carregar os motivos de paragem mais frequentes', () async {
+      final desde = DateTime.now().subtract(Duration(days: dias));
+
+      final dados = await client
+          .from('incidencias')
+          .select('''
+            reason_code_id,
+            created_at,
+            data_registo,
+            data_fim_manutencao,
+            data_line_clearance,
+            reason_codes:reason_code_id (categoria, descricao)
+          ''')
+          .not('reason_code_id', 'is', null)
+          // `created_at` é `timestamptz`: uma data sem fuso seria lida como UTC
+          // e deslocaria a janela pela diferença horária da fábrica.
+          .gte('created_at', desde.toUtc().toIso8601String());
+
+      // O `id` é obrigatório em [IncidenciaModel] mas não interessa aqui; a
+      // projeção não o traz para não sugerir que a linha é a incidência inteira.
+      final incidencias = comoLista(dados)
+          .map((linha) => IncidenciaModel.fromJson({...linha, 'id': 0}))
+          .toList();
+
+      return agregarPareto(incidencias, limite: limite);
+    });
+  }
+
+  /// Agrupa incidências por motivo oficial e devolve as [limite] mais
+  /// frequentes, da mais frequente para a menos.
+  ///
+  /// Incidências sem `reason_code_id` são ignoradas: não há por onde as
+  /// agrupar sem cair no texto livre. Uma paragem ainda aberta conta desde o
+  /// início até [agora], porque é exatamente o tempo que está a custar.
+  static List<ParagemAgregada> agregarPareto(
+    List<IncidenciaModel> incidencias, {
+    int limite = 5,
+    DateTime? agora,
+  }) {
+    final instante = agora ?? DateTime.now();
+    final porMotivo = <int, ParagemAgregada>{};
+
+    for (final inc in incidencias) {
+      final motivoId = inc.reasonCodeId;
+      if (motivoId == null) continue;
+
+      final categoria = inc.categoriaReasonCode?.trim();
+      final descricao = inc.descricaoReasonCode?.trim();
+      final rotulo = (descricao != null && descricao.isNotEmpty)
+          ? descricao
+          : (categoria != null && categoria.isNotEmpty
+              ? categoria
+              : 'Motivo #$motivoId');
+
+      final anterior = porMotivo[motivoId];
+      porMotivo[motivoId] = ParagemAgregada(
+        rotulo: anterior?.rotulo ?? rotulo,
+        categoria: anterior?.categoria ??
+            (categoria == null || categoria.isEmpty ? 'Geral' : categoria),
+        ocorrencias: (anterior?.ocorrencias ?? 0) + 1,
+        minutosTotais:
+            (anterior?.minutosTotais ?? 0) + _duracaoMinutos(inc, instante),
+      );
+    }
+
+    final ordenadas = porMotivo.values.toList()
+      ..sort((a, b) {
+        final porOcorrencias = b.ocorrencias.compareTo(a.ocorrencias);
+        if (porOcorrencias != 0) return porOcorrencias;
+        final porMinutos = b.minutosTotais.compareTo(a.minutosTotais);
+        if (porMinutos != 0) return porMinutos;
+        // Desempate estável: sem ele, dois motivos empatados podiam trocar de
+        // lugar entre recarregamentos e o gráfico parecia mexer sozinho.
+        return a.rotulo.compareTo(b.rotulo);
+      });
+
+    return ordenadas.take(limite).toList();
+  }
+
+  /// Há quanto tempo, em média, as paragens em aberto estão a bloquear a linha.
+  ///
+  /// Devolve `null` quando não há nenhuma paragem aberta — e não zero: "sem
+  /// paragens" e "paragens que começaram agora mesmo" são situações opostas e
+  /// um `0 min` no ecrã não as distinguiria.
+  ///
+  /// Conta desde [IncidenciaModel.inicio] até [agora], porque uma paragem
+  /// aberta não tem fim: o que interessa é o tempo que já custou. Incidências
+  /// sem data de início são ignoradas em vez de contarem como zero, que
+  /// puxaria a média para baixo e faria a fábrica parecer melhor do que está.
+  static Duration? tempoMedioParagemAberta(
+    List<IncidenciaModel> incidencias, {
+    DateTime? agora,
+  }) {
+    final instante = agora ?? DateTime.now();
+
+    var total = 0;
+    var contadas = 0;
+    for (final inc in incidencias) {
+      final inicio = inc.inicio;
+      if (inicio == null) continue;
+      // Sempre até `agora`, mesmo que a manutenção já esteja concluída: até ao
+      // line clearance a linha continua bloqueada, e é o bloqueio que se mede.
+      final minutos = instante.difference(inicio).inMinutes;
+      total += minutos < 0 ? 0 : minutos;
+      contadas++;
+    }
+
+    if (contadas == 0) return null;
+    return Duration(minutes: (total / contadas).round());
+  }
+
+  /// Duração de uma paragem em minutos, nunca negativa.
+  ///
+  /// O fim é o momento em que a linha voltou a andar (line clearance) e não o
+  /// fim da manutenção: entre os dois a ordem continua bloqueada.
+  static int _duracaoMinutos(IncidenciaModel inc, DateTime agora) {
+    final inicio = inc.inicio;
+    if (inicio == null) return 0;
+    final fim = inc.dataLineClearance ?? inc.dataFimManutencao ?? agora;
+    final minutos = fim.difference(inicio).inMinutes;
+    return minutos < 0 ? 0 : minutos;
   }
 
   /// Catálogo de motivos oficiais de paragem, sem repetições de `id`.

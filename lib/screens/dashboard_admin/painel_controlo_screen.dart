@@ -25,7 +25,15 @@ import 'dialogos/dialogo_registo_tecnico.dart';
 import 'dialogos/dialogo_wip_hold.dart';
 
 class PainelControloScreen extends StatefulWidget {
-  const PainelControloScreen({super.key});
+  const PainelControloScreen({
+    super.key,
+    this.filtroInicial = FiltroEstadoOrdem.todos,
+  });
+
+  /// Filtro com que o ecrã abre, quando é aberto a partir de um KPI do
+  /// dashboard. O utilizador pode mudá-lo logo a seguir como em qualquer
+  /// outra visita.
+  final FiltroEstadoOrdem filtroInicial;
 
   @override
   State<PainelControloScreen> createState() => _PainelControloScreenState();
@@ -49,7 +57,7 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
   List<Map<String, dynamic>> _tecnicosUtilizadores = []; // Lista de técnicos/utilizadores da empresa
   Map<int, List<FaseModel>> _fasesPorProduto = {};
 
-  FiltroEstadoOrdem _filtroEstado = FiltroEstadoOrdem.todos;
+  late FiltroEstadoOrdem _filtroEstado = widget.filtroInicial;
   bool _isLoading = true;
   bool _aCarregarMais = false;
   bool _temMais = false;
@@ -198,7 +206,15 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
     }
   }
 
+  /// Liga a escuta em tempo real, se o ecrã ainda cá estiver.
+  ///
+  /// Corre depois do primeiro carregamento, ou seja, depois de um `await`. O
+  /// ecrã passou a poder ser destruído nesse intervalo — abrir o painel a
+  /// partir de um KPI do dashboard recria-o com um filtro novo — e sem esta
+  /// guarda ficaria um canal subscrito que já ninguém desliga, porque o
+  /// `dispose` correu antes de haver canal para remover.
   void _ativarSubscricaoRealtime() {
+    if (!mounted) return;
     _encomendasSubscription = _encomendasRepo.escutarProducao(
       'public:encomendas_painel',
       _aoEventoRealtime,
@@ -363,22 +379,19 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
     setState(() => _encomendas = _encomendas.where((e) => e.id != id).toList());
   }
 
-  /// Espelho em memória de `EncomendasRepository._aplicarFiltroEstado`.
+  /// Espelho em memória do filtro que o servidor aplicou.
   ///
-  /// A regra em si não é reescrita aqui: deriva-se o estado com
-  /// [EstadoOrdem.derivar] — a mesma função que o repositório traduziu para SQL —
-  /// e compara-se com [FiltroEstadoOrdem.estado].
+  /// A regra não é reescrita aqui: delega em
+  /// [EncomendasRepository.pertenceAoFiltro], a mesma função de onde saem as
+  /// condições SQL.
   bool _pertenceAoFiltro(Map<String, dynamic> linha) {
-    final cancelada = linha['cancelada'] == true;
-    final alvo = _filtroEstado.estado;
-    // "Todas" exclui as canceladas, que só aparecem no seu próprio filtro.
-    if (alvo == null) return !cancelada;
-    return alvo ==
-        EstadoOrdem.derivar(
-          cancelada: cancelada,
-          emSuspenso: linha['em_suspenso'] == true,
-          temFaseAtual: linha['fase_atual_id'] != null,
-        );
+    return EncomendasRepository.pertenceAoFiltro(
+      _filtroEstado,
+      cancelada: linha['cancelada'] == true,
+      emSuspenso: linha['em_suspenso'] == true,
+      temFaseAtual: linha['fase_atual_id'] != null,
+      dataEntrega: DateTime.tryParse(linha['data_entrega']?.toString() ?? ''),
+    );
   }
 
   /// Espelho da pesquisa do servidor: código de rastreio ou nome de cliente.
@@ -623,6 +636,11 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
                                 value: FiltroEstadoOrdem.emHold,
                                 label: Text('ON HOLD', style: TextStyle(fontSize: 12)),
                                 icon: Icon(Icons.circle, color: TemasCores.erro, size: 8),
+                              ),
+                              ButtonSegment(
+                                value: FiltroEstadoOrdem.atrasada,
+                                label: Text('Atrasadas', style: TextStyle(fontSize: 12)),
+                                icon: Icon(Icons.warning_amber_rounded, size: 14),
                               ),
                               ButtonSegment(
                                 value: FiltroEstadoOrdem.concluida,

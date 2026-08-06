@@ -89,14 +89,24 @@ class FluxosRepository extends BaseRepository {
     });
   }
 
-  /// Nome e ordem de todas as fases, para estruturar o gráfico do dashboard.
-  Future<List<Map<String, dynamic>>> obterNomesDasFases() {
-    return guarda('carregar as fases padrão', () async {
+  /// Traduz cada fase no posto físico que a executa: `fase_id -> posto_id`.
+  ///
+  /// Só usa a coluna `posto_trabalho_id`. A coluna de texto `posto_trabalho` é
+  /// legada e não é fiável como chave: na fábrica atual há fases cujo texto
+  /// ("Posto de Controlo de Qualidade") não coincide com nenhum `nome_posto`
+  /// ("Controlo de Qualidade"), pelo que casá-las por nome inventaria postos
+  /// que não existem. Fases sem ligação ficam simplesmente de fora do mapa.
+  Future<Map<int, int>> obterPostoPorFase() {
+    return guarda('mapear as fases aos postos de trabalho', () async {
       final dados = await client
           .from('fases_padrao')
-          .select('nome_fase_padrao')
-          .order('ordem');
-      return comoLista(dados);
+          .select('id, posto_trabalho_id')
+          .not('posto_trabalho_id', 'is', null);
+
+      return {
+        for (final f in comoLista(dados))
+          (f['id'] as num).toInt(): (f['posto_trabalho_id'] as num).toInt(),
+      };
     });
   }
 
