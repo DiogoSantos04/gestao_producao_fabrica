@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/mensagens.dart';
 import '../../core/temas_cores.dart';
+import '../../models/checklist_model.dart';
 import '../../models/fase_model.dart';
 import '../../repositories/base_repository.dart';
 import '../../repositories/encomendas_repository.dart';
@@ -121,17 +122,25 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
   }
 
   /// Poka-Yoke: checklist obrigatória antes de concluir a fase.
-  Future<bool> _validarChecklist(List<String> itens) async {
-    if (itens.isEmpty) return true;
+  ///
+  /// Devolve `null` se o operador cancelar. Caso contrário devolve ou os pontos
+  /// validados — com a hora a que **cada um** foi marcado, que é o que
+  /// distingue uma verificação feita ponto a ponto de uma série de cliques no
+  /// fim — ou o ponto que falhou, para abrir incidência.
+  Future<_ResultadoChecklist?> _validarChecklist(List<String> itens) async {
+    if (itens.isEmpty) return const _ResultadoChecklist.conforme([]);
 
-    final verificados = List<bool>.filled(itens.length, false);
+    // O instante de cada marcação, na posição do respetivo item. `null` é "por
+    // marcar": distingue-se de marcado, ao contrário de um `bool` com data à
+    // parte, que podia ficar dessincronizado ao desmarcar.
+    final marcados = List<DateTime?>.filled(itens.length, null);
 
-    final resultado = await showDialog<bool>(
+    final resultado = await showDialog<_ResultadoChecklist>(
       context: context,
       barrierDismissible: false,
       builder: (context) => StatefulBuilder(
         builder: (context, setModalState) {
-          final todos = verificados.every((v) => v);
+          final todos = marcados.every((m) => m != null);
 
           return AlertDialog(
             shape: RoundedRectangleBorder(
@@ -157,7 +166,8 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
               children: [
                 const Text(
                   'Confirme a validação de todos os pontos de controlo antes '
-                  'de encerrar a etapa:',
+                  'de encerrar a etapa. Cada marcação fica registada em seu '
+                  'nome, com a hora, contra esta ordem.',
                   style: TextStyle(
                     fontSize: 13,
                     color: TemasCores.textoSecundarioFrio,
@@ -168,7 +178,7 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
                   child: SingleChildScrollView(
                     child: Column(
                       children: List.generate(itens.length, (index) {
-                        final marcado = verificados[index];
+                        final marcado = marcados[index] != null;
                         return Container(
                           margin: const EdgeInsets.only(bottom: 8),
                           decoration: BoxDecoration(
@@ -195,8 +205,30 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
                             ),
                             value: marcado,
                             activeColor: TemasCores.sucessoForte,
+                            // A hora é a da marcação, não a da conclusão da
+                            // fase: desmarcar apaga-a para que uma marcação
+                            // corrigida não fique com a hora da primeira.
                             onChanged: (val) => setModalState(
-                              () => verificados[index] = val ?? false,
+                              () => marcados[index] =
+                                  (val ?? false) ? DateTime.now() : null,
+                            ),
+                            // O ponto que falha não fecha a fase: encaminha
+                            // para a incidência. Sem esta saída, um operador
+                            // com um ponto não conforme e a linha à espera
+                            // acaba por marcar tudo à mesma — o Poka-Yoke
+                            // ensinaria precisamente o contrário do que existe
+                            // para garantir.
+                            secondary: IconButton(
+                              tooltip: 'Ponto não conforme — reportar',
+                              icon: const Icon(
+                                Icons.report_problem_outlined,
+                                size: 20,
+                                color: TemasCores.erro,
+                              ),
+                              onPressed: () => Navigator.pop(
+                                context,
+                                _ResultadoChecklist.naoConforme(itens[index]),
+                              ),
                             ),
                           ),
                         );
@@ -208,11 +240,23 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
             ),
             actions: [
               TextButton(
-                onPressed: () => Navigator.pop(context, false),
+                onPressed: () => Navigator.pop(context, null),
                 child: const Text('Cancelar'),
               ),
               ElevatedButton.icon(
-                onPressed: todos ? () => Navigator.pop(context, true) : null,
+                onPressed: todos
+                    ? () => Navigator.pop(
+                          context,
+                          _ResultadoChecklist.conforme([
+                            for (var i = 0; i < itens.length; i++)
+                              PontoValidado(
+                                posicao: i,
+                                item: itens[i],
+                                marcadoEm: marcados[i]!,
+                              ),
+                          ]),
+                        )
+                    : null,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: TemasCores.sucessoForte,
                   foregroundColor: TemasCores.textoInverso,
@@ -227,7 +271,7 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
       ),
     );
 
-    return resultado ?? false;
+    return resultado;
   }
 
   /// Pede a validação necessária e, se passar, fecha a fase.
@@ -242,13 +286,26 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
     final fase = _tarefa?.faseAtual;
     if (fase == null) return;
 
-    final validado = fase.checklist.isNotEmpty
-        ? await _validarChecklist(fase.checklist)
-        : await _confirmarConclusao(fase);
+    if (fase.checklist.isEmpty) {
+      final confirmado = await _confirmarConclusao(fase);
+      if (!confirmado || !mounted) return;
+      return _concluirFase(fase, const []);
+    }
 
-    if (!validado || !mounted) return;
+    final resultado = await _validarChecklist(fase.checklist);
+    if (resultado == null || !mounted) return;
 
-    await _concluirFase(fase);
+    // Um ponto de controlo não conforme é uma paragem de linha, não uma fase
+    // concluída: o operador segue direto para a incidência, com o ponto que
+    // falhou já escrito na descrição.
+    final falhou = resultado.itemNaoConforme;
+    if (falhou != null) {
+      return _abrirPopupIncidencia(
+        descricaoInicial: 'Ponto de controlo não conforme: $falhou',
+      );
+    }
+
+    await _concluirFase(fase, resultado.pontos);
   }
 
   /// Transição de fase pela RPC transacional `avancar_fase_encomenda`.
@@ -263,12 +320,18 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
   /// A RPC decide a fase seguinte, escreve o histórico e atualiza a ordem numa
   /// só transação, e recusa o avanço se a ordem estiver em WIP Hold ou
   /// cancelada — validações que o cliente não pode garantir sozinho.
-  Future<void> _concluirFase(FaseModel fase) async {
+  /// [pontos] são os pontos de controlo que o operador validou. Vão na mesma
+  /// chamada porque a RPC os grava dentro da transação do avanço: a prova de
+  /// conformidade e a fase fechada existem ambas, ou nenhuma existe.
+  Future<void> _concluirFase(FaseModel fase, List<PontoValidado> pontos) async {
     setState(() => _aCarregar = true);
     _timerAndon?.cancel();
 
     try {
-      final resultado = await _encomendasRepo.avancarFase(widget.encomendaId);
+      final resultado = await _encomendasRepo.avancarFase(
+        widget.encomendaId,
+        checklist: pontos,
+      );
       if (!mounted) return;
 
       final concluida = resultado['concluida'] == true;
@@ -338,7 +401,10 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
     return descreverErro(e);
   }
 
-  Future<void> _abrirPopupIncidencia() async {
+  /// [descricaoInicial] pré-preenche as observações — usado quando a incidência
+  /// nasce de um ponto de controlo não conforme, para o operador não ter de
+  /// reescrever à mão o que acabou de assinalar.
+  Future<void> _abrirPopupIncidencia({String? descricaoInicial}) async {
     final faseAtualId = _tarefa?.encomenda.faseAtualId;
     if (faseAtualId == null) return;
 
@@ -351,6 +417,7 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
         encomendaId: widget.encomendaId,
         codigoRastreio: widget.codigoRastreio,
         faseAtualId: faseAtualId,
+        descricaoInicial: descricaoInicial,
       ),
     );
 
@@ -989,4 +1056,24 @@ class _PassoTimeline extends StatelessWidget {
       ),
     );
   }
+}
+
+/// O que saiu do diálogo da checklist Poka-Yoke.
+///
+/// São dois desfechos e não um `bool`: ou os pontos foram todos validados — e
+/// nesse caso interessa **quais** e a que horas, porque é isso que fica gravado
+/// como prova de conformidade —, ou um deles falhou e a fase não fecha.
+/// Cancelar é a ausência de resultado (`null`), não um terceiro caso.
+class _ResultadoChecklist {
+  /// Pontos validados, por ordem da checklist da fase. Vazio quando falhou.
+  final List<PontoValidado> pontos;
+
+  /// O ponto que o operador marcou como não conforme, se houve algum.
+  final String? itemNaoConforme;
+
+  const _ResultadoChecklist.conforme(this.pontos) : itemNaoConforme = null;
+
+  const _ResultadoChecklist.naoConforme(String item)
+      : pontos = const [],
+        itemNaoConforme = item;
 }

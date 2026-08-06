@@ -461,6 +461,13 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
   /// única transação no servidor (`avancar_fase_encomenda`). Antes eram duas
   /// escritas independentes: se a segunda falhasse, ficava histórico órfão e a
   /// ordem presa na fase anterior.
+  ///
+  /// O avanço pelo painel não passa pela checklist Poka-Yoke — quem avança daqui
+  /// não está no posto e não tem como verificar ponto nenhum. O servidor
+  /// permite-o ao perfil Administrador, mas grava o desvio em
+  /// `checklist_execucoes` como não conformidade: a fase aparece na
+  /// rastreabilidade da ordem marcada como fechada sem validação, em vez de
+  /// passar por uma fase verificada como as outras.
   Future<void> _avancarFase(EncomendaModel enc) async {
     try {
       final resultado = await _encomendasRepo.avancarFase(enc.id);

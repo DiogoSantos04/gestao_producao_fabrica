@@ -1,5 +1,6 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../core/paginacao.dart';
+import '../models/checklist_model.dart';
 import '../models/encomenda_model.dart';
 import '../models/estado_ordem.dart';
 import '../models/historico_model.dart';
@@ -15,7 +16,17 @@ class TimelineOrdem {
   final List<HistoricoModel> producao;
   final List<IncidenciaModel> incidencias;
 
-  const TimelineOrdem({required this.producao, required this.incidencias});
+  /// Pontos de controlo validados, indexados por `historico_producao.id`.
+  ///
+  /// Vive num mapa e não numa lista solta porque a unidade de leitura é a fase:
+  /// a prova de conformidade só diz alguma coisa colada à fase que fechou.
+  final Map<int, List<RegistoConformidade>> conformidade;
+
+  const TimelineOrdem({
+    required this.producao,
+    required this.incidencias,
+    this.conformidade = const {},
+  });
 
   bool get vazia => producao.isEmpty && incidencias.isEmpty;
 }
@@ -459,10 +470,24 @@ class EncomendasRepository extends BaseRepository {
               reason_codes:reason_code_id (categoria, descricao),
               utilizadores:tecnico_id (nome_utilizador)
             ''').eq('encomenda_id', encomendaId),
+        client.from('checklist_execucoes').select('''
+              *,
+              utilizadores:operador_id (nome_utilizador)
+            ''').eq('encomenda_id', encomendaId).order('posicao'),
       ]);
+
+      final conformidade = <int, List<RegistoConformidade>>{};
+      for (final linha in comoLista(resultados[2])) {
+        final registo = RegistoConformidade.fromJson(linha);
+        final historico = registo.historicoProducaoId;
+        if (historico == null) continue;
+        conformidade.putIfAbsent(historico, () => []).add(registo);
+      }
+
       return TimelineOrdem(
         producao: comoLista(resultados[0]).map(HistoricoModel.fromJson).toList(),
         incidencias: comoLista(resultados[1]).map(IncidenciaModel.fromJson).toList(),
+        conformidade: conformidade,
       );
     });
   }
@@ -729,12 +754,31 @@ class EncomendasRepository extends BaseRepository {
   // --- TRANSIÇÕES DE ESTADO (RPCs transacionais) ---
 
   /// Avança a ordem para a fase seguinte.
-  /// Devolve `concluida`, `proxima_fase_id` e `proxima_fase_nome`.
-  Future<Map<String, dynamic>> avancarFase(int encomendaId) {
+  ///
+  /// Devolve `concluida`, `proxima_fase_id`, `proxima_fase_nome`,
+  /// `historico_id` e `checklist_registada`.
+  ///
+  /// [checklist] leva os pontos de controlo Poka-Yoke que o operador validou. A
+  /// RPC grava-os em `checklist_execucoes` na **mesma transação** que escreve o
+  /// histórico e avança a ordem: ou fica prova de conformidade, ou não há
+  /// avanço. Gravá-los numa segunda chamada deixaria fases fechadas sem registo
+  /// sempre que a rede caísse pelo meio — que é precisamente o caso em que
+  /// interessa saber o que foi verificado.
+  ///
+  /// Uma fase com checklist chamada sem [checklist] é recusada pelo servidor,
+  /// exceto para o perfil Administrador — nesse caso o desvio é gravado como
+  /// não conformidade em vez de desaparecer.
+  Future<Map<String, dynamic>> avancarFase(
+    int encomendaId, {
+    List<PontoValidado> checklist = const [],
+  }) {
     return guarda('avançar de fase', () async {
       final res = await client.rpc(
         'avancar_fase_encomenda',
-        params: {'p_encomenda_id': encomendaId},
+        params: {
+          'p_encomenda_id': encomendaId,
+          'p_checklist': checklist.map((p) => p.toJson()).toList(),
+        },
       );
       return Map<String, dynamic>.from(res as Map);
     });

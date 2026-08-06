@@ -25,11 +25,19 @@ class BloquearTarefaPopup extends StatefulWidget {
   final String codigoRastreio;
   final int faseAtualId;
 
+  /// Observações pré-preenchidas.
+  ///
+  /// Serve o caminho que vem da checklist Poka-Yoke: um ponto de controlo não
+  /// conforme não fecha a fase, abre uma incidência, e o texto do ponto que
+  /// falhou chega já escrito para o operador não o reescrever de memória.
+  final String? descricaoInicial;
+
   const BloquearTarefaPopup({
     super.key,
     required this.encomendaId,
     required this.codigoRastreio,
     required this.faseAtualId,
+    this.descricaoInicial,
   });
 
   @override
@@ -56,6 +64,10 @@ class _BloquearTarefaPopupState extends State<BloquearTarefaPopup> {
   @override
   void initState() {
     super.initState();
+    final inicial = widget.descricaoInicial;
+    if (inicial != null && inicial.isNotEmpty) {
+      _observacoesController.text = inicial;
+    }
     _carregarMotivos();
   }
 
