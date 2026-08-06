@@ -25,6 +25,12 @@ class SolicitarEncomendaScreenState extends State<SolicitarEncomendaScreen> {
   List<PedidoModel> _meusPedidos = [];
   int? _tipoProdutoSelecionadoId;
 
+  /// Filtro da lista "Os Meus Pedidos"; `null` mostra todos os estados.
+  EstadoPedido? _filtroEstado;
+
+  /// Abaixo desta largura as duas colunas colapsam para uma só.
+  static const double _larguraMinimaDuasColunas = 1050;
+
   bool _carregandoInicial = true;
   bool _submetendo = false;
   int? _clienteId;
@@ -92,8 +98,7 @@ class SolicitarEncomendaScreenState extends State<SolicitarEncomendaScreen> {
       // A identidade do cliente vem da chave estrangeira `clientes.utilizador_id`
       // e não da comparação de nomes que existia aqui — ver bug (A).
       final cliente = await _repositorio.obterClienteAutenticado();
-      final pedidos =
-          cliente == null ? <PedidoModel>[] : await _repositorio.obterMeusPedidos(cliente.id);
+      final pedidos = cliente == null ? <PedidoModel>[] : await _repositorio.obterMeusPedidos(cliente.id);
 
       if (!mounted) return;
       setState(() {
@@ -102,8 +107,7 @@ class SolicitarEncomendaScreenState extends State<SolicitarEncomendaScreen> {
         _clienteId = cliente?.id;
 
         // Uma seleção anterior deixa de ser válida se o artigo tiver saído da lista.
-        if (_tipoProdutoSelecionadoId != null &&
-            !produtos.any((t) => t.id == _tipoProdutoSelecionadoId)) {
+        if (_tipoProdutoSelecionadoId != null && !produtos.any((t) => t.id == _tipoProdutoSelecionadoId)) {
           _tipoProdutoSelecionadoId = null;
         }
         _tipoProdutoSelecionadoId ??= produtos.isNotEmpty ? produtos.first.id : null;
@@ -160,6 +164,8 @@ class SolicitarEncomendaScreenState extends State<SolicitarEncomendaScreen> {
         _observacoesController.clear();
         _quantidadeController.text = '1';
         _meusPedidos = pedidos;
+        // Sem isto, um filtro ativo podia esconder o pedido acabado de submeter.
+        _filtroEstado = null;
       });
 
       context.mostrarMensagem('Pedido enviado com sucesso! O Administrador irá analisar a solicitação.');
@@ -177,37 +183,46 @@ class SolicitarEncomendaScreenState extends State<SolicitarEncomendaScreen> {
       body: _carregandoInicial
           ? const Center(child: CircularProgressIndicator(color: TemasCores.clienteAcento))
           : _erroInicial != null
-              ? _construirErroInicial()
-              : Center(
+          ? _construirErroInicial()
+          : LayoutBuilder(
+              builder: (context, constraints) {
+                final duasColunas = constraints.maxWidth >= _larguraMinimaDuasColunas;
+                return Center(
                   child: SingleChildScrollView(
                     padding: const EdgeInsets.all(32.0),
                     child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 600),
+                      constraints: BoxConstraints(maxWidth: duasColunas ? 1280 : 600),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
-                            'Solicitar Nova Encomenda',
-                            style: TextStyle(
-                              fontSize: 28,
-                              fontWeight: FontWeight.bold,
-                              color: TemasCores.textoPrimarioFrio,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          const Text(
-                            'Selecione o artigo pretendido e submeta o pedido para a nossa equipa de produção.',
-                            style: TextStyle(fontSize: 14, color: TemasCores.textoSecundarioFrio),
-                          ),
-                          const SizedBox(height: 32),
-                          _construirFormulario(),
-                          const SizedBox(height: 40),
-                          _construirMeusPedidos(),
+                          if (duasColunas)
+                            // `IntrinsicHeight` + `stretch` iguala a altura dos
+                            // dois cartões: com alturas livres, a coluna mais
+                            // curta ficava a "flutuar" e o bloco parecia torto.
+                            IntrinsicHeight(
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  // 40 / 60: o formulário é compacto e a lista de
+                                  // pedidos é a que ganha com a largura extra.
+                                  Expanded(flex: 40, child: _construirColunaFormulario(esticar: true)),
+                                  const SizedBox(width: 24),
+                                  Expanded(flex: 60, child: _construirColunaPedidos(esticar: true)),
+                                ],
+                              ),
+                            )
+                          else ...[
+                            _construirColunaFormulario(esticar: false),
+                            const SizedBox(height: 32),
+                            _construirColunaPedidos(esticar: false),
+                          ],
                         ],
                       ),
                     ),
                   ),
-                ),
+                );
+              },
+            ),
     );
   }
 
@@ -235,53 +250,184 @@ class SolicitarEncomendaScreenState extends State<SolicitarEncomendaScreen> {
     );
   }
 
+  /// Cabeçalho de coluna, com altura fixa para os dois cartões arrancarem
+  /// exatamente à mesma cota — sem isto, o ícone de atualizar da direita
+  /// empurrava o cartão para baixo e as colunas ficavam desniveladas.
+  Widget _construirCabecalhoColuna({
+    required IconData icone,
+    required String titulo,
+    required String subtitulo,
+    Widget? acao,
+  }) {
+    return SizedBox(
+      height: 62,
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: TemasCores.clienteAcento.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icone, size: 23, color: TemasCores.clienteAcento),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  titulo,
+                  style: const TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: TemasCores.textoPrimarioFrio,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  subtitulo,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 13, color: TemasCores.textoSecundarioFrio),
+                ),
+              ],
+            ),
+          ),
+          ?acao,
+        ],
+      ),
+    );
+  }
+
+  /// Envolve o conteúdo de uma coluna no cartão. Com `esticar`, o cartão ocupa
+  /// toda a altura disponível para as duas colunas terminarem alinhadas.
+  Widget _construirCartaoColuna({required bool esticar, required Widget conteudo}) {
+    final cartao = Card(
+      margin: EdgeInsets.zero,
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: const BorderSide(color: TemasCores.borda),
+      ),
+      color: TemasCores.superficie,
+      child: Padding(padding: const EdgeInsets.all(24.0), child: conteudo),
+    );
+    return esticar ? Expanded(child: cartao) : cartao;
+  }
+
+  Widget _construirColunaFormulario({required bool esticar}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _construirCabecalhoColuna(
+          icone: Icons.add_shopping_cart_outlined,
+          titulo: 'Solicitar Nova Encomenda',
+          subtitulo: 'Preencha os dados e submeta a solicitação.',
+        ),
+        const SizedBox(height: 16),
+        _construirCartaoColuna(esticar: esticar, conteudo: _construirFormulario()),
+      ],
+    );
+  }
+
   /// Pedidos já submetidos por este cliente, com o estado de cada um.
   ///
   /// O formulário aceitava o pedido e nunca mais mostrava nada: o cliente não
   /// sabia se estava pendente, aprovado ou rejeitado — nem sequer que já o
   /// tinha submetido, pelo que voltava a submetê-lo.
-  Widget _construirMeusPedidos() {
+  Widget _construirColunaPedidos({required bool esticar}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Text(
-              'Os Meus Pedidos',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: TemasCores.textoPrimarioFrio),
-            ),
-            IconButton(
-              icon: const Icon(Icons.refresh),
-              color: TemasCores.clienteAcento,
-              tooltip: 'Atualizar',
-              onPressed: _carregarDadosIniciais,
-            ),
-          ],
-        ),
-        const SizedBox(height: 4),
-        const Text(
-          'Estado das solicitações que enviou para a nossa equipa.',
-          style: TextStyle(fontSize: 13, color: TemasCores.textoSecundarioFrio),
+        _construirCabecalhoColuna(
+          icone: Icons.receipt_long_outlined,
+          titulo: 'Os Meus Pedidos',
+          subtitulo: 'Estado das solicitações que enviou para a nossa equipa.',
+          acao: IconButton(
+            icon: const Icon(Icons.refresh),
+            color: TemasCores.clienteAcento,
+            tooltip: 'Atualizar',
+            onPressed: _carregarDadosIniciais,
+          ),
         ),
         const SizedBox(height: 16),
-        if (_meusPedidos.isEmpty)
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: TemasCores.superficie,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: TemasCores.borda),
-            ),
-            child: const Text(
-              'Ainda não submeteu nenhum pedido.',
-              style: TextStyle(color: TemasCores.textoSecundarioFrio),
-            ),
-          )
-        else
-          ..._meusPedidos.map(_construirCartaoPedido),
+        _construirCartaoColuna(
+          esticar: esticar,
+          conteudo: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (_meusPedidos.isNotEmpty) ...[_construirFiltros(), const SizedBox(height: 16)],
+              if (_meusPedidos.isEmpty)
+                _construirCaixaVazia('Ainda não submeteu nenhum pedido.')
+              else if (_pedidosFiltrados.isEmpty)
+                _construirCaixaVazia('Nenhum pedido ${_filtroEstado!.etiqueta.toLowerCase()}.')
+              else
+                ..._pedidosFiltrados.map(_construirCartaoPedido),
+            ],
+          ),
+        ),
       ],
+    );
+  }
+
+  List<PedidoModel> get _pedidosFiltrados {
+    final filtro = _filtroEstado;
+    if (filtro == null) return _meusPedidos;
+    return _meusPedidos.where((p) => p.estado == filtro).toList();
+  }
+
+  /// Chips de estado: com muitos pedidos a lista deixa de ser consultável sem filtro.
+  ///
+  /// Só se mostram os estados que o cliente tem de facto, para não oferecer
+  /// filtros que garantidamente dão lista vazia.
+  Widget _construirFiltros() {
+    final estadosPresentes = EstadoPedido.values
+        .where((e) => _meusPedidos.any((p) => p.estado == e))
+        .toList();
+
+    Widget chip(String rotulo, EstadoPedido? estado, int contagem) {
+      final ativo = _filtroEstado == estado;
+      return ChoiceChip(
+        label: Text('$rotulo ($contagem)'),
+        selected: ativo,
+        onSelected: (_) => setState(() => _filtroEstado = estado),
+        showCheckmark: false,
+        labelStyle: TextStyle(
+          fontSize: 12,
+          fontWeight: ativo ? FontWeight.bold : FontWeight.normal,
+          color: ativo ? TemasCores.textoInverso : TemasCores.textoSecundarioFrio,
+        ),
+        backgroundColor: TemasCores.superficie,
+        selectedColor: TemasCores.clienteAcento,
+        side: const BorderSide(color: TemasCores.borda),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      );
+    }
+
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        chip('Todos', null, _meusPedidos.length),
+        for (final estado in estadosPresentes)
+          chip(estado.etiqueta, estado, _meusPedidos.where((p) => p.estado == estado).length),
+      ],
+    );
+  }
+
+  Widget _construirCaixaVazia(String mensagem) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: TemasCores.superficie,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: TemasCores.borda),
+      ),
+      child: Text(mensagem, style: const TextStyle(color: TemasCores.textoSecundarioFrio)),
     );
   }
 
@@ -301,7 +447,9 @@ class SolicitarEncomendaScreenState extends State<SolicitarEncomendaScreen> {
         borderRadius: BorderRadius.circular(14),
         side: const BorderSide(color: TemasCores.borda),
       ),
-      color: TemasCores.superficie,
+      // Fundo mais frio que o do cartão da coluna: um cartão branco dentro de
+      // outro branco perdia-se completamente.
+      color: TemasCores.fundoEcraFrio,
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Row(
@@ -366,103 +514,104 @@ class SolicitarEncomendaScreenState extends State<SolicitarEncomendaScreen> {
   }
 
   Widget _construirFormulario() {
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: const BorderSide(color: TemasCores.borda),
-      ),
-      color: TemasCores.superficie,
-      child: Padding(
-        padding: const EdgeInsets.all(32.0),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Artigo / Tipo de Produto',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: TemasCores.textoApoioForteFrio),
-              ),
-              const SizedBox(height: 8),
-              DropdownButtonFormField<int>(
-                // `value` está deprecado a favor de `initialValue`, mas este só é
-                // lido na construção do campo: com ele, o "Repetir Pedido" deixaria
-                // de conseguir mudar a seleção a partir do histórico. Mantém-se
-                // `value` até a migração das deprecações ser feita em todo o repo.
-                // ignore: deprecated_member_use
-                value: _tipoProdutoSelecionadoId,
-                decoration: InputDecoration(
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                  prefixIcon: const Icon(Icons.inventory_2_outlined, color: TemasCores.clienteAcento),
-                ),
-                hint: const Text('Selecione um artigo'),
-                items: _tiposProduto
-                    .map((prod) => DropdownMenuItem<int>(value: prod.id, child: Text(prod.nome)))
-                    .toList(),
-                onChanged: (val) => setState(() => _tipoProdutoSelecionadoId = val),
-                validator: (v) => v == null ? 'Selecione um artigo.' : null,
-              ),
-              const SizedBox(height: 20),
-              const Text(
-                'Quantidade Pretendida',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: TemasCores.textoApoioForteFrio),
-              ),
-              const SizedBox(height: 8),
-              TextFormField(
-                controller: _quantidadeController,
-                keyboardType: TextInputType.number,
-                decoration: InputDecoration(
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                  prefixIcon: const Icon(Icons.format_list_numbered, color: TemasCores.clienteAcento),
-                ),
-                validator: (val) {
-                  if (val == null || val.trim().isEmpty) return 'Insira a quantidade.';
-                  final n = int.tryParse(val.trim());
-                  if (n == null || n <= 0) return 'Insira um valor maior que 0.';
-                  return null;
-                },
-              ),
-              const SizedBox(height: 20),
-              const Text(
-                'Observações / Especificações Especiais',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: TemasCores.textoApoioForteFrio),
-              ),
-              const SizedBox(height: 8),
-              TextFormField(
-                controller: _observacoesController,
-                maxLines: 4,
-                decoration: InputDecoration(
-                  hintText: 'Escreva detalhes adicionais sobre cores, acabamentos ou prazos pretendidos...',
-                  hintStyle: const TextStyle(color: TemasCores.textoTerciarioFrio, fontSize: 13),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                ),
-              ),
-              const SizedBox(height: 32),
-              ElevatedButton.icon(
-                onPressed: _submetendo ? null : _submeterPedido,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: TemasCores.clienteAcento,
-                  foregroundColor: TemasCores.textoInverso,
-                  minimumSize: const Size.fromHeight(50),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                ),
-                icon: _submetendo
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: TemasCores.textoInverso),
-                      )
-                    : const Icon(Icons.send_rounded),
-                label: Text(
-                  _submetendo ? 'A Enviar Pedido...' : 'Submeter Pedido de Encomenda',
-                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
-                ),
-              ),
-            ],
+    return Form(
+      key: _formKey,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Artigo / Tipo de Produto',
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 14,
+              color: TemasCores.textoApoioForteFrio,
+            ),
           ),
-        ),
+          const SizedBox(height: 8),
+          DropdownButtonFormField<int>(
+            // `value` está deprecado a favor de `initialValue`, mas este só é
+            // lido na construção do campo: com ele, o "Repetir Pedido" deixaria
+            // de conseguir mudar a seleção a partir do histórico. Mantém-se
+            // `value` até a migração das deprecações ser feita em todo o repo.
+            // ignore: deprecated_member_use
+            value: _tipoProdutoSelecionadoId,
+            decoration: InputDecoration(
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              prefixIcon: const Icon(Icons.inventory_2_outlined, color: TemasCores.clienteAcento),
+            ),
+            hint: const Text('Selecione um artigo'),
+            items: _tiposProduto
+                .map((prod) => DropdownMenuItem<int>(value: prod.id, child: Text(prod.nome)))
+                .toList(),
+            onChanged: (val) => setState(() => _tipoProdutoSelecionadoId = val),
+            validator: (v) => v == null ? 'Selecione um artigo.' : null,
+          ),
+          const SizedBox(height: 20),
+          const Text(
+            'Quantidade Pretendida',
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 14,
+              color: TemasCores.textoApoioForteFrio,
+            ),
+          ),
+          const SizedBox(height: 8),
+          TextFormField(
+            controller: _quantidadeController,
+            keyboardType: TextInputType.number,
+            decoration: InputDecoration(
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+              prefixIcon: const Icon(Icons.format_list_numbered, color: TemasCores.clienteAcento),
+            ),
+            validator: (val) {
+              if (val == null || val.trim().isEmpty) return 'Insira a quantidade.';
+              final n = int.tryParse(val.trim());
+              if (n == null || n <= 0) return 'Insira um valor maior que 0.';
+              return null;
+            },
+          ),
+          const SizedBox(height: 20),
+          const Text(
+            'Observações / Especificações Especiais',
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 14,
+              color: TemasCores.textoApoioForteFrio,
+            ),
+          ),
+          const SizedBox(height: 8),
+          TextFormField(
+            controller: _observacoesController,
+            maxLines: 4,
+            decoration: InputDecoration(
+              hintText: 'Escreva detalhes adicionais sobre cores, acabamentos ou prazos pretendidos...',
+              hintStyle: const TextStyle(color: TemasCores.textoTerciarioFrio, fontSize: 13),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          ),
+          const SizedBox(height: 32),
+          ElevatedButton.icon(
+            onPressed: _submetendo ? null : _submeterPedido,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: TemasCores.clienteAcento,
+              foregroundColor: TemasCores.textoInverso,
+              minimumSize: const Size.fromHeight(50),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            icon: _submetendo
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: TemasCores.textoInverso),
+                  )
+                : const Icon(Icons.send_rounded),
+            label: Text(
+              _submetendo ? 'A Enviar Pedido...' : 'Submeter Pedido de Encomenda',
+              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
       ),
     );
   }
