@@ -82,8 +82,13 @@ class Paleta {
 
   // ── Restantes acentos pontuais ──
   static const Color roxo50 = Color(0xFFEDE7F6); // Colors.deepPurple.shade50
+  static const Color roxo100 = Color(0xFFD1C4E9); // Colors.deepPurple.shade100
+  static const Color roxo200 = Color(0xFFB39DDB); // Colors.deepPurple.shade200
+  static const Color roxo400 = Color(0xFF7E57C2); // Colors.deepPurple.shade400
   static const Color roxo500 = Color(0xFF673AB7); // Colors.deepPurple
   static const Color roxo600 = Color(0xFF5E35B1); // Colors.deepPurple.shade600
+  static const Color roxo700 = Color(0xFF512DA8); // Colors.deepPurple.shade700
+  static const Color roxo800 = Color(0xFF4527A0); // Colors.deepPurple.shade800
 
   // ── Violeta: acento de marca do portal cliente ──
   // Fora da rampa Material (que só tinha deepPurple, mais frio e menos saturado).
@@ -398,6 +403,27 @@ class TemasCores {
   /// Tintas para preencher etiquetas, badges e fundos suaves.
   static const Color clienteAcentoFundo = Paleta.violeta50;
   static const Color clienteAcentoFundoForte = Paleta.violeta100;
+
+  // ──────────────────────── Terminal operador ────────────────────────
+  // Mesma identidade visual do portal cliente (violeta): o pedido foi
+  // replicar as cores e os feitios do cliente no terminal operador, não
+  // criar uma identidade nova.
+
+  /// Cor de destaque do terminal operador (ícone da marca, separador ativo).
+  static const Color operadorAcento = Paleta.violeta500;
+
+  /// Variante mais escura, para gradientes e estados de pressão/hover.
+  static const Color operadorAcentoForte = Paleta.violeta600;
+  static const Color operadorAcentoEscuro = Paleta.violeta700;
+
+  /// Variante mais clara, para ícones, gradientes e texto de ênfase.
+  static const Color operadorAcentoClaro = Paleta.violeta400;
+
+  /// Tintas para preencher etiquetas, badges e fundos suaves.
+  static const Color operadorAcentoFundo = Paleta.violeta50;
+  static const Color operadorAcentoFundoForte = Paleta.violeta100;
+  static const Color operadorAcentoBorda = Paleta.violeta100;
+  static const Color operadorAcentoTextoForte = Paleta.violeta700;
 
   // ───────────────────────────── Avatares ─────────────────────────────
 

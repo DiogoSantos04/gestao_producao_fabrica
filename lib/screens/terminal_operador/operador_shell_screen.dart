@@ -291,7 +291,7 @@ class _OperadorShellScreenState extends State<OperadorShellScreen> {
           ),
           title: const Row(
             children: [
-              Icon(Icons.lock_reset_outlined, color: TemasCores.info),
+              Icon(Icons.lock_reset_outlined, color: TemasCores.operadorAcento),
               SizedBox(width: 10),
               Text('Alterar Palavra-passe'),
             ],
@@ -363,7 +363,7 @@ class _OperadorShellScreenState extends State<OperadorShellScreen> {
                       }
                     },
               style: ElevatedButton.styleFrom(
-                backgroundColor: TemasCores.infoForte,
+                backgroundColor: TemasCores.operadorAcentoForte,
                 foregroundColor: TemasCores.textoInverso,
               ),
               child: aGuardar
@@ -398,15 +398,30 @@ class _OperadorShellScreenState extends State<OperadorShellScreen> {
     ];
 
     return Scaffold(
+      backgroundColor: TemasCores.fundoEcra,
       appBar: eDesktop
           ? null
           : AppBar(
-              title: Text(
-                _indiceSelecionado == _indicePerfil
-                    ? 'O Meu Perfil'
-                    : _menu[_indiceSelecionado].titulo,
-              ),
               backgroundColor: TemasCores.superficie,
+              foregroundColor: TemasCores.textoPrimario,
+              elevation: 0,
+              scrolledUnderElevation: 1,
+              surfaceTintColor: TemasCores.superficie,
+              title: Row(
+                children: [
+                  const Icon(
+                    Icons.precision_manufacturing,
+                    color: TemasCores.operadorAcento,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    _indiceSelecionado == _indicePerfil
+                        ? 'O Meu Perfil'
+                        : _menu[_indiceSelecionado].titulo,
+                  ),
+                ],
+              ),
             ),
       drawer:
           eDesktop ? null : Drawer(child: _construirBarra(dentroDrawer: true)),
@@ -423,37 +438,64 @@ class _OperadorShellScreenState extends State<OperadorShellScreen> {
   }
 
   Widget _construirBarra({required bool dentroDrawer}) {
-    return Container(
+    return Material(
       color: TemasCores.marcaEscura,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
-            child: const Row(
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 28, 20, 20),
+            child: Row(
               children: [
-                Icon(
-                  Icons.precision_manufacturing,
-                  color: TemasCores.marcaAcento,
-                  size: 28,
-                ),
-                SizedBox(width: 12),
-                Text(
-                  'Terminal Operador',
-                  style: TextStyle(
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [TemasCores.operadorAcentoClaro, TemasCores.operadorAcentoForte],
+                    ),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(
+                    Icons.precision_manufacturing,
                     color: TemasCores.textoInverso,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 0.5,
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'TERMINAL',
+                        style: TextStyle(
+                          color: TemasCores.textoInversoTenue,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 1.4,
+                        ),
+                      ),
+                      Text(
+                        'Operador',
+                        style: TextStyle(
+                          color: TemasCores.textoInverso,
+                          fontSize: 17,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
           ),
           const Divider(color: TemasCores.separadorEscuro, height: 1),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           Expanded(
             child: ListView.builder(
+              padding: const EdgeInsets.symmetric(vertical: 4),
               itemCount: _menu.length,
               itemBuilder: (context, index) {
                 final item = _menu[index];
@@ -461,34 +503,63 @@ class _OperadorShellScreenState extends State<OperadorShellScreen> {
 
                 return Padding(
                   padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-                  child: ListTile(
-                    selected: selecionado,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    selectedTileColor: TemasCores.realceSobreEscuro,
-                    leading: Icon(
-                      item.icone,
-                      color: selecionado
-                          ? TemasCores.marcaAcento
-                          : TemasCores.textoInversoTenue,
-                      size: 20,
-                    ),
-                    title: Text(
-                      item.titulo,
-                      style: TextStyle(
-                        color: selecionado
-                            ? TemasCores.textoInverso
-                            : TemasCores.textoInversoSuave,
-                        fontSize: 14,
-                        fontWeight:
-                            selecionado ? FontWeight.w600 : FontWeight.normal,
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(12),
+                      onTap: () => _selecionarSeparador(
+                        index,
+                        fecharDrawer: dentroDrawer,
                       ),
-                    ),
-                    onTap: () => _selecionarSeparador(
-                      index,
-                      fecharDrawer: dentroDrawer,
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 150),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 11,
+                        ),
+                        decoration: BoxDecoration(
+                          color: selecionado
+                              ? TemasCores.operadorAcento.withValues(alpha: 0.16)
+                              : Colors.transparent,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border(
+                            left: BorderSide(
+                              color: selecionado
+                                  ? TemasCores.operadorAcentoClaro
+                                  : Colors.transparent,
+                              width: 3,
+                            ),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            const SizedBox(width: 4),
+                            Icon(
+                              item.icone,
+                              color: selecionado
+                                  ? TemasCores.operadorAcentoClaro
+                                  : TemasCores.textoInversoTenue,
+                              size: 20,
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Text(
+                                item.titulo,
+                                style: TextStyle(
+                                  color: selecionado
+                                      ? TemasCores.textoInverso
+                                      : TemasCores.textoInversoClaro,
+                                  fontSize: 14,
+                                  fontWeight: selecionado
+                                      ? FontWeight.w600
+                                      : FontWeight.normal,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
                 );
@@ -506,82 +577,107 @@ class _OperadorShellScreenState extends State<OperadorShellScreen> {
     final noPerfil = _indiceSelecionado == _indicePerfil;
 
     return Padding(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(14),
       child: Column(
         children: [
-          InkWell(
-            onTap: () => _selecionarSeparador(
-              _indicePerfil,
-              fecharDrawer: dentroDrawer,
-            ),
-            borderRadius: BorderRadius.circular(8),
-            child: Container(
-              padding: const EdgeInsets.all(8.0),
-              decoration: BoxDecoration(
-                color: noPerfil
-                    ? TemasCores.realceSobreEscuro
-                    : Colors.transparent,
-                borderRadius: BorderRadius.circular(8),
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: () => _selecionarSeparador(
+                _indicePerfil,
+                fecharDrawer: dentroDrawer,
               ),
-              child: Row(
-                children: [
-                  CircleAvatar(
-                    backgroundColor: TemasCores.infoFundoForte,
-                    radius: 18,
-                    child: Text(
-                      _iniciais,
-                      style: const TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        color: TemasCores.infoForte,
+              borderRadius: BorderRadius.circular(12),
+              child: Container(
+                padding: const EdgeInsets.all(10.0),
+                decoration: BoxDecoration(
+                  color: noPerfil
+                      ? TemasCores.operadorAcento.withValues(alpha: 0.16)
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      backgroundColor: TemasCores.operadorAcentoClaro,
+                      radius: 18,
+                      child: Text(
+                        _iniciais,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: TemasCores.textoInverso,
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          _nomeUtilizador,
-                          style: const TextStyle(
-                            color: TemasCores.textoInverso,
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _nomeUtilizador,
+                            style: const TextStyle(
+                              color: TemasCores.textoInverso,
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                            ),
+                            overflow: TextOverflow.ellipsis,
                           ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        Text(
-                          _idFuncionario,
-                          style: const TextStyle(
-                            color: TemasCores.textoInversoTenue,
-                            fontSize: 11,
+                          Text(
+                            _idFuncionario,
+                            style: const TextStyle(
+                              color: TemasCores.textoInversoTenue,
+                              fontSize: 11,
+                            ),
+                            overflow: TextOverflow.ellipsis,
                           ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                    const Icon(
+                      Icons.chevron_right,
+                      color: TemasCores.textoInversoTenue,
+                      size: 18,
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
-          const SizedBox(height: 12),
-          ElevatedButton.icon(
-            onPressed: _terminarSessao,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: TemasCores.erro.withValues(alpha: 0.15),
-              foregroundColor: TemasCores.erroVivo,
-              elevation: 0,
-              minimumSize: const Size.fromHeight(38),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
+          const SizedBox(height: 8),
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: _terminarSessao,
+              borderRadius: BorderRadius.circular(10),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                decoration: BoxDecoration(
+                  color: TemasCores.erro.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.logout_rounded,
+                      size: 15,
+                      color: TemasCores.erroClaro,
+                    ),
+                    SizedBox(width: 8),
+                    Text(
+                      'Terminar Sessão',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: TemasCores.erroClaro,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            icon: const Icon(Icons.logout_rounded, size: 16),
-            label: const Text(
-              'Terminar Sessão',
-              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
             ),
           ),
         ],
@@ -590,144 +686,197 @@ class _OperadorShellScreenState extends State<OperadorShellScreen> {
   }
 
   Widget _construirEcraPerfil() {
-    return Padding(
-      padding: const EdgeInsets.all(40.0),
+    final String iniciais = _iniciais;
+    final String idDisplay = _idFuncionario;
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(32.0),
       child: Center(
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 550),
+          constraints: const BoxConstraints(maxWidth: 480),
           child: Card(
-            elevation: 4,
+            elevation: 3,
+            clipBehavior: Clip.antiAlias,
+            shadowColor: TemasCores.operadorAcento.withValues(alpha: 0.25),
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(24),
             ),
-            child: Padding(
-              padding: const EdgeInsets.all(32.0),
-              child: _carregandoPerfil
-                  ? const Center(child: CircularProgressIndicator())
-                  : Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        CircleAvatar(
-                          radius: 45,
-                          backgroundColor: TemasCores.infoForte,
-                          child: Text(
-                            _iniciais,
-                            style: const TextStyle(
-                              fontSize: 28,
-                              color: TemasCores.textoInverso,
-                              fontWeight: FontWeight.bold,
+            child: _carregandoPerfil
+                ? const Padding(
+                    padding: EdgeInsets.all(64.0),
+                    child: Center(child: CircularProgressIndicator()),
+                  )
+                : Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Stack(
+                        clipBehavior: Clip.none,
+                        alignment: Alignment.topCenter,
+                        children: [
+                          Container(
+                            height: 88,
+                            decoration: const BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [
+                                  TemasCores.operadorAcentoClaro,
+                                  TemasCores.operadorAcentoForte,
+                                ],
+                              ),
                             ),
                           ),
-                        ),
-                        const SizedBox(height: 20),
-                        Text(
-                          _nomeUtilizador,
-                          style: const TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        const Text(
-                          'Operador Industrial',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: TemasCores.textoTerciario,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        const Divider(height: 40),
-                        _CampoInformativo(
-                          rotulo: 'Email Institucional',
-                          valor: _emailUtilizador,
-                          icone: Icons.email_outlined,
-                        ),
-                        const SizedBox(height: 16),
-                        _CampoInformativo(
-                          rotulo: 'ID do Funcionário',
-                          valor: _idFuncionario,
-                          icone: Icons.badge_outlined,
-                        ),
-                        const SizedBox(height: 32),
-                        OutlinedButton.icon(
-                          onPressed: _alterarPalavraPasse,
-                          style: OutlinedButton.styleFrom(
-                            minimumSize: const Size.fromHeight(50),
-                            side: const BorderSide(
-                              color: TemasCores.bordaForte,
-                            ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
+                          Positioned(
+                            top: 46,
+                            child: Container(
+                              padding: const EdgeInsets.all(4),
+                              decoration: const BoxDecoration(
+                                color: TemasCores.superficie,
+                                shape: BoxShape.circle,
+                              ),
+                              child: CircleAvatar(
+                                radius: 42,
+                                backgroundColor: TemasCores.operadorAcento,
+                                child: Text(
+                                  iniciais,
+                                  style: const TextStyle(
+                                    fontSize: 26,
+                                    color: TemasCores.textoInverso,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
                             ),
                           ),
-                          icon: const Icon(
-                            Icons.vpn_key_outlined,
-                            color: TemasCores.textoPrimario,
-                          ),
-                          label: const Text(
-                            'Alterar Palavra-passe',
-                            style: TextStyle(color: TemasCores.textoPrimario),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        ElevatedButton.icon(
-                          onPressed: _terminarSessao,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: TemasCores.erroForte,
-                            foregroundColor: TemasCores.textoInverso,
-                            minimumSize: const Size.fromHeight(50),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
+                        ],
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(32, 56, 32, 32),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              _nomeUtilizador,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.bold,
+                                color: TemasCores.textoPrimario,
+                              ),
                             ),
-                          ),
-                          icon: const Icon(Icons.logout),
-                          label: const Text('Terminar Sessão'),
+                            const SizedBox(height: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 5,
+                              ),
+                              decoration: BoxDecoration(
+                                color: TemasCores.operadorAcentoFundo,
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: const Text(
+                                'Operador de Produção',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: TemasCores.operadorAcentoForte,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 28),
+
+                            _construirCampoInformativo(
+                              label: 'Email Institucional',
+                              valor: _emailUtilizador,
+                              icone: Icons.email_outlined,
+                            ),
+                            const SizedBox(height: 12),
+                            _construirCampoInformativo(
+                              label: 'ID do Funcionário',
+                              valor: idDisplay,
+                              icone: Icons.badge_outlined,
+                            ),
+                            const SizedBox(height: 28),
+
+                            OutlinedButton.icon(
+                              onPressed: _alterarPalavraPasse,
+                              style: OutlinedButton.styleFrom(
+                                minimumSize: const Size.fromHeight(48),
+                                foregroundColor: TemasCores.textoPrimario,
+                                side: const BorderSide(
+                                  color: TemasCores.bordaForte,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              icon: const Icon(
+                                Icons.vpn_key_outlined,
+                                size: 18,
+                              ),
+                              label: const Text('Alterar Palavra-passe'),
+                            ),
+                            const SizedBox(height: 10),
+
+                            OutlinedButton.icon(
+                              onPressed: _terminarSessao,
+                              style: OutlinedButton.styleFrom(
+                                minimumSize: const Size.fromHeight(48),
+                                foregroundColor: TemasCores.erroForte,
+                                side: const BorderSide(
+                                  color: TemasCores.erroBorda,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              icon: const Icon(Icons.logout_rounded, size: 18),
+                              label: const Text('Terminar Sessão'),
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
-            ),
+                      ),
+                    ],
+                  ),
           ),
         ),
       ),
     );
   }
-}
 
-/// Campo só de leitura do cartão de perfil.
-class _CampoInformativo extends StatelessWidget {
-  const _CampoInformativo({
-    required this.rotulo,
-    required this.valor,
-    required this.icone,
-  });
-
-  final String rotulo;
-  final String valor;
-  final IconData icone;
-
-  @override
-  Widget build(BuildContext context) {
+  Widget _construirCampoInformativo({
+    required String label,
+    required String valor,
+    required IconData icone,
+  }) {
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
         color: TemasCores.superficieTenue,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: TemasCores.borda),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(width: 1, color: TemasCores.borda),
       ),
       child: Row(
         children: [
-          Icon(icone, color: TemasCores.textoTerciario),
-          const SizedBox(width: 16),
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: TemasCores.operadorAcentoFundo,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icone, color: TemasCores.operadorAcentoForte, size: 18),
+          ),
+          const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  rotulo,
+                  label,
                   style: const TextStyle(
                     fontSize: 11,
                     color: TemasCores.textoTerciario,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
                 const SizedBox(height: 2),
@@ -735,8 +884,10 @@ class _CampoInformativo extends StatelessWidget {
                   valor,
                   style: const TextStyle(
                     fontSize: 14,
-                    fontWeight: FontWeight.w500,
+                    fontWeight: FontWeight.w600,
+                    color: TemasCores.textoPrimario,
                   ),
+                  overflow: TextOverflow.ellipsis,
                 ),
               ],
             ),

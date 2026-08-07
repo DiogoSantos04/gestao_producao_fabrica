@@ -148,7 +148,7 @@ class _HistoricoOperadorScreenState extends State<HistoricoOperadorScreen>
       builder: (context, child) => Theme(
         data: Theme.of(context).copyWith(
           colorScheme: const ColorScheme.light(
-            primary: TemasCores.infoForte,
+            primary: TemasCores.operadorAcentoForte,
             onPrimary: TemasCores.textoInverso,
             onSurface: TemasCores.textoPrimarioFrio,
           ),
@@ -180,21 +180,50 @@ class _HistoricoOperadorScreenState extends State<HistoricoOperadorScreen>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Histórico de Produção',
-              style: TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.bold,
-                color: TemasCores.textoPrimarioFrio,
-              ),
-            ),
-            const SizedBox(height: 4),
-            const Text(
-              'Consulte as suas tarefas concluídas ou bloqueios registados',
-              style: TextStyle(
-                fontSize: 14,
-                color: TemasCores.textoSecundarioFrio,
-              ),
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        TemasCores.operadorAcentoClaro,
+                        TemasCores.operadorAcentoForte,
+                      ],
+                    ),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: const Icon(
+                    Icons.history_toggle_off,
+                    color: TemasCores.textoInverso,
+                    size: 26,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                const Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Histórico de Produção',
+                      style: TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.bold,
+                        color: TemasCores.textoPrimarioFrio,
+                      ),
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      'Consulte as suas tarefas concluídas ou bloqueios registados',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: TemasCores.textoSecundarioFrio,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
             const SizedBox(height: 32),
             _construirFiltros(),
@@ -329,7 +358,7 @@ class _HistoricoOperadorScreenState extends State<HistoricoOperadorScreen>
                     fontWeight: FontWeight.bold,
                     fontSize: 12,
                     color: ativa
-                        ? TemasCores.infoForte
+                        ? TemasCores.operadorAcentoForte
                         : TemasCores.textoSecundarioFrio,
                   ),
                 ),
@@ -341,7 +370,7 @@ class _HistoricoOperadorScreenState extends State<HistoricoOperadorScreen>
                     : Icons.swap_vert,
                 size: 14,
                 color:
-                    ativa ? TemasCores.infoForte : TemasCores.textoTerciario,
+                    ativa ? TemasCores.operadorAcentoForte : TemasCores.textoTerciario,
               ),
             ],
           ),
@@ -351,7 +380,11 @@ class _HistoricoOperadorScreenState extends State<HistoricoOperadorScreen>
   }
 
   Widget _construirLinhas() {
-    if (_aCarregar) return const Center(child: CircularProgressIndicator());
+    if (_aCarregar) {
+      return const Center(
+        child: CircularProgressIndicator(color: TemasCores.operadorAcento),
+      );
+    }
 
     if (_erro != null && _registos.isEmpty) {
       return EstadoErro(
@@ -415,10 +448,16 @@ class _HistoricoOperadorScreenState extends State<HistoricoOperadorScreen>
             ? const SizedBox(
                 width: 20,
                 height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2),
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: TemasCores.operadorAcento,
+                ),
               )
             : TextButton.icon(
                 onPressed: _carregarMais,
+                style: TextButton.styleFrom(
+                  foregroundColor: TemasCores.operadorAcentoForte,
+                ),
                 icon: const Icon(Icons.expand_more_rounded, size: 18),
                 label: const Text('Carregar mais'),
               ),
@@ -478,15 +517,15 @@ class _Alternador extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cor = ativo ? TemasCores.infoForte : TemasCores.textoSecundarioFrio;
+    final cor = ativo ? TemasCores.operadorAcentoForte : TemasCores.textoSecundarioFrio;
 
     return Card(
       elevation: 0,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: ativo ? TemasCores.infoForte : TemasCores.borda),
+        side: BorderSide(color: ativo ? TemasCores.operadorAcentoForte : TemasCores.borda),
       ),
-      color: ativo ? TemasCores.infoFundo : TemasCores.superficie,
+      color: ativo ? TemasCores.operadorAcentoFundo : TemasCores.superficie,
       child: InkWell(
         onTap: aoTocar,
         borderRadius: BorderRadius.circular(12),

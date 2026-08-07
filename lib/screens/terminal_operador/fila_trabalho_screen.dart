@@ -125,24 +125,48 @@ class _FilaTrabalhoScreenState extends State<FilaTrabalhoScreen>
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        const Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        Row(
           children: [
-            Text(
-              'Ordens de Produção',
-              style: TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.bold,
-                color: TemasCores.textoPrimarioFrio,
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    TemasCores.operadorAcentoClaro,
+                    TemasCores.operadorAcentoForte,
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: const Icon(
+                Icons.assignment_outlined,
+                color: TemasCores.textoInverso,
+                size: 26,
               ),
             ),
-            SizedBox(height: 4),
-            Text(
-              'Cartões atribuídos à sua fila de trabalho',
-              style: TextStyle(
-                fontSize: 14,
-                color: TemasCores.textoSecundarioFrio,
-              ),
+            const SizedBox(width: 16),
+            const Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Ordens de Produção',
+                  style: TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.bold,
+                    color: TemasCores.textoPrimarioFrio,
+                  ),
+                ),
+                SizedBox(height: 4),
+                Text(
+                  'Cartões atribuídos à sua fila de trabalho',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: TemasCores.textoSecundarioFrio,
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -153,23 +177,23 @@ class _FilaTrabalhoScreenState extends State<FilaTrabalhoScreen>
                 padding:
                     const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 decoration: BoxDecoration(
-                  color: TemasCores.infoFundo,
+                  color: TemasCores.operadorAcentoFundo,
                   borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: TemasCores.infoBorda),
+                  border: Border.all(color: TemasCores.operadorAcentoBorda),
                 ),
                 child: Row(
                   children: [
                     const Icon(
                       Icons.precision_manufacturing_outlined,
                       size: 18,
-                      color: TemasCores.infoForte,
+                      color: TemasCores.operadorAcentoForte,
                     ),
                     const SizedBox(width: 8),
                     Text(
                       'Posto: ${posto.nome}',
                       style: const TextStyle(
                         fontWeight: FontWeight.bold,
-                        color: TemasCores.infoTextoForte,
+                        color: TemasCores.operadorAcentoTextoForte,
                         fontSize: 13,
                       ),
                     ),
@@ -181,7 +205,7 @@ class _FilaTrabalhoScreenState extends State<FilaTrabalhoScreen>
               onPressed: _aCarregar ? null : () => _carregar(),
               icon: const Icon(Icons.refresh_rounded),
               tooltip: 'Recarregar a fila',
-              color: TemasCores.textoSecundarioFrio,
+              color: TemasCores.operadorAcento,
             ),
           ],
         ),
@@ -190,7 +214,11 @@ class _FilaTrabalhoScreenState extends State<FilaTrabalhoScreen>
   }
 
   Widget _construirCorpo() {
-    if (_aCarregar) return const Center(child: CircularProgressIndicator());
+    if (_aCarregar) {
+      return const Center(
+        child: CircularProgressIndicator(color: TemasCores.operadorAcento),
+      );
+    }
 
     final fila = _fila;
 
@@ -313,7 +341,7 @@ class _CartaoOrdem extends StatelessWidget {
       return ('Atrasado', TemasCores.erro);
     }
     if (ordem.progresso > 0) return ('Em Progresso', TemasCores.alertaMedio);
-    return ('Pronto a Iniciar', TemasCores.infoForte);
+    return ('Pronto a Iniciar', TemasCores.operadorAcentoForte);
   }
 
   @override
@@ -397,7 +425,7 @@ class _CartaoOrdem extends StatelessWidget {
               child: LinearProgressIndicator(
                 value: ordem.progresso,
                 backgroundColor: TemasCores.bordaForte,
-                color: TemasCores.marcaEscura,
+                color: TemasCores.operadorAcento,
                 minHeight: 6,
               ),
             ),
@@ -405,7 +433,7 @@ class _CartaoOrdem extends StatelessWidget {
             ElevatedButton.icon(
               onPressed: ordem.bloqueada ? null : aoAbrir,
               style: ElevatedButton.styleFrom(
-                backgroundColor: TemasCores.marcaEscura,
+                backgroundColor: TemasCores.operadorAcento,
                 foregroundColor: TemasCores.textoInverso,
                 disabledBackgroundColor: TemasCores.superficieInerte,
                 disabledForegroundColor: TemasCores.textoTerciario,

@@ -141,7 +141,7 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
               children: [
                 Icon(
                   Icons.fact_check_outlined,
-                  color: TemasCores.infoForte,
+                  color: TemasCores.operadorAcentoForte,
                   size: 28,
                 ),
                 SizedBox(width: 10),
@@ -397,7 +397,11 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
   }
 
   Widget _construirCorpo() {
-    if (_aCarregar) return const Center(child: CircularProgressIndicator());
+    if (_aCarregar) {
+      return const Center(
+        child: CircularProgressIndicator(color: TemasCores.operadorAcento),
+      );
+    }
 
     final tarefa = _tarefa;
     if (_erro != null || tarefa == null) {
@@ -416,21 +420,50 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              widget.codigoRastreio,
-              style: const TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.bold,
-                color: TemasCores.textoPrimarioFrio,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Produto: ${tarefa.encomenda.nomeProduto ?? 'Artigo'}',
-              style: const TextStyle(
-                fontSize: 14,
-                color: TemasCores.textoSecundarioFrio,
-              ),
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        TemasCores.operadorAcentoClaro,
+                        TemasCores.operadorAcentoForte,
+                      ],
+                    ),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: const Icon(
+                    Icons.precision_manufacturing_outlined,
+                    color: TemasCores.textoInverso,
+                    size: 26,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      widget.codigoRastreio,
+                      style: const TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.bold,
+                        color: TemasCores.textoPrimarioFrio,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Produto: ${tarefa.encomenda.nomeProduto ?? 'Artigo'}',
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: TemasCores.textoSecundarioFrio,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
             const SizedBox(height: 24),
             if (tarefa.bloqueada)
@@ -899,7 +932,7 @@ class _PassoTimeline extends StatelessWidget {
   Widget build(BuildContext context) {
     final corMarca = concluida
         ? TemasCores.sucessoForte
-        : (atual ? TemasCores.infoMedio : TemasCores.superficieSuave);
+        : (atual ? TemasCores.operadorAcentoClaro : TemasCores.superficieSuave);
 
     return IntrinsicHeight(
       child: Row(
@@ -976,7 +1009,7 @@ class _PassoTimeline extends StatelessWidget {
                     color: concluida
                         ? TemasCores.sucessoForte
                         : (atual
-                            ? TemasCores.infoMedio
+                            ? TemasCores.operadorAcentoClaro
                             : TemasCores.textoDesativado),
                     fontWeight: atual ? FontWeight.bold : FontWeight.normal,
                   ),

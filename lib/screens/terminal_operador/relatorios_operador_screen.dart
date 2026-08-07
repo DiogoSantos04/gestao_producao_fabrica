@@ -95,25 +95,51 @@ class _RelatoriosOperadorScreenState extends State<RelatoriosOperadorScreen>
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                Expanded(
+                  child: Row(
                     children: [
-                      Text(
-                        'Área de Relatórios',
-                        style: TextStyle(
-                          fontSize: 28,
-                          fontWeight: FontWeight.bold,
-                          color: TemasCores.textoPrimarioFrio,
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              TemasCores.operadorAcentoClaro,
+                              TemasCores.operadorAcentoForte,
+                            ],
+                          ),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: const Icon(
+                          Icons.analytics_outlined,
+                          color: TemasCores.textoInverso,
+                          size: 26,
                         ),
                       ),
-                      SizedBox(height: 4),
-                      Text(
-                        'Consulte o histórico de turnos e descarregue os '
-                        'relatórios automáticos da sua atividade',
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: TemasCores.textoSecundarioFrio,
+                      const SizedBox(width: 16),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Área de Relatórios',
+                              style: TextStyle(
+                                fontSize: 28,
+                                fontWeight: FontWeight.bold,
+                                color: TemasCores.textoPrimarioFrio,
+                              ),
+                            ),
+                            SizedBox(height: 4),
+                            Text(
+                              'Consulte o histórico de turnos e descarregue os '
+                              'relatórios automáticos da sua atividade',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: TemasCores.textoSecundarioFrio,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ],
@@ -123,7 +149,7 @@ class _RelatoriosOperadorScreenState extends State<RelatoriosOperadorScreen>
                   onPressed: _aCarregar ? null : () => _carregar(),
                   icon: const Icon(Icons.refresh_rounded),
                   tooltip: 'Recarregar os relatórios',
-                  color: TemasCores.textoSecundarioFrio,
+                  color: TemasCores.operadorAcento,
                 ),
               ],
             ),
@@ -136,7 +162,11 @@ class _RelatoriosOperadorScreenState extends State<RelatoriosOperadorScreen>
   }
 
   Widget _construirCorpo() {
-    if (_aCarregar) return const Center(child: CircularProgressIndicator());
+    if (_aCarregar) {
+      return const Center(
+        child: CircularProgressIndicator(color: TemasCores.operadorAcento),
+      );
+    }
 
     if (_erro != null) {
       return EstadoErro(
@@ -255,12 +285,12 @@ class _RelatoriosOperadorScreenState extends State<RelatoriosOperadorScreen>
                     leading: Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
-                        color: TemasCores.infoFundo,
+                        color: TemasCores.operadorAcentoFundo,
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: const Icon(
                         Icons.picture_as_pdf_outlined,
-                        color: TemasCores.info,
+                        color: TemasCores.operadorAcento,
                         size: 24,
                       ),
                     ),
@@ -286,7 +316,7 @@ class _RelatoriosOperadorScreenState extends State<RelatoriosOperadorScreen>
                     trailing: IconButton(
                       icon: const Icon(
                         Icons.download_outlined,
-                        color: TemasCores.infoMedio,
+                        color: TemasCores.operadorAcentoClaro,
                       ),
                       tooltip: 'Descarregar PDF do Turno',
                       onPressed: () => _descarregar(turno),
