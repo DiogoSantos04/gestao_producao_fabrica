@@ -2,13 +2,12 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:url_launcher/url_launcher.dart';
 
-import '../../core/mensagens.dart';
 import '../../core/temas_cores.dart';
 import '../../models/estado_ordem.dart';
 import '../../repositories/base_repository.dart';
 import '../../repositories/portal_cliente_repository.dart';
+import '../../widgets/dialogo_suporte.dart';
 import '../../widgets/etiqueta_estado.dart';
 
 /// Consulta pública do estado de fabrico de uma encomenda.
@@ -39,8 +38,6 @@ class _RastreioClienteScreenState extends State<RastreioClienteScreen> {
 
   RealtimeChannel? _canal;
   Timer? _agendamentoRecarga;
-
-  bool _aContactarSuporte = false;
 
   @override
   void dispose() {
@@ -116,41 +113,19 @@ class _RastreioClienteScreenState extends State<RastreioClienteScreen> {
     });
   }
 
-  /// Abre o email pré-preenchido para o administrador, com o código de
-  /// rastreio no assunto — fecha o "Contactar Suporte" que o protótipo
-  /// (Figura 20, "Estado da Encomenda") previa mas nunca chegou a implementar.
-  Future<void> _contactarSuporte(RastreioEncomenda enc) async {
-    if (_aContactarSuporte) return;
-    setState(() => _aContactarSuporte = true);
+  /// Abre o canal de suporte com o código de rastreio já no assunto — fecha o
+  /// "Contactar Suporte" que o protótipo (Figura 20, "Estado da Encomenda")
+  /// previa mas nunca chegou a implementar.
+  ///
+  /// O diálogo é partilhado com o resto do portal ([mostrarDialogoSuporte]),
+  /// para o contacto ser obtido e apresentado da mesma forma em todo o lado.
+  bool get _temSessao => Supabase.instance.client.auth.currentUser != null;
 
-    try {
-      final email = await _repositorio.obterEmailSuporte();
-      if (!mounted) return;
-
-      if (email == null || email.isEmpty) {
-        context.mostrarMensagem('Não foi possível obter o contacto de suporte.', eErro: true);
-        return;
-      }
-
-      final uri = Uri(
-        scheme: 'mailto',
-        path: email,
-        queryParameters: {
-          'subject': 'Suporte - Encomenda ${enc.codigoRastreio.isEmpty ? '(sem código)' : enc.codigoRastreio}',
-        },
-      );
-
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri);
-      } else if (mounted) {
-        context.mostrarMensagem('Não foi possível abrir o cliente de email.', eErro: true);
-      }
-    } on RepositoryException catch (e) {
-      if (!mounted) return;
-      context.mostrarMensagem(e.mensagem, eErro: true);
-    } finally {
-      if (mounted) setState(() => _aContactarSuporte = false);
-    }
+  void _contactarSuporte(RastreioEncomenda enc) {
+    mostrarDialogoSuporte(
+      context,
+      codigoRastreio: enc.codigoRastreio.isEmpty ? null : enc.codigoRastreio,
+    );
   }
 
   String _formatarData(DateTime? data) {
@@ -348,24 +323,23 @@ class _RastreioClienteScreenState extends State<RastreioClienteScreen> {
               )
             else
               ...List.generate(enc.fases.length, (index) => _construirEtapa(enc, estado, index)),
-            const Divider(height: 32, color: TemasCores.borda),
-            OutlinedButton.icon(
-              onPressed: _aContactarSuporte ? null : () => _contactarSuporte(enc),
-              style: OutlinedButton.styleFrom(
-                minimumSize: const Size.fromHeight(46),
-                foregroundColor: TemasCores.clienteAcento,
-                side: const BorderSide(color: TemasCores.clienteAcentoClaro),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            // Sem sessão iniciada (o rastreio é público) a RPC do contacto não
+            // é executável, e mostrar um botão que só devolve erro é pior do
+            // que não o mostrar.
+            if (_temSessao) ...[
+              const Divider(height: 32, color: TemasCores.borda),
+              OutlinedButton.icon(
+                onPressed: () => _contactarSuporte(enc),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(46),
+                  foregroundColor: TemasCores.clienteAcento,
+                  side: const BorderSide(color: TemasCores.clienteAcentoClaro),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                icon: const Icon(Icons.support_agent_outlined, size: 18),
+                label: const Text('Contactar Suporte'),
               ),
-              icon: _aContactarSuporte
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: TemasCores.clienteAcento),
-                    )
-                  : const Icon(Icons.mail_outline_rounded, size: 18),
-              label: const Text('Contactar Suporte'),
-            ),
+            ],
           ],
         ),
       ),

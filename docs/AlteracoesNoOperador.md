@@ -608,3 +608,83 @@ app real que a sintaxe PostgREST do histórico está correta — o filtro
    diretamente em `encomendas`, `historico_producao` e `incidencias`, sem passar
    pelas RPCs onde vivem as regras de negócio. É trabalho transversal a toda a
    aplicação.
+
+---
+
+## Registo de conformidade Poka-Yoke (`checklist_execucoes`)
+
+A checklist obrigatória por fase (`fases_padrao.checklist`, definida pelo admin
+em `gestao_fluxos_screen.dart`) existia desde o início, mas era **apenas um gate
+de interface**: o diálogo devolvia um `bool`, a fase avançava e nada do que o
+operador marcou ficava gravado. Duas consequências, ambas graves para um
+mecanismo à prova de erro:
+
+1. **Sem rastreabilidade.** Ninguém sabia que pontos foram verificados, por
+   quem, a que horas, em que unidade produzida. Para efeitos de auditoria de
+   qualidade, uma fase com checklist era indistinguível de uma sem.
+2. **Sem garantia.** A obrigatoriedade vivia no Flutter. Qualquer chamada direta
+   à RPC — ou o painel do admin — fechava a fase sem validar ponto nenhum.
+
+### O que passou a existir
+
+- **Tabela `checklist_execucoes`** — uma linha por ponto de controlo validado:
+  `historico_producao_id`, `encomenda_id`, `fase_id`, `operador_id`, `posicao`,
+  `item`, `conforme`, `marcado_em`. O texto do item é **copiado**, não
+  referenciado: o admin pode editar a checklist da fase depois da produção, e o
+  registo tem de continuar a dizer o que foi efetivamente verificado nesse dia.
+- **`avancar_fase_encomenda(p_encomenda_id, p_checklist jsonb)`** — a validação
+  e a gravação passaram para dentro da transação que escreve o histórico e
+  avança a ordem. Ou há prova de conformidade e a fase fecha, ou não acontece
+  nada. Gravar numa segunda chamada deixaria fases fechadas sem registo sempre
+  que a rede caísse pelo meio — exatamente o caso em que interessa saber o que
+  foi verificado. A versão de um só argumento foi **removida**: era um caminho
+  que fechava a fase sem passar pela validação.
+- **`normalizar_checklist_fase(jsonb)`** — a coluna `checklist` chega em três
+  formas (lista de strings, lista de objetos `{"item": ...}`, ou o JSON ainda
+  por descodificar como string). O servidor normaliza-a da mesma maneira que
+  `FaseModel._checklist` já fazia no cliente; sem isso, a contagem de pontos do
+  servidor divergia da que o operador vê e a fase ficava impossível de fechar.
+- **Validação de payload.** O texto e a posição de cada ponto têm de bater certo
+  com o roteiro da fase — impede um payload forjado de registar conformidade
+  sobre pontos que a fase não tem.
+
+### Ponto não conforme abre incidência
+
+Cada item do diálogo passou a ter uma saída "não conforme" que **não fecha a
+fase**: encaminha para `BloquearTarefaPopup` com o ponto que falhou já escrito
+nas observações. Sem essa saída, um operador com um ponto não conforme e a linha
+à espera acabava por marcar tudo à mesma — o Poka-Yoke ensinaria precisamente o
+contrário do que existe para garantir. A RPC recusa qualquer avanço que traga um
+ponto com `conforme = false`.
+
+### Avanço administrativo
+
+O painel de controlo avança fases sem checklist — quem avança daí não está no
+posto e não tem como verificar ponto nenhum. O servidor permite-o ao perfil
+`Administrador`, mas grava o desvio em `checklist_execucoes` com
+`conforme = false`: na rastreabilidade da ordem a fase aparece marcada como
+*fechada sem validação*, em vez de se confundir com uma fase verificada.
+
+### RLS
+
+Ao contrário do que a secção "RLS e privilégios" deste documento ainda diz, as
+tabelas públicas **já têm RLS ativa** com políticas por perfil. A tabela nova
+segue as mesmas regras de `historico_producao`, porque um registo de qualidade
+não pode ser mais permissivo do que a fase a que pertence:
+
+| Operação | Quem |
+|:---|:---|
+| `select` | pessoal (`e_pessoal()`) |
+| `insert` | pessoal, e só em nome próprio (`operador_id = auth.uid()`) |
+| `update` / `delete` | admin (`e_admin()`) |
+
+A `operador_id` tem chave estrangeira para `utilizadores` — sem ela o PostgREST
+não resolvia o embed `utilizadores:operador_id (nome_utilizador)` que a timeline
+da ordem usa.
+
+### Leitura
+
+`EncomendasRepository.obterTimeline` passou a trazer `conformidade`
+(`historico_producao.id -> pontos`), e o diálogo de rastreabilidade mostra, por
+baixo de cada fase concluída, os pontos validados com o operador e a hora de
+cada marcação. É o que transforma a checklist num registo auditável.

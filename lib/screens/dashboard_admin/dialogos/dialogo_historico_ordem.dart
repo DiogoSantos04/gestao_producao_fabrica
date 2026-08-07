@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/formatos.dart';
 import '../../../core/temas_cores.dart';
+import '../../../models/checklist_model.dart';
 import '../../../models/encomenda_model.dart';
 import '../../../models/historico_model.dart';
 import '../../../models/incidencia_model.dart';
@@ -118,6 +119,11 @@ class _EventoTimeline extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cor = evento['cor'] as Color;
+    // O evento é um mapa dinâmico e nem todos os tipos trazem esta chave: o
+    // `cast` evita depender do tipo estático da lista que lá foi guardada.
+    final conformidade =
+        (evento['conformidade'] as List?)?.cast<RegistoConformidade>() ??
+            const <RegistoConformidade>[];
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -177,6 +183,10 @@ class _EventoTimeline extends StatelessWidget {
                       color: TemasCores.textoApoioIntenso,
                     ),
                   ),
+                  if (conformidade.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    _BlocoConformidade(registos: conformidade),
+                  ],
                 ],
               ),
             ),
@@ -197,6 +207,13 @@ List<Map<String, dynamic>> construirEventosTimeline(TimelineOrdem? timeline) {
 
   for (final p in timeline?.producao ?? const <HistoricoModel>[]) {
     final data = p.momento;
+
+    // Pontos de controlo validados ao fechar esta fase. A lista vem vazia para
+    // fases sem checklist definida no roteiro — que não é o mesmo que uma fase
+    // com checklist fechada sem validação: essa traz um registo não conforme.
+    final conformidade =
+        timeline?.conformidade[p.id] ?? const <RegistoConformidade>[];
+
     eventos.add({
       'timestamp': data ?? DateTime.now(),
       'data_str': data?.toIso8601String() ?? '',
@@ -206,6 +223,7 @@ List<Map<String, dynamic>> construirEventosTimeline(TimelineOrdem? timeline) {
       'tipo': 'PRODUCAO',
       'cor': TemasCores.sucessoTexto,
       'icone': Icons.check_circle_rounded,
+      'conformidade': conformidade,
     });
   }
 
@@ -256,4 +274,104 @@ List<Map<String, dynamic>> construirEventosTimeline(TimelineOrdem? timeline) {
   }
 
   return eventos;
+}
+
+/// Prova de conformidade Poka-Yoke de uma fase: que pontos de controlo foram
+/// validados, por quem e a que horas.
+///
+/// É o que transforma a checklist obrigatória do terminal num registo auditável
+/// — antes, o operador marcava os pontos e nada disso sobrevivia ao clique.
+class _BlocoConformidade extends StatelessWidget {
+  final List<RegistoConformidade> registos;
+
+  const _BlocoConformidade({required this.registos});
+
+  @override
+  Widget build(BuildContext context) {
+    final desvios = registos.where((r) => !r.conforme).toList();
+    final conformes = registos.where((r) => r.conforme).toList();
+    final houveDesvio = desvios.isNotEmpty;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: houveDesvio ? TemasCores.erroFundo : TemasCores.sucessoFundo,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(
+          color: houveDesvio ? TemasCores.erroBorda : TemasCores.sucessoBorda,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                houveDesvio
+                    ? Icons.gpp_maybe_rounded
+                    : Icons.verified_rounded,
+                size: 14,
+                color: houveDesvio
+                    ? TemasCores.erroTexto
+                    : TemasCores.sucessoTexto,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                houveDesvio
+                    ? 'Fase fechada sem validação da checklist'
+                    : 'Checklist validada — ${conformes.length} ponto(s) de controlo',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: houveDesvio
+                      ? TemasCores.erroTexto
+                      : TemasCores.sucessoTexto,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          ...registos.map(
+            (r) => Padding(
+              padding: const EdgeInsets.only(bottom: 3),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    r.conforme ? Icons.check : Icons.close,
+                    size: 12,
+                    color: r.conforme
+                        ? TemasCores.sucessoForte
+                        : TemasCores.erro,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      r.item,
+                      style: const TextStyle(
+                        fontSize: 10,
+                        color: TemasCores.textoApoioIntenso,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    // Quem validou e quando: sem isto, o registo não prova
+                    // nada — só diz que alguém, algures, marcou uma caixa.
+                    '${r.nomeOperador ?? 'Operador'} · '
+                    '${Formatos.dataHora(r.marcadoEm?.toIso8601String() ?? '')}',
+                    style: const TextStyle(
+                      fontSize: 9,
+                      color: TemasCores.textoTerciario,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

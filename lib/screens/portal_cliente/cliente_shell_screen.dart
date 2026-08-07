@@ -7,6 +7,7 @@ import '../../core/temas_cores.dart';
 import '../../repositories/base_repository.dart';
 import '../../repositories/portal_cliente_repository.dart';
 import '../../services/auth_service.dart';
+import '../../widgets/dialogo_suporte.dart';
 import '../login_screen.dart';
 import 'rastreio_cliente_screen.dart';
 import 'historico_cliente_screen.dart';
@@ -379,6 +380,19 @@ class _ClienteShellScreenState extends State<ClienteShellScreen> {
                             const SizedBox(height: 28),
 
                             OutlinedButton.icon(
+                              onPressed: () => mostrarDialogoSuporte(context),
+                              style: OutlinedButton.styleFrom(
+                                minimumSize: const Size.fromHeight(48),
+                                foregroundColor: TemasCores.clienteAcentoForte,
+                                side: const BorderSide(color: TemasCores.clienteAcentoClaro),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              ),
+                              icon: const Icon(Icons.support_agent_outlined, size: 18),
+                              label: const Text('Contactar Suporte'),
+                            ),
+                            const SizedBox(height: 10),
+
+                            OutlinedButton.icon(
                               onPressed: _mostrarDialogoAlterarPalavraPasse,
                               style: OutlinedButton.styleFrom(
                                 minimumSize: const Size.fromHeight(48),
@@ -632,6 +646,38 @@ class _ClienteShellScreenState extends State<ClienteShellScreen> {
             ),
           ),
 
+          // O suporte é uma ação, não um separador: fica fora da lista para não
+          // desalinhar os índices do `IndexedStack`, mas continua acessível de
+          // qualquer ecrã do portal.
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: () {
+                  if (dentroDrawer) Navigator.pop(context);
+                  mostrarDialogoSuporte(context);
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+                  child: const Row(
+                    children: [
+                      SizedBox(width: 4),
+                      Icon(Icons.support_agent_outlined, color: TemasCores.textoInversoTenue, size: 20),
+                      SizedBox(width: 14),
+                      Expanded(
+                        child: Text(
+                          'Ajuda e Suporte',
+                          style: TextStyle(color: TemasCores.textoInversoClaro, fontSize: 14),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
           const Divider(color: TemasCores.separadorEscuro, height: 1),
           _buildRodapeSidebar(dentroDrawer),
         ],
