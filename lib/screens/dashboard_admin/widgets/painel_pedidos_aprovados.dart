@@ -127,10 +127,10 @@ class _CartaoPedidoAprovado extends StatelessWidget {
         margin: const EdgeInsets.only(right: 12, bottom: 8),
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: selecionado ? TemasCores.marcaEscura : TemasCores.superficie,
-          borderRadius: BorderRadius.circular(8),
+          color: selecionado ? TemasCores.adminAcento : TemasCores.superficie,
+          borderRadius: BorderRadius.circular(10),
           border: Border.all(
-            color: selecionado ? TemasCores.marcaEscura : TemasCores.infoBorda,
+            color: selecionado ? TemasCores.adminAcento : TemasCores.infoBorda,
             width: selecionado ? 2 : 1,
           ),
         ),

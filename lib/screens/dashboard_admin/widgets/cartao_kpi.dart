@@ -131,7 +131,7 @@ Widget _comMoldura({
         color: TemasCores.superficie,
         elevation: 1,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(14),
           side: BorderSide(
             color: alerta ? TemasCores.erroBorda : TemasCores.borda,
             width: alerta ? 1.5 : 1,
@@ -145,7 +145,7 @@ Widget _comMoldura({
         padding: estilo.paddingExterior,
         decoration: BoxDecoration(
           color: TemasCores.superficie,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(14),
           border: Border.all(color: TemasCores.borda),
           boxShadow: estilo.corSombra == null
               ? null
@@ -265,7 +265,7 @@ class CartaoKpi extends StatelessWidget {
       label: dicaToque,
       child: InkWell(
         onTap: aoTocar,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
         child: cartao,
       ),
     );

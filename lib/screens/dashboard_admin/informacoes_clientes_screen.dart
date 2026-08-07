@@ -339,7 +339,7 @@ class _ClientesScreenState extends State<ClientesScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: TemasCores.fundoEcra,
+      backgroundColor: TemasCores.fundoEcraFrio,
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : Stack(
@@ -359,7 +359,7 @@ class _ClientesScreenState extends State<ClientesScreen> {
                         color: TemasCores.superficie,
                         elevation: 1,
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(14),
                           side: const BorderSide(color: TemasCores.borda),
                         ),
                         child: Padding(
@@ -387,10 +387,10 @@ class _ClientesScreenState extends State<ClientesScreen> {
                                   ElevatedButton.icon(
                                     onPressed: () => _abrirDialogCliente(),
                                     style: ElevatedButton.styleFrom(
-                                      backgroundColor: TemasCores.marcaEscura,
+                                      backgroundColor: TemasCores.adminAcento,
                                       foregroundColor: TemasCores.textoInverso,
                                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                                     ),
                                     icon: const Icon(Icons.add, size: 18),
                                     label: const Text('Criar Conta de Cliente', style: TextStyle(fontWeight: FontWeight.bold)),

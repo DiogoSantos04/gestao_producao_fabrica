@@ -73,7 +73,7 @@ class _PedidosClientesAdminScreenState extends State<PedidosClientesAdminScreen>
       margin: const EdgeInsets.only(bottom: 16),
       elevation: 0,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
         side: const BorderSide(color: TemasCores.borda),
       ),
       color: TemasCores.superficie,
@@ -144,7 +144,7 @@ class _PedidosClientesAdminScreenState extends State<PedidosClientesAdminScreen>
         ElevatedButton.icon(
           onPressed: () => _aprovarELancarEncomenda(p),
           style: ElevatedButton.styleFrom(
-            backgroundColor: TemasCores.marcaAcento,
+            backgroundColor: TemasCores.adminAcento,
             foregroundColor: TemasCores.textoInverso,
           ),
           icon: const Icon(Icons.rocket_launch, size: 18),

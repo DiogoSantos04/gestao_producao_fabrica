@@ -180,7 +180,7 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
       decoration: BoxDecoration(
         color: TemasCores.superficie,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
         boxShadow: [
           BoxShadow(
             color: TemasCores.sombraBase.withValues(alpha: 0.04),
@@ -216,11 +216,17 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: TemasCores.fundoEcraFrio,
       appBar: AppBar(
         title: const Text('Gestão dos Postos de Trabalho'),
+        backgroundColor: TemasCores.superficie,
+        foregroundColor: TemasCores.textoPrimario,
+        elevation: 0,
+        scrolledUnderElevation: 1,
+        surfaceTintColor: TemasCores.superficie,
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh),
+            icon: const Icon(Icons.refresh, color: TemasCores.adminAcento),
             onPressed: _carregarDados,
           ),
         ],
@@ -313,7 +319,7 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
                               return Card(
                                 elevation: 3,
                                 shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
+                                  borderRadius: BorderRadius.circular(14),
                                   side: BorderSide(
                                     color: corBadge.withValues(alpha: 0.6),
                                     width: temIncidencia ? 2.5 : 1.5,

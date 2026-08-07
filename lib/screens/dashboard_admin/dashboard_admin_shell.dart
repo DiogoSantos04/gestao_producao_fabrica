@@ -198,7 +198,7 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               title: const Row(
                 children: [
-                  Icon(Icons.lock_reset_outlined, color: TemasCores.marcaAcento),
+                  Icon(Icons.lock_reset_outlined, color: TemasCores.adminAcento),
                   SizedBox(width: 10),
                   Text('Alterar Palavra-passe'),
                 ],
@@ -274,7 +274,7 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
                           }
                         },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: TemasCores.marcaAcento,
+                    backgroundColor: TemasCores.adminAcento,
                     foregroundColor: TemasCores.textoInverso,
                   ),
                   child: aCarregar
@@ -307,80 +307,121 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
     final String iniciais = _obterIniciais(_nomeUtilizador);
     final String idDisplay = _idAdministrador;
 
-    return Padding(
-      padding: const EdgeInsets.all(40.0),
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(32.0),
       child: Center(
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 550),
+          constraints: const BoxConstraints(maxWidth: 480),
           child: Card(
-            elevation: 4,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            child: Padding(
-              padding: const EdgeInsets.all(32.0),
-              child: _carregandoPerfil
-                  ? const Center(child: CircularProgressIndicator())
-                  : Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        CircleAvatar(
-                          radius: 45,
-                          backgroundColor: TemasCores.infoForte,
-                          child: Text(
-                            iniciais,
-                            style: const TextStyle(fontSize: 28, color: TemasCores.textoInverso, fontWeight: FontWeight.bold),
+            elevation: 3,
+            clipBehavior: Clip.antiAlias,
+            shadowColor: TemasCores.adminAcento.withValues(alpha: 0.25),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+            child: _carregandoPerfil
+                ? const Padding(
+                    padding: EdgeInsets.all(64.0),
+                    child: Center(child: CircularProgressIndicator()),
+                  )
+                : Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Stack(
+                        clipBehavior: Clip.none,
+                        alignment: Alignment.topCenter,
+                        children: [
+                          Container(
+                            height: 88,
+                            decoration: const BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [TemasCores.adminAcentoClaro, TemasCores.adminAcentoForte],
+                              ),
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 20),
-                        Text(
-                          _nomeUtilizador,
-                          style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-                        ),
-                        const SizedBox(height: 4),
-                        const Text(
-                          'Administrador do Sistema',
-                          style: TextStyle(fontSize: 14, color: TemasCores.textoTerciario, fontWeight: FontWeight.w500),
-                        ),
-                        const Divider(height: 40),
-                        
-                        _construirCampoInformativo(
-                          label: 'Email Institucional',
-                          valor: _emailUtilizador,
-                          icone: Icons.email_outlined,
-                        ),
-                        const SizedBox(height: 16),
-                        _construirCampoInformativo(
-                          label: 'ID do Administrador',
-                          valor: idDisplay,
-                          icone: Icons.badge_outlined,
-                        ),
-                        const SizedBox(height: 32),
-                        
-                        OutlinedButton.icon(
-                          onPressed: _mostrarDialogoAlterarPalavraPasse,
-                          style: OutlinedButton.styleFrom(
-                            minimumSize: const Size.fromHeight(50),
-                            side: const BorderSide(color: TemasCores.bordaForte),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          Positioned(
+                            top: 46,
+                            child: Container(
+                              padding: const EdgeInsets.all(4),
+                              decoration: const BoxDecoration(color: TemasCores.superficie, shape: BoxShape.circle),
+                              child: CircleAvatar(
+                                radius: 42,
+                                backgroundColor: TemasCores.adminAcento,
+                                child: Text(
+                                  iniciais,
+                                  style: const TextStyle(fontSize: 26, color: TemasCores.textoInverso, fontWeight: FontWeight.bold),
+                                ),
+                              ),
+                            ),
                           ),
-                          icon: const Icon(Icons.vpn_key_outlined, color: TemasCores.textoPrimario),
-                          label: const Text('Alterar Palavra-passe', style: TextStyle(color: TemasCores.textoPrimario)),
+                        ],
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(32, 56, 32, 32),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              _nomeUtilizador,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: TemasCores.textoPrimario),
+                            ),
+                            const SizedBox(height: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                              decoration: BoxDecoration(
+                                color: TemasCores.adminAcentoFundo,
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: const Text(
+                                'Administrador do Sistema',
+                                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: TemasCores.adminAcentoForte),
+                              ),
+                            ),
+                            const SizedBox(height: 28),
+
+                            _construirCampoInformativo(
+                              label: 'Email Institucional',
+                              valor: _emailUtilizador,
+                              icone: Icons.email_outlined,
+                            ),
+                            const SizedBox(height: 12),
+                            _construirCampoInformativo(
+                              label: 'ID do Administrador',
+                              valor: idDisplay,
+                              icone: Icons.badge_outlined,
+                            ),
+                            const SizedBox(height: 28),
+
+                            OutlinedButton.icon(
+                              onPressed: _mostrarDialogoAlterarPalavraPasse,
+                              style: OutlinedButton.styleFrom(
+                                minimumSize: const Size.fromHeight(48),
+                                foregroundColor: TemasCores.textoPrimario,
+                                side: const BorderSide(color: TemasCores.bordaForte),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              ),
+                              icon: const Icon(Icons.vpn_key_outlined, size: 18),
+                              label: const Text('Alterar Palavra-passe'),
+                            ),
+                            const SizedBox(height: 10),
+
+                            OutlinedButton.icon(
+                              onPressed: _efetuarLogout,
+                              style: OutlinedButton.styleFrom(
+                                minimumSize: const Size.fromHeight(48),
+                                foregroundColor: TemasCores.erroForte,
+                                side: const BorderSide(color: TemasCores.erroBorda),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              ),
+                              icon: const Icon(Icons.logout_rounded, size: 18),
+                              label: const Text('Terminar Sessão'),
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 12),
-                        
-                        ElevatedButton.icon(
-                          onPressed: _efetuarLogout,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: TemasCores.erroForte,
-                            foregroundColor: TemasCores.textoInverso,
-                            minimumSize: const Size.fromHeight(50),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                          ),
-                          icon: const Icon(Icons.logout),
-                          label: const Text('Terminar Sessão'),
-                        ),
-                      ],
-                    ),
-            ),
+                      ),
+                    ],
+                  ),
           ),
         ),
       ),
@@ -393,24 +434,37 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
     required IconData icone,
   }) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
         color: TemasCores.superficieTenue,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(width: 1, color: TemasCores.borda),
       ),
       child: Row(
         children: [
-          Icon(icone, color: TemasCores.textoTerciario),
-          const SizedBox(width: 16),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(label, style: const TextStyle(fontSize: 11, color: TemasCores.textoTerciario)),
-              const SizedBox(height: 2),
-              Text(valor, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
-            ],
-          )
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: TemasCores.adminAcentoFundo,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icone, color: TemasCores.adminAcentoForte, size: 18),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: const TextStyle(fontSize: 11, color: TemasCores.textoTerciario, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 2),
+                Text(
+                  valor,
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: TemasCores.textoPrimario),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -439,12 +493,21 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
     ];
 
     return Scaffold(
+      backgroundColor: TemasCores.fundoEcraFrio,
       appBar: !eDesktop
           ? AppBar(
-              title: Text(_indiceAtual == 9 
-                  ? 'O Meu Perfil' 
-                  : _menuItens[_indiceAtual]['titulo']),
-              backgroundColor: TemasCores.acentoRoxoFundo,
+              backgroundColor: TemasCores.superficie,
+              foregroundColor: TemasCores.textoPrimario,
+              elevation: 0,
+              scrolledUnderElevation: 1,
+              surfaceTintColor: TemasCores.superficie,
+              title: Row(
+                children: [
+                  const Icon(Icons.settings_suggest_rounded, color: TemasCores.adminAcento, size: 20),
+                  const SizedBox(width: 10),
+                  Text(_indiceAtual == 9 ? 'O Meu Perfil' : _menuItens[_indiceAtual]['titulo']),
+                ],
+              ),
             )
           : null,
       drawer: !eDesktop ? Drawer(child: _buildSidebar(dentroDrawer: true)) : null,
@@ -469,74 +532,121 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
 
   // --- CONSTRUTOR DA SIDEBAR ---
   Widget _buildSidebar({required bool dentroDrawer}) {
-    return Container(
-      color: TemasCores.marcaEscura, 
+    return Material(
+      color: TemasCores.marcaEscura,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
-            child: const Row(
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 28, 20, 20),
+            child: Row(
               children: [
-                Icon(Icons.settings_suggest_rounded, color: TemasCores.marcaAcento, size: 28),
-                SizedBox(width: 12),
-                Text(
-                  'Sistema Industrial',
-                  style: TextStyle(
-                    color: TemasCores.textoInverso,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 0.5,
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [TemasCores.adminAcentoClaro, TemasCores.adminAcentoForte],
+                    ),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(Icons.settings_suggest_rounded, color: TemasCores.textoInverso, size: 20),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'SISTEMA',
+                        style: TextStyle(
+                          color: TemasCores.textoInversoTenue,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 1.4,
+                        ),
+                      ),
+                      Text(
+                        'Industrial',
+                        style: TextStyle(color: TemasCores.textoInverso, fontSize: 17, fontWeight: FontWeight.bold),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
           ),
-          
           const Divider(color: TemasCores.separadorEscuro, height: 1),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
 
           // Lista de Opções do Menu
           Expanded(
             child: ListView.builder(
+              padding: const EdgeInsets.symmetric(vertical: 4),
               itemCount: _menuItens.length,
               itemBuilder: (context, index) {
                 final item = _menuItens[index];
                 final bool estaSelecionado = _indiceAtual == index;
 
                 return Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-                  child: ListTile(
-                    selected: estaSelecionado,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    selectedTileColor: TemasCores.realceSobreEscuro, 
-                    leading: Icon(
-                      item['icone'],
-                      color: estaSelecionado ? TemasCores.marcaAcento : TemasCores.textoInversoTenue,
-                      size: 20,
-                    ),
-                    title: Text(
-                      item['titulo'],
-                      style: TextStyle(
-                        color: estaSelecionado ? TemasCores.textoInverso : TemasCores.textoInversoSuave,
-                        fontSize: 14,
-                        fontWeight: estaSelecionado ? FontWeight.w600 : FontWeight.normal,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(12),
+                      onTap: () {
+                        setState(() {
+                          _indiceAtual = index;
+                          // Entrar pelo menu é um pedido para ver as ordens
+                          // todas: o filtro que veio de um KPI não pode ficar
+                          // agarrado ao ecrã sem que ninguém o tenha pedido.
+                          if (index == _indiceOrdens) {
+                            _filtroOrdens = FiltroEstadoOrdem.todos;
+                          }
+                        });
+                        if (dentroDrawer) {
+                          Navigator.pop(context);
+                        }
+                      },
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 150),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+                        decoration: BoxDecoration(
+                          color: estaSelecionado
+                              ? TemasCores.adminAcento.withValues(alpha: 0.16)
+                              : Colors.transparent,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border(
+                            left: BorderSide(
+                              color: estaSelecionado ? TemasCores.adminAcentoClaro : Colors.transparent,
+                              width: 3,
+                            ),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            const SizedBox(width: 4),
+                            Icon(
+                              item['icone'],
+                              color: estaSelecionado ? TemasCores.adminAcentoClaro : TemasCores.textoInversoTenue,
+                              size: 20,
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Text(
+                                item['titulo'],
+                                style: TextStyle(
+                                  color: estaSelecionado ? TemasCores.textoInverso : TemasCores.textoInversoClaro,
+                                  fontSize: 14,
+                                  fontWeight: estaSelecionado ? FontWeight.w600 : FontWeight.normal,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                    onTap: () {
-                      setState(() {
-                        _indiceAtual = index;
-                        // Entrar pelo menu é um pedido para ver as ordens
-                        // todas: o filtro que veio de um KPI não pode ficar
-                        // agarrado ao ecrã sem que ninguém o tenha pedido.
-                        if (index == _indiceOrdens) {
-                          _filtroOrdens = FiltroEstadoOrdem.todos;
-                        }
-                      });
-                      if (dentroDrawer) {
-                        Navigator.pop(context); 
-                      }
-                    },
                   ),
                 );
               },
@@ -558,69 +668,87 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
     final String idDisplay = _idAdministrador;
 
     return Padding(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(14),
       child: Column(
         children: [
-          InkWell(
-            onTap: () {
-              setState(() {
-                _indiceAtual = 9;
-              });
-              if (dentroDrawer) {
-                Navigator.pop(context);
-              }
-            },
-            borderRadius: BorderRadius.circular(8),
-            child: Container(
-              padding: const EdgeInsets.all(8.0),
-              decoration: BoxDecoration(
-                color: estaNoPerfil ? TemasCores.realceSobreEscuro : Colors.transparent,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
-                children: [
-                  CircleAvatar(
-                    backgroundColor: TemasCores.infoFundoForte,
-                    radius: 18,
-                    child: Text(
-                      iniciais,
-                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: TemasCores.marcaAcento),
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: () {
+                setState(() {
+                  _indiceAtual = 9;
+                });
+                if (dentroDrawer) {
+                  Navigator.pop(context);
+                }
+              },
+              borderRadius: BorderRadius.circular(12),
+              child: Container(
+                padding: const EdgeInsets.all(10.0),
+                decoration: BoxDecoration(
+                  color: estaNoPerfil ? TemasCores.adminAcento.withValues(alpha: 0.16) : Colors.transparent,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      backgroundColor: TemasCores.adminAcentoClaro,
+                      radius: 18,
+                      child: Text(
+                        iniciais,
+                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: TemasCores.textoInverso),
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          _nomeUtilizador,
-                          style: const TextStyle(color: TemasCores.textoInverso, fontSize: 13, fontWeight: FontWeight.bold),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        Text(
-                          idDisplay,
-                          style: const TextStyle(color: TemasCores.textoInversoTenue, fontSize: 11),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _nomeUtilizador,
+                            style: const TextStyle(color: TemasCores.textoInverso, fontSize: 13, fontWeight: FontWeight.bold),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          Text(
+                            idDisplay,
+                            style: const TextStyle(color: TemasCores.textoInversoTenue, fontSize: 11),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                    const Icon(Icons.chevron_right, color: TemasCores.textoInversoTenue, size: 18),
+                  ],
+                ),
               ),
             ),
           ),
-          const SizedBox(height: 12),
-          ElevatedButton.icon(
-            onPressed: _efetuarLogout,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: TemasCores.erro.withValues(alpha: 0.15),
-              foregroundColor: TemasCores.erroVivo,
-              elevation: 0,
-              minimumSize: const Size.fromHeight(38),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          const SizedBox(height: 8),
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: _efetuarLogout,
+              borderRadius: BorderRadius.circular(10),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                decoration: BoxDecoration(
+                  color: TemasCores.erro.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.logout_rounded, size: 15, color: TemasCores.erroClaro),
+                    SizedBox(width: 8),
+                    Text(
+                      'Terminar Sessão',
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: TemasCores.erroClaro),
+                    ),
+                  ],
+                ),
+              ),
             ),
-            icon: const Icon(Icons.logout_rounded, size: 16),
-            label: const Text('Terminar Sessão', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
