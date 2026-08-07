@@ -380,7 +380,7 @@ class _ClienteShellScreenState extends State<ClienteShellScreen> {
                             const SizedBox(height: 28),
 
                             OutlinedButton.icon(
-                              onPressed: () => mostrarDialogoSuporte(context),
+                              onPressed: () => mostrarDialogoSuporte(context, aoObterEmail: _repositorio.obterEmailSuporte),
                               style: OutlinedButton.styleFrom(
                                 minimumSize: const Size.fromHeight(48),
                                 foregroundColor: TemasCores.clienteAcentoForte,
@@ -657,7 +657,7 @@ class _ClienteShellScreenState extends State<ClienteShellScreen> {
                 borderRadius: BorderRadius.circular(12),
                 onTap: () {
                   if (dentroDrawer) Navigator.pop(context);
-                  mostrarDialogoSuporte(context);
+                  mostrarDialogoSuporte(context, aoObterEmail: _repositorio.obterEmailSuporte);
                 },
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),

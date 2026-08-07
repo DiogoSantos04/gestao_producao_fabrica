@@ -5,32 +5,59 @@ import 'package:url_launcher/url_launcher.dart';
 import '../core/mensagens.dart';
 import '../core/temas_cores.dart';
 import '../repositories/base_repository.dart';
-import '../repositories/portal_cliente_repository.dart';
 
-/// Canal de contacto do cliente com a fábrica.
+/// Canal de contacto com o administrador — do lado do cliente e do operador.
 ///
-/// O protótipo de alta fidelidade (Figura 20, "Estado da Encomenda") previa um
-/// botão "Contactar Suporte" que nunca chegou à implementação: o portal do
-/// cliente não tinha qualquer forma de contacto. Este diálogo é o ponto único
-/// desse canal — o ecrã de rastreio, o perfil e o menu lateral chamam-no todos,
-/// para o contacto não voltar a ser escrito em três sítios diferentes.
+/// O protótipo de alta fidelidade do portal cliente (Figura 20, "Estado da
+/// Encomenda") previa um botão "Contactar Suporte" que nunca chegou à
+/// implementação. Este diálogo é o ponto único desse canal, partilhado pelos
+/// dois perfis: cada chamada passa o seu próprio [aoObterEmail] (o repositório
+/// de cada perfil tem a sua própria cópia de `obter_email_suporte`, porque a
+/// política de RLS de `utilizadores` só deixa cada um ler a sua própria linha),
+/// mas o diálogo, o texto e o comportamento são os mesmos.
 ///
-/// O endereço vem de `obter_email_suporte` (o administrador ativo) e não está
-/// escrito no código: se a conta de administração mudar, o portal acompanha.
+/// O endereço não está escrito no código: se a conta de administração mudar, o
+/// portal e o terminal acompanham.
 Future<void> mostrarDialogoSuporte(
   BuildContext context, {
+  required Future<String?> Function() aoObterEmail,
+  String titulo = 'Contactar Suporte',
+  String descricao = 'A nossa equipa responde a dúvidas sobre encomendas, prazos e estado de fabrico.',
+  String rotuloEmail = 'Email de Suporte',
+  Color corAcento = TemasCores.clienteAcento,
   String? codigoRastreio,
   String? assunto,
 }) {
   return showDialog(
     context: context,
-    builder: (_) => _DialogoSuporte(codigoRastreio: codigoRastreio, assunto: assunto),
+    builder: (_) => _DialogoSuporte(
+      aoObterEmail: aoObterEmail,
+      titulo: titulo,
+      descricao: descricao,
+      rotuloEmail: rotuloEmail,
+      corAcento: corAcento,
+      codigoRastreio: codigoRastreio,
+      assunto: assunto,
+    ),
   );
 }
 
 class _DialogoSuporte extends StatefulWidget {
-  const _DialogoSuporte({this.codigoRastreio, this.assunto});
+  const _DialogoSuporte({
+    required this.aoObterEmail,
+    required this.titulo,
+    required this.descricao,
+    required this.rotuloEmail,
+    required this.corAcento,
+    this.codigoRastreio,
+    this.assunto,
+  });
 
+  final Future<String?> Function() aoObterEmail;
+  final String titulo;
+  final String descricao;
+  final String rotuloEmail;
+  final Color corAcento;
   final String? codigoRastreio;
   final String? assunto;
 
@@ -39,8 +66,6 @@ class _DialogoSuporte extends StatefulWidget {
 }
 
 class _DialogoSuporteState extends State<_DialogoSuporte> {
-  final PortalClienteRepository _repositorio = PortalClienteRepository();
-
   String? _email;
   String? _erro;
   bool _aCarregar = true;
@@ -58,7 +83,7 @@ class _DialogoSuporteState extends State<_DialogoSuporte> {
     });
 
     try {
-      final email = await _repositorio.obterEmailSuporte();
+      final email = await widget.aoObterEmail();
       if (!mounted) return;
       setState(() {
         _email = (email != null && email.trim().isNotEmpty) ? email.trim() : null;
@@ -140,11 +165,11 @@ class _DialogoSuporteState extends State<_DialogoSuporte> {
   Widget build(BuildContext context) {
     return AlertDialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      title: const Row(
+      title: Row(
         children: [
-          Icon(Icons.support_agent_outlined, color: TemasCores.clienteAcento),
-          SizedBox(width: 10),
-          Expanded(child: Text('Contactar Suporte')),
+          Icon(Icons.support_agent_outlined, color: widget.corAcento),
+          const SizedBox(width: 10),
+          Expanded(child: Text(widget.titulo)),
         ],
       ),
       content: ConstrainedBox(
@@ -153,10 +178,9 @@ class _DialogoSuporteState extends State<_DialogoSuporte> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'A nossa equipa responde a dúvidas sobre encomendas, prazos e '
-              'estado de fabrico.',
-              style: TextStyle(fontSize: 13, color: TemasCores.textoSecundario),
+            Text(
+              widget.descricao,
+              style: const TextStyle(fontSize: 13, color: TemasCores.textoSecundario),
             ),
             const SizedBox(height: 18),
             if (_aCarregar)
@@ -187,7 +211,7 @@ class _DialogoSuporteState extends State<_DialogoSuporte> {
           ElevatedButton.icon(
             onPressed: _carregarContacto,
             style: ElevatedButton.styleFrom(
-              backgroundColor: TemasCores.clienteAcento,
+              backgroundColor: widget.corAcento,
               foregroundColor: TemasCores.textoInverso,
             ),
             icon: const Icon(Icons.refresh_rounded, size: 18),
@@ -197,7 +221,7 @@ class _DialogoSuporteState extends State<_DialogoSuporte> {
           ElevatedButton.icon(
             onPressed: _enviarEmail,
             style: ElevatedButton.styleFrom(
-              backgroundColor: TemasCores.clienteAcento,
+              backgroundColor: widget.corAcento,
               foregroundColor: TemasCores.textoInverso,
             ),
             icon: const Icon(Icons.send_rounded, size: 18),
@@ -245,19 +269,19 @@ class _DialogoSuporteState extends State<_DialogoSuporte> {
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: TemasCores.clienteAcentoFundo,
+              color: widget.corAcento.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(10),
             ),
-            child: const Icon(Icons.email_outlined, size: 18, color: TemasCores.clienteAcentoForte),
+            child: Icon(Icons.email_outlined, size: 18, color: widget.corAcento),
           ),
           const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Email de Suporte',
-                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: TemasCores.textoTerciario),
+                Text(
+                  widget.rotuloEmail,
+                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: TemasCores.textoTerciario),
                 ),
                 const SizedBox(height: 2),
                 SelectableText(

@@ -124,6 +124,7 @@ class _RastreioClienteScreenState extends State<RastreioClienteScreen> {
   void _contactarSuporte(RastreioEncomenda enc) {
     mostrarDialogoSuporte(
       context,
+      aoObterEmail: _repositorio.obterEmailSuporte,
       codigoRastreio: enc.codigoRastreio.isEmpty ? null : enc.codigoRastreio,
     );
   }

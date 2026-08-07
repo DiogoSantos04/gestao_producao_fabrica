@@ -9,6 +9,7 @@ import '../../models/fase_model.dart';
 import '../../repositories/base_repository.dart';
 import '../../repositories/encomendas_repository.dart';
 import '../../repositories/operador_repository.dart';
+import '../../widgets/dialogo_suporte.dart';
 import '../../widgets/estado_erro.dart';
 import 'popups/bloquear_tarefa_screen.dart';
 
@@ -428,6 +429,23 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
     }
   }
 
+  /// Mostra o email do administrador, com o código de rastreio da ordem já no
+  /// assunto — equivalente ao "Contactar Suporte" do portal do cliente, agora
+  /// do lado do operador. O diálogo é partilhado com o resto da app
+  /// ([mostrarDialogoSuporte]).
+  void _contactarAdministrador() {
+    mostrarDialogoSuporte(
+      context,
+      aoObterEmail: _repo.obterEmailSuporte,
+      titulo: 'Contactar Administrador',
+      descricao: 'Contacte o administrador para dúvidas ou problemas relacionados com esta ordem.',
+      rotuloEmail: 'Email do Administrador',
+      corAcento: TemasCores.operadorAcento,
+      codigoRastreio: widget.codigoRastreio,
+      assunto: 'Terminal Operador - Ordem ${widget.codigoRastreio}',
+    );
+  }
+
   static String _formatarTempo(int totalSegundos) {
     final d = Duration(seconds: totalSegundos);
     String d2(int n) => n.toString().padLeft(2, '0');
@@ -458,6 +476,14 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
           icon: const Icon(Icons.arrow_back, color: TemasCores.textoPrimario),
           onPressed: () => Navigator.of(context).pop(false),
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.mail_outline_rounded, color: TemasCores.operadorAcento),
+            tooltip: 'Contactar Administrador',
+            onPressed: _contactarAdministrador,
+          ),
+          const SizedBox(width: 8),
+        ],
       ),
       body: _construirCorpo(),
     );

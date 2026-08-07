@@ -10,6 +10,7 @@ import '../../core/temas_cores.dart';
 import '../../repositories/operador_repository.dart';
 import '../../services/auth_service.dart';
 import '../../services/pdf_service.dart';
+import '../../widgets/dialogo_suporte.dart';
 import '../login_screen.dart';
 import 'fila_trabalho_screen.dart';
 import 'historico_operador_screen.dart';
@@ -119,9 +120,15 @@ class _OperadorShellScreenState extends State<OperadorShellScreen> {
           },
           onError: (erro) {
             if (!mounted) return;
-            // O perfil é informativo: uma falha aqui não pode tapar o terminal.
+            debugPrint('Aviso Stream Utilizadores (Realtime pode estar desativado): $erro');
+            // O perfil é informativo: uma falha aqui é só da atualização em
+            // tempo real e não pode apagar um email já correto que a cache do
+            // login (ou a própria sessão) já tinha — só cai para a sessão
+            // quando ainda não havia nenhum valor carregado.
             setState(() {
-              _emailUtilizador = 'Não foi possível carregar o email';
+              if (_emailUtilizador == 'a carregar…') {
+                _emailUtilizador = utilizador?.email ?? 'sem email registado';
+              }
               _carregandoPerfil = false;
             });
           },
@@ -386,6 +393,21 @@ class _OperadorShellScreenState extends State<OperadorShellScreen> {
     confirmarController.dispose();
   }
 
+  /// Mostra o email do administrador — sempre acessível a partir da barra
+  /// lateral, independentemente de haver uma tarefa aberta. O diálogo é
+  /// partilhado com o resto da app ([mostrarDialogoSuporte]).
+  void _contactarAdministrador() {
+    mostrarDialogoSuporte(
+      context,
+      aoObterEmail: _repo.obterEmailSuporte,
+      titulo: 'Contactar Administrador',
+      descricao: 'Contacte o administrador para dúvidas, incidências ou pedidos de apoio.',
+      rotuloEmail: 'Email do Administrador',
+      corAcento: TemasCores.operadorAcento,
+      assunto: 'Terminal Operador - Suporte ($_idFuncionario)',
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final eDesktop = MediaQuery.of(context).size.width > 950;
@@ -639,6 +661,41 @@ class _OperadorShellScreenState extends State<OperadorShellScreen> {
                       Icons.chevron_right,
                       color: TemasCores.textoInversoTenue,
                       size: 18,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: _contactarAdministrador,
+              borderRadius: BorderRadius.circular(10),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                decoration: BoxDecoration(
+                  color: TemasCores.operadorAcento.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.mail_outline_rounded,
+                      size: 15,
+                      color: TemasCores.operadorAcentoClaro,
+                    ),
+                    SizedBox(width: 8),
+                    Text(
+                      'Contactar Administrador',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: TemasCores.operadorAcentoClaro,
+                      ),
                     ),
                   ],
                 ),

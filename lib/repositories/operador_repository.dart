@@ -637,4 +637,16 @@ class OperadorRepository extends BaseRepository {
       );
     });
   }
+
+  /// Email de contacto do administrador, para o botão "Contactar Administrador".
+  ///
+  /// Mesma função `obter_email_suporte` (SECURITY DEFINER) usada pelo portal do
+  /// cliente — a política de RLS de `utilizadores` só deixa um operador ler a
+  /// sua própria linha, e o administrador não tem outro contacto publicado.
+  Future<String?> obterEmailSuporte() {
+    return guarda('obter o contacto do administrador', () async {
+      final resposta = await client.rpc('obter_email_suporte');
+      return resposta as String?;
+    });
+  }
 }
