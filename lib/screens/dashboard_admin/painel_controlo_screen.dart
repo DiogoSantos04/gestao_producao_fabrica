@@ -584,7 +584,7 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: TemasCores.fundoEcra,
+      backgroundColor: TemasCores.fundoEcraFrio,
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : Padding(
@@ -593,7 +593,7 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
                 color: TemasCores.superficie,
                 elevation: 1,
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(14),
                   side: const BorderSide(color: TemasCores.borda),
                 ),
                 child: Padding(
@@ -615,10 +615,10 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
                               controller: _searchController,
                               decoration: InputDecoration(
                                 hintText: 'Pesquisar por Código de Rastreio ou Cliente...',
-                                prefixIcon: const Icon(Icons.search, color: TemasCores.textoTerciario, size: 20),
+                                prefixIcon: const Icon(Icons.search, color: TemasCores.adminAcento, size: 20),
                                 fillColor: TemasCores.superficieSuave,
                                 filled: true,
-                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
                                 contentPadding: const EdgeInsets.symmetric(horizontal: 16),
                               ),
                             ),

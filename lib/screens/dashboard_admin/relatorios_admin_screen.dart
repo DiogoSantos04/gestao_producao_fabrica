@@ -400,7 +400,7 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
-            colorScheme: const ColorScheme.light(primary: TemasCores.acaoPrincipal, onPrimary: TemasCores.textoInverso, onSurface: TemasCores.textoPrimario),
+            colorScheme: const ColorScheme.light(primary: TemasCores.adminAcento, onPrimary: TemasCores.textoInverso, onSurface: TemasCores.textoPrimario),
           ),
           child: child!,
         );
@@ -427,7 +427,7 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
     // resultado do período escolhido.
     if (_erroCarregamento != null) {
       return Scaffold(
-        backgroundColor: TemasCores.fundoEcra,
+        backgroundColor: TemasCores.fundoEcraFrio,
         body: EstadoErro(
           titulo: 'Não foi possível calcular os indicadores',
           detalhe: _erroCarregamento,
@@ -439,7 +439,7 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
     return ScrollConfiguration(
       behavior: MouseDragScrollBehavior(),
       child: Scaffold(
-        backgroundColor: TemasCores.fundoEcra,
+        backgroundColor: TemasCores.fundoEcraFrio,
         body: Padding(
           padding: const EdgeInsets.all(24),
           child: Column(
@@ -478,7 +478,7 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
     return Card(
       color: TemasCores.superficie,
       elevation: 1,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: const BorderSide(color: TemasCores.borda)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14), side: const BorderSide(color: TemasCores.borda)),
       child: Padding(
         padding: const EdgeInsets.all(32),
         child: Form(
@@ -502,7 +502,7 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
                   fillColor: TemasCores.superficieSuave,
                   filled: true,
                   suffixIcon: const Icon(Icons.calendar_month_outlined, color: TemasCores.textoSecundario, size: 20),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
                   contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                 ),
                 validator: (val) => (val == null || val.isEmpty) ? 'Obrigatório' : null,
@@ -520,7 +520,7 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
                   fillColor: TemasCores.superficieSuave,
                   filled: true,
                   suffixIcon: const Icon(Icons.calendar_month_outlined, color: TemasCores.textoSecundario, size: 20),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
                   contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                 ),
                 validator: (val) => (val == null || val.isEmpty) ? 'Obrigatório' : null,
@@ -535,7 +535,7 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
                 decoration: InputDecoration(
                   fillColor: TemasCores.superficieSuave,
                   filled: true,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
                   contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 ),
                 items: [
@@ -562,7 +562,7 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
                 decoration: InputDecoration(
                   fillColor: TemasCores.superficieSuave,
                   filled: true,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
                   contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 ),
                 items: [
@@ -586,10 +586,10 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
                 child: ElevatedButton.icon(
                   onPressed: _isExporting ? null : _gerarRelatorioPDF,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: TemasCores.marcaEscura,
+                    backgroundColor: TemasCores.adminAcento,
                     foregroundColor: TemasCores.textoInverso,
                     padding: const EdgeInsets.symmetric(vertical: 18),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                     elevation: 0,
                   ),
                   icon: _isExporting
@@ -609,7 +609,7 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
 
               _buildRowIndicador('Encomendas Concluídas', '$_encomendasConcluidas'),
               const SizedBox(height: 6),
-              Container(height: 4, width: double.infinity, decoration: BoxDecoration(color: TemasCores.marcaEscura, borderRadius: BorderRadius.circular(2))),
+              Container(height: 4, width: double.infinity, decoration: BoxDecoration(color: TemasCores.adminAcento, borderRadius: BorderRadius.circular(2))),
               const SizedBox(height: 24),
 
               _buildRowIndicador('Taxa de Entrega no Prazo', '${(_taxaEntregaNoPrazo * 100).toInt()}%'),
@@ -617,7 +617,7 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
               LinearProgressIndicator(
                 value: _taxaEntregaNoPrazo,
                 backgroundColor: TemasCores.borda,
-                color: TemasCores.marcaEscura,
+                color: TemasCores.adminAcento,
                 minHeight: 4,
                 borderRadius: BorderRadius.circular(2),
               ),
@@ -717,7 +717,7 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
                                 ),
                               ),
                               IconButton(
-                                icon: const Icon(Icons.open_in_new_rounded, size: 18, color: TemasCores.marcaEscura),
+                                icon: const Icon(Icons.open_in_new_rounded, size: 18, color: TemasCores.adminAcento),
                                 tooltip: 'Abrir PDF impresso',
                                 onPressed: () => _abrirUrlFicheiro(url),
                               )
@@ -860,7 +860,7 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
     return Card(
       color: TemasCores.superficie,
       elevation: 1,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: const BorderSide(color: TemasCores.borda)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14), side: const BorderSide(color: TemasCores.borda)),
       child: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(

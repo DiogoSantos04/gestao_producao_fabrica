@@ -238,7 +238,7 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
     final bool eDesktop = larguraEcra > 850;
 
     return Scaffold(
-      backgroundColor: TemasCores.fundoEcra,
+      backgroundColor: TemasCores.fundoEcraFrio,
       body: Padding(
         padding: const EdgeInsets.all(24.0),
         child: Column(
@@ -283,7 +283,7 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
       color: TemasCores.superficie,
       elevation: 1,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
         side: const BorderSide(color: TemasCores.borda),
       ),
       child: Padding(
@@ -335,33 +335,42 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
                       return Container(
                         margin: const EdgeInsets.only(bottom: 8),
                         decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(8),
+                          borderRadius: BorderRadius.circular(10),
                           border: Border.all(
-                            color: eSelecionado ? TemasCores.marcaAcento : TemasCores.borda,
+                            color: eSelecionado ? TemasCores.adminAcento : TemasCores.borda,
                             width: eSelecionado ? 2 : 1,
                           ),
-                          color: eSelecionado ? TemasCores.marcaAcento.withValues(alpha: 0.05) : Colors.transparent,
+                          color: eSelecionado ? TemasCores.adminAcentoFundo : Colors.transparent,
                         ),
-                        child: ListTile(
-                          title: Text(
-                            tipo['nome_tipo_produto'] ?? '',
-                            style: TextStyle(
-                              fontWeight: eSelecionado ? FontWeight.bold : FontWeight.normal,
-                              color: eSelecionado ? TemasCores.infoTextoForte : TemasCores.textoPrimario,
+                        // `ListTile` pintava o fundo e o efeito de toque no
+                        // `Material` mais próximo — que era o do `Card` lá
+                        // fora, por trás deste `Container` colorido, tornando-os
+                        // invisíveis. Precisa do seu próprio `Material`.
+                        child: Material(
+                          type: MaterialType.transparency,
+                          borderRadius: BorderRadius.circular(9),
+                          clipBehavior: Clip.antiAlias,
+                          child: ListTile(
+                            title: Text(
+                              tipo['nome_tipo_produto'] ?? '',
+                              style: TextStyle(
+                                fontWeight: eSelecionado ? FontWeight.bold : FontWeight.normal,
+                                color: eSelecionado ? TemasCores.adminAcentoForte : TemasCores.textoPrimario,
+                              ),
                             ),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.arrow_forward_ios_rounded, size: 14, color: TemasCores.textoTerciario),
+                                if (eSelecionado)
+                                  IconButton(
+                                    icon: const Icon(Icons.delete_outline, color: TemasCores.erro, size: 18),
+                                    onPressed: () => _eliminarTipologia(tipo['id']),
+                                  ),
+                              ],
+                            ),
+                            onTap: () => _selecionarTipologia(tipo),
                           ),
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.arrow_forward_ios_rounded, size: 14),
-                              if (eSelecionado)
-                                IconButton(
-                                  icon: const Icon(Icons.delete_outline, color: TemasCores.erro, size: 18),
-                                  onPressed: () => _eliminarTipologia(tipo['id']),
-                                ),
-                            ],
-                          ),
-                          onTap: () => _selecionarTipologia(tipo),
                         ),
                       );
                     },
@@ -372,10 +381,10 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
               onPressed: _abrirDialogNovaTipologia,
               style: ElevatedButton.styleFrom(
                 minimumSize: const Size.fromHeight(45),
-                backgroundColor: TemasCores.superficieSuave,
-                foregroundColor: TemasCores.textoPrimario,
+                backgroundColor: TemasCores.adminAcento,
+                foregroundColor: TemasCores.textoInverso,
                 elevation: 0,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               ),
               icon: const Icon(Icons.add),
               label: const Text('Nova Tipologia'),
@@ -413,7 +422,7 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
       color: TemasCores.superficie,
       elevation: 1,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
         side: const BorderSide(color: TemasCores.borda),
       ),
       child: Padding(
@@ -469,9 +478,9 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
             ElevatedButton.icon(
               onPressed: () => _abrirDialogFase(),
               style: ElevatedButton.styleFrom(
-                backgroundColor: TemasCores.acaoPrincipal,
+                backgroundColor: TemasCores.adminAcento,
                 foregroundColor: TemasCores.textoInverso,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               ),
               icon: const Icon(Icons.add, size: 18),
               label: const Text('Adicionar Fase'),
@@ -853,7 +862,7 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
                             ),
                           ),
                           IconButton(
-                            icon: const Icon(Icons.add_circle, color: TemasCores.marcaAcento),
+                            icon: const Icon(Icons.add_circle, color: TemasCores.adminAcento),
                             onPressed: () {
                               if (taskController.text.isNotEmpty) {
                                 setDialogState(() {

@@ -64,7 +64,7 @@ class FormularioLancamento extends StatelessWidget {
       color: TemasCores.superficie,
       elevation: 1,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
         side: const BorderSide(color: TemasCores.borda),
       ),
       child: Padding(
@@ -131,7 +131,7 @@ InputDecoration _decoracaoCampo({String? hintText, Widget? suffixIcon, EdgeInset
     suffixIcon: suffixIcon,
     fillColor: TemasCores.superficieSuave,
     filled: true,
-    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
     contentPadding: padding ?? const EdgeInsets.symmetric(horizontal: 16),
   );
 }
@@ -461,10 +461,10 @@ class _BotaoLancar extends StatelessWidget {
       child: ElevatedButton.icon(
         onPressed: isSaving ? null : aoLancar,
         style: ElevatedButton.styleFrom(
-          backgroundColor: TemasCores.marcaEscura,
+          backgroundColor: TemasCores.adminAcento,
           foregroundColor: TemasCores.textoInverso,
           padding: const EdgeInsets.symmetric(vertical: 20),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           elevation: 0,
         ),
         icon: isSaving

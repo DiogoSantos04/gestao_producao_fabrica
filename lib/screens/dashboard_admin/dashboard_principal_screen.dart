@@ -331,7 +331,7 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
     // parada: o ecrã inteiro passa a ser o estado de erro.
     if (!_isLoading && _erroCarregamento != null && !_carregouUmaVez) {
       return Scaffold(
-        backgroundColor: TemasCores.fundoEcra,
+        backgroundColor: TemasCores.fundoEcraFrio,
         body: EstadoErro(
           titulo: 'Não foi possível carregar os indicadores de produção',
           detalhe: _erroCarregamento,
@@ -344,7 +344,7 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
     }
 
     return Scaffold(
-      backgroundColor: TemasCores.fundoEcra,
+      backgroundColor: TemasCores.fundoEcraFrio,
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
@@ -415,8 +415,8 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
                             subtitulo: _totalPostos == 0
                                 ? 'Sem postos registados'
                                 : '% de postos operacionais · $_postosParados de $_totalPostos parados',
-                            corIcone: TemasCores.acentoRoxoForte,
-                            fundoIcone: TemasCores.acentoRoxoFundo,
+                            corIcone: TemasCores.adminAcentoForte,
+                            fundoIcone: TemasCores.adminAcentoFundo,
                             icone: Icons.bolt_outlined,
                             alerta: _disponibilidadePostos < 90,
                           ),
@@ -482,7 +482,7 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
         ),
         IconButton(
           onPressed: _carregarDadosDashboard,
-          icon: const Icon(Icons.refresh_rounded),
+          icon: const Icon(Icons.refresh_rounded, color: TemasCores.adminAcento),
           tooltip: 'Forçar Sincronização',
         ),
       ],
@@ -553,7 +553,7 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
       color: TemasCores.superficie,
       elevation: 1,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
         side: const BorderSide(color: TemasCores.borda),
       ),
       child: Padding(
@@ -672,7 +672,7 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
       color: TemasCores.superficie,
       elevation: 1,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
         side: const BorderSide(color: TemasCores.borda),
       ),
       child: Padding(
@@ -791,7 +791,7 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
       color: TemasCores.superficie,
       elevation: 1,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
         side: const BorderSide(color: TemasCores.borda),
       ),
       child: Padding(

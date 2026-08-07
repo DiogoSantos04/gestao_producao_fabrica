@@ -161,10 +161,12 @@ class TemasCores {
 
   // ─────────────────────── Superfícies ───────────────────────
 
-  /// Fundo geral de um ecrã.
+  /// Fundo geral de um ecrã. Mantido por compatibilidade com diálogos e
+  /// superfícies internas; os três perfis (admin, operador, cliente) usam
+  /// [fundoEcraFrio] como fundo de página.
   static const Color fundoEcra = Paleta.neutro50;
 
-  /// Fundo de ecrã em tom frio (relatórios, postos de trabalho).
+  /// Fundo de ecrã em tom frio — o fundo de página comum aos três perfis.
   static const Color fundoEcraFrio = Paleta.ardosia50;
 
   /// Fundo de um cartão, tabela ou diálogo.
@@ -424,6 +426,24 @@ class TemasCores {
   static const Color operadorAcentoFundoForte = Paleta.violeta100;
   static const Color operadorAcentoBorda = Paleta.violeta100;
   static const Color operadorAcentoTextoForte = Paleta.violeta700;
+
+  // ─────────────────────── Dashboard administrador ───────────────────────
+  // Mesma identidade visual do portal cliente e do terminal operador
+  // (violeta): os três perfis passam a ler-se como a mesma aplicação.
+
+  /// Cor de destaque do dashboard admin (ícone da marca, separador ativo).
+  static const Color adminAcento = Paleta.violeta500;
+
+  /// Variante mais escura, para gradientes e estados de pressão/hover.
+  static const Color adminAcentoForte = Paleta.violeta600;
+  static const Color adminAcentoEscuro = Paleta.violeta700;
+
+  /// Variante mais clara, para ícones, gradientes e texto de ênfase.
+  static const Color adminAcentoClaro = Paleta.violeta400;
+
+  /// Tintas para preencher etiquetas, badges e fundos suaves.
+  static const Color adminAcentoFundo = Paleta.violeta50;
+  static const Color adminAcentoFundoForte = Paleta.violeta100;
 
   // ───────────────────────────── Avatares ─────────────────────────────
 

@@ -33,7 +33,7 @@ class KpisCarteiraClientes extends StatelessWidget {
               valor: '${metricas.total}',
               subtitulo: 'Empresas registadas',
               icone: Icons.business_rounded,
-              corIcone: TemasCores.marcaEscura,
+              corIcone: TemasCores.adminAcento,
             ),
             CartaoKpi(
               estilo: EstiloKpi.clientes,

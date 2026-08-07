@@ -258,7 +258,7 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
         return Theme(
           data: Theme.of(context).copyWith(
             colorScheme: const ColorScheme.light(
-              primary: TemasCores.acaoPrincipal,
+              primary: TemasCores.adminAcento,
               onPrimary: TemasCores.textoInverso,
               onSurface: TemasCores.textoPrimario,
             ),
@@ -297,7 +297,7 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
     // dizê-lo e oferecer o botão de repetir do que mostrar dropdowns vazios.
     if (_erroCarregamento != null && !_carregouUmaVez) {
       return Scaffold(
-        backgroundColor: TemasCores.fundoEcra,
+        backgroundColor: TemasCores.fundoEcraFrio,
         body: EstadoErro(
           titulo: 'Não foi possível carregar os dados de planeamento',
           detalhe: _erroCarregamento,
@@ -312,7 +312,7 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
     return ScrollConfiguration(
       behavior: MouseDragScrollBehavior(),
       child: Scaffold(
-        backgroundColor: TemasCores.fundoEcra,
+        backgroundColor: TemasCores.fundoEcraFrio,
         body: Padding(
           padding: const EdgeInsets.all(24),
           child: Column(

@@ -235,7 +235,7 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: TemasCores.fundoEcra,
+      backgroundColor: TemasCores.fundoEcraFrio,
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
@@ -252,7 +252,7 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
                     color: TemasCores.superficie,
                     elevation: 1,
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(14),
                       side: const BorderSide(color: TemasCores.borda),
                     ),
                     child: Padding(
@@ -287,7 +287,7 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
           _buildKpiCard('Total de Utilizadores', '$_totalUtilizadores', Icons.people_outline, TemasCores.acentoIndigo),
           _buildKpiCard('Contas Ativas', '$_totalAtivos', Icons.check_circle_outline, TemasCores.sucesso),
           _buildKpiCard('Pendentes de Aprovação', '$_totalPendentes', Icons.hourglass_empty, TemasCores.alerta),
-          _buildKpiCard('Administradores', '$_totalAdmins', Icons.shield_outlined, TemasCores.acentoRoxo),
+          _buildKpiCard('Administradores', '$_totalAdmins', Icons.shield_outlined, TemasCores.adminAcento),
         ];
 
         // Responsivo: 4 numa linha em ecrãs largos, 2 em médios, 1 em pequenos
@@ -332,16 +332,16 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
               onPressed: _carregarUtilizadores,
               icon: const Icon(Icons.refresh),
               tooltip: 'Atualizar lista',
-              color: TemasCores.textoSecundario,
+              color: TemasCores.adminAcento,
             ),
             const SizedBox(width: 8),
             ElevatedButton.icon(
               onPressed: _abrirDialogAdicionar,
               style: ElevatedButton.styleFrom(
-                backgroundColor: TemasCores.acaoPrincipal,
+                backgroundColor: TemasCores.adminAcento,
                 foregroundColor: TemasCores.textoInverso,
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               ),
               icon: const Icon(Icons.add, size: 18),
               label: const Text('Adicionar Novo Utilizador', style: TextStyle(fontWeight: FontWeight.bold)),
@@ -361,9 +361,9 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
             controller: _searchController,
             decoration: InputDecoration(
               hintText: 'Pesquisar por nome ou email...',
-              prefixIcon: const Icon(Icons.search, color: TemasCores.textoTerciario, size: 20),
+              prefixIcon: const Icon(Icons.search, color: TemasCores.adminAcento, size: 20),
               border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(10),
                 borderSide: const BorderSide(color: TemasCores.bordaForte),
               ),
               contentPadding: const EdgeInsets.symmetric(vertical: 0),
