@@ -406,7 +406,19 @@ class _BotoesAcao extends StatelessWidget {
               icon: const Icon(Icons.build_rounded, size: 14),
               label: const Text('Registo Técnico', style: TextStyle(fontSize: 12)),
             )
-          else
+          else ...[
+            // Com a manutenção fechada, o registo continua acessível: é o que o
+            // administrador tem de ler antes de dar o Line Clearance. Enquanto
+            // este botão desaparecia com a conclusão, o relatório do técnico não
+            // chegava a ser visto por ninguém.
+            OutlinedButton.icon(
+              onPressed: () => aoRegistoTecnico(incidenciaAtiva),
+              style: contornoNeutro,
+              icon: const Icon(Icons.fact_check_outlined, size: 14),
+              label: const Text('Ver Registo Técnico',
+                  style: TextStyle(fontSize: 12)),
+            ),
+            const SizedBox(width: 8),
             ElevatedButton.icon(
               onPressed: () => aoLineClearance(incidenciaAtiva),
               style: ElevatedButton.styleFrom(
@@ -417,6 +429,7 @@ class _BotoesAcao extends StatelessWidget {
               icon: const Icon(Icons.verified_user_rounded, size: 14),
               label: const Text('Line Clearance', style: TextStyle(fontSize: 12)),
             ),
+          ],
           const SizedBox(width: 8),
         ] else if (!cancelada && !concluida) ...[
           OutlinedButton.icon(

@@ -86,9 +86,14 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
       _segundosDecorridos = 0;
       return;
     }
+    // O tempo que a fase passou parada em WIP Hold não é tempo de produção: sem
+    // o descontar, uma avaria de duas horas empurrava o Andon para atraso sem
+    // que ninguém tivesse trabalhado devagar.
+    final parados = _tarefa?.encomenda.segundosParadosFase ?? 0;
+
     // Os relógios do terminal e do servidor podem divergir; um valor negativo
     // mostraria um cronómetro a contar para trás.
-    final decorrido = DateTime.now().difference(inicio).inSeconds;
+    final decorrido = DateTime.now().difference(inicio).inSeconds - parados;
     _segundosDecorridos = decorrido > 0 ? decorrido : 0;
   }
 

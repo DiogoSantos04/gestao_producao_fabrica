@@ -61,6 +61,7 @@ class _DialogoEditarUtilizadorState extends State<DialogoEditarUtilizador> {
     _emailController = TextEditingController(text: widget.utilizador.email);
     _perfilSelecionado = switch (widget.utilizador.perfil) {
       PerfilUtilizador.administrador => 'Administrador',
+      PerfilUtilizador.tecnico => 'Tecnico',
       PerfilUtilizador.cliente => 'Cliente',
       _ => 'Operador',
     };
@@ -105,6 +106,9 @@ class _DialogoEditarUtilizadorState extends State<DialogoEditarUtilizador> {
             items: const [
               DropdownMenuItem(value: 'Administrador', child: Text('Administrador')),
               DropdownMenuItem(value: 'Operador', child: Text('Funcionário (Operador)')),
+              // O valor é gravado sem acento para coincidir com `e_tecnico()`
+              // na base de dados, que é o que abre o acesso RLS ao técnico.
+              DropdownMenuItem(value: 'Tecnico', child: Text('Técnico de Manutenção')),
               DropdownMenuItem(value: 'Cliente', child: Text('Cliente Comercial')),
             ],
             onChanged: (val) {

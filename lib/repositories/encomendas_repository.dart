@@ -124,7 +124,10 @@ class EncomendasRepository extends BaseRepository {
           tipo_manutencao,
           tecnico_id,
           entidade_externa,
+          diagnostico,
           nota_tecnica,
+          pecas_substituidas,
+          data_inicio_intervencao,
           manutencao_concluida,
           data_fim_manutencao,
           line_clearance_validado,
@@ -747,6 +750,9 @@ class EncomendasRepository extends BaseRepository {
         'nota_tecnica': notaTecnica,
         'manutencao_concluida': true,
         'data_fim_manutencao': DateTime.now().toIso8601String(),
+        // Mesmo estado a que a RPC do técnico chega: a origem do registo muda,
+        // o ponto do ciclo em que a ordem fica não.
+        'estado': 'AGUARDA_LINE_CLEARANCE',
       }).eq('id', incidenciaId);
     });
   }

@@ -386,6 +386,7 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
               DropdownMenuItem(value: 'Todos os cargos', child: Text('Todos os cargos')),
               DropdownMenuItem(value: 'Administrador', child: Text('Administradores')),
               DropdownMenuItem(value: 'Operador', child: Text('Funcionários / Operadores')),
+              DropdownMenuItem(value: 'Tecnico', child: Text('Técnicos de Manutenção')),
               DropdownMenuItem(value: 'Cliente', child: Text('Clientes')),
               DropdownMenuItem(value: 'Pendente', child: Text('Pendentes')),
             ],

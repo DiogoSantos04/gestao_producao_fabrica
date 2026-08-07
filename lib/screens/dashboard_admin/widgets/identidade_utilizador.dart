@@ -46,6 +46,7 @@ class EtiquetaPerfil extends StatelessWidget {
     // tal como antes (o `else` do encadeado original).
     final (Color fundo, Color texto) = switch (perfil) {
       PerfilUtilizador.administrador => (TemasCores.marcaEscura, TemasCores.textoInverso),
+      PerfilUtilizador.tecnico => (TemasCores.avisoFundo, TemasCores.avisoTextoForte),
       PerfilUtilizador.cliente => (TemasCores.infoFundo, TemasCores.infoTextoForte),
       _ => (TemasCores.estadoInativoFundo, TemasCores.textoPrimario),
     };

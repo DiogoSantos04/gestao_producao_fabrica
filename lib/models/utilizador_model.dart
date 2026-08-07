@@ -7,6 +7,7 @@
 enum PerfilUtilizador {
   administrador,
   operador,
+  tecnico,
   cliente,
   desconhecido;
 
@@ -19,6 +20,9 @@ enum PerfilUtilizador {
       case 'funcionario':
       case 'funcionário':
         return PerfilUtilizador.operador;
+      case 'tecnico':
+      case 'técnico':
+        return PerfilUtilizador.tecnico;
       case 'cliente':
         return PerfilUtilizador.cliente;
       default:
@@ -30,6 +34,7 @@ enum PerfilUtilizador {
   String get etiqueta => switch (this) {
         PerfilUtilizador.administrador => 'Administrador',
         PerfilUtilizador.operador => 'Funcionário',
+        PerfilUtilizador.tecnico => 'Técnico de Manutenção',
         PerfilUtilizador.cliente => 'Cliente',
         PerfilUtilizador.desconhecido => 'Funcionário',
       };
@@ -38,6 +43,7 @@ enum PerfilUtilizador {
   String get valorBd => switch (this) {
         PerfilUtilizador.administrador => 'Admin',
         PerfilUtilizador.operador => 'Operador',
+        PerfilUtilizador.tecnico => 'Tecnico',
         PerfilUtilizador.cliente => 'Cliente',
         PerfilUtilizador.desconhecido => 'Operador',
       };

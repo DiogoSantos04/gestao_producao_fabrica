@@ -21,11 +21,17 @@ class UtilizadoresRepository extends BaseRepository {
   }
 
   /// Lista para atribuição de intervenções técnicas.
+  ///
+  /// Restringe-se a quem tem o perfil de manutenção: antes devolvia toda a
+  /// tabela, pelo que o dropdown do registo técnico deixava atribuir uma
+  /// intervenção a um cliente. Aceita a grafia com e sem acento porque a coluna
+  /// `perfil` é texto livre.
   Future<List<Map<String, dynamic>>> obterParaAtribuicao() {
     return guarda('carregar os técnicos', () async {
       final dados = await client
           .from('utilizadores')
           .select('utilizador_id, nome_utilizador, perfil')
+          .or('perfil.ilike.tecnico,perfil.ilike.técnico')
           .order('nome_utilizador');
       return comoLista(dados);
     });

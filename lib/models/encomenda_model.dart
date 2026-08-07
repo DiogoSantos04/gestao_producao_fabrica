@@ -33,6 +33,14 @@ class EncomendaModel {
   /// `add_data_inicio_fase_encomendas` cujo backfill não encontrou referência.
   final DateTime? dataInicioFase;
 
+  /// Segundos que a fase atual esteve parada em WIP Hold.
+  ///
+  /// Acumulado pelo servidor a cada line clearance e reposto a zero quando a
+  /// ordem muda de fase. Existe para que o tempo de avaria não conte como tempo
+  /// de produção sem ter de falsificar [dataInicioFase], que é o momento real em
+  /// que a fase começou e o que o histórico usa.
+  final int segundosParadosFase;
+
   /// Campos vindos das junções. Ficam nulos quando a query não os pediu.
   final String? nomeCliente;
   final String? nomeProduto;
@@ -60,6 +68,7 @@ class EncomendaModel {
     this.dataCancelamento,
     this.emSuspenso = false,
     this.dataInicioFase,
+    this.segundosParadosFase = 0,
     this.nomeCliente,
     this.nomeProduto,
     this.nomeFaseAtual,
@@ -92,6 +101,7 @@ class EncomendaModel {
       dataCancelamento: _data(json['data_cancelamento']),
       emSuspenso: json['em_suspenso'] == true,
       dataInicioFase: _data(json['data_inicio_fase']),
+      segundosParadosFase: _inteiro(json['segundos_parados_fase']) ?? 0,
       nomeCliente: cliente?['nome_cliente'] as String?,
       nomeProduto: produto?['nome_tipo_produto'] as String?,
       nomeFaseAtual: fase?['nome_fase_padrao'] as String?,

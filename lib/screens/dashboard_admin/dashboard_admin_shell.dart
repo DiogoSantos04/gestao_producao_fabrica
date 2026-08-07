@@ -4,6 +4,7 @@ import '../../core/iniciais.dart';
 import '../../core/mensagens.dart';
 import '../../core/temas_cores.dart';
 import '../../models/estado_ordem.dart';
+import '../../models/utilizador_model.dart';
 import '../../repositories/utilizadores_repository.dart';
 import '../../services/auth_service.dart';
 import '../login_screen.dart';
@@ -77,7 +78,49 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
   void initState() {
     super.initState();
     _semearPerfilEmCache();
+    _confirmarSessaoDeAdministrador();
     _iniciarEscutaEmTempoReal();
+  }
+
+  /// Verifica que a sessão do Auth pertence mesmo a um administrador.
+  ///
+  /// A cache de perfil do [AuthService] é de um singleton e sobrevive a trocas
+  /// de sessão: bastava a sessão passar a ser de outra conta para este ecrã
+  /// continuar a mostrar o nome do administrador anterior enquanto as escritas
+  /// já iam assinadas pelo novo utilizador. O resultado era um erro sem nexo
+  /// aparente — "Apenas o Administrador pode alterar o perfil de acesso." vindo
+  /// do trigger `impedir_autopromocao`, num ecrã que se dizia de administrador.
+  ///
+  /// A base de dados nunca chegou a estar em risco (o trigger recusou); o que
+  /// faltava era a aplicação admitir que a sessão não era a que aparentava.
+  Future<void> _confirmarSessaoDeAdministrador() async {
+    final String? uid = _utilizadoresRepo.utilizadorAtualId;
+
+    // Sem sessão não há nada a validar: o arranque da app já encaminha para o
+    // login nesse caso.
+    if (uid == null) return;
+
+    final PerfilUtilizador perfil;
+    try {
+      perfil = (await _authService.obterUtilizadorPorId(uid)).perfil;
+    } catch (_) {
+      // Uma falha de rede não pode expulsar quem está a trabalhar: as escritas
+      // continuam protegidas pelas políticas e triggers do lado do servidor.
+      return;
+    }
+
+    if (!mounted || perfil == PerfilUtilizador.administrador) return;
+
+    await _authService.logout();
+    if (!mounted) return;
+
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (context) => const LoginScreen()),
+    );
+    context.mostrarMensagem(
+      'A sessão ativa não é de administrador. Inicie sessão novamente.',
+      eErro: true,
+    );
   }
 
   /// Mostra já o perfil que o login carregou, para o cabeçalho não abrir com

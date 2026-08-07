@@ -8,6 +8,7 @@ import 'portal_cliente/cliente_shell_screen.dart'; // 👈 IMPORTADO: Shell cent
 import 'portal_cliente/rastreio_cliente_screen.dart';
 import 'registo_screen.dart';
 import 'terminal_operador/operador_shell_screen.dart';
+import 'terminal_tecnico/tecnico_shell_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -118,6 +119,11 @@ class _LoginScreenState extends State<LoginScreen> {
         debugPrint('Redirecionando para: OperadorShellScreen (Operador Shell)');
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(builder: (context) => const OperadorShellScreen()),
+        );
+      case PerfilUtilizador.tecnico:
+        debugPrint('Redirecionando para: TecnicoShellScreen (Manutenção)');
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (context) => const TecnicoShellScreen()),
         );
       case PerfilUtilizador.cliente:
         debugPrint('Redirecionando para: ClienteShellScreen (Portal Cliente)');
