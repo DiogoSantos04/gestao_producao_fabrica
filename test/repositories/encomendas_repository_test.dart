@@ -216,6 +216,59 @@ void main() {
       expect(resultado.first.ocorrencias, 2);
     });
 
+    test('por tempo perdido, o motivo raro e demorado passa à frente do frequente e rápido', () {
+      // É o ponto do segundo critério: o motivo 1 acontece três vezes e custa
+      // 30 minutos ao todo; o motivo 2 acontece uma vez e custa 120. Por
+      // ocorrências ganha o primeiro, por tempo perdido ganha o segundo — e a
+      // decisão de manutenção que cada leitura sugere é diferente.
+      final rapidas = List.generate(
+        3,
+        (_) => paragem(
+          inicio: agora.subtract(const Duration(minutes: 20)),
+          fimManutencao: agora.subtract(const Duration(minutes: 10)),
+        ),
+      );
+      final demorada = paragem(
+        reasonCodeId: 2,
+        descricao: 'Avaria mecânica',
+        inicio: agora.subtract(const Duration(minutes: 200)),
+        fimManutencao: agora.subtract(const Duration(minutes: 80)),
+      );
+
+      final porOcorrencias = EncomendasRepository.agregarPareto(
+        [...rapidas, demorada],
+        agora: agora,
+      );
+      final porTempo = EncomendasRepository.agregarPareto(
+        [...rapidas, demorada],
+        criterio: CriterioPareto.tempoPerdido,
+        agora: agora,
+      );
+
+      expect(porOcorrencias.first.rotulo, 'Rolamento partido');
+      expect(porTempo.first.rotulo, 'Avaria mecânica');
+      expect(porTempo.first.minutosTotais, 120);
+    });
+
+    test('sem limite devolve todos os motivos, para a curva acumulada ter o total real', () {
+      final resultado = EncomendasRepository.agregarPareto(
+        List.generate(7, (i) => paragem(reasonCodeId: i + 1, descricao: 'Motivo $i')),
+        agora: agora,
+      );
+
+      expect(resultado.length, 7);
+    });
+
+    test('com limite corta ao topo pedido', () {
+      final resultado = EncomendasRepository.agregarPareto(
+        List.generate(7, (i) => paragem(reasonCodeId: i + 1, descricao: 'Motivo $i')),
+        limite: 5,
+        agora: agora,
+      );
+
+      expect(resultado.length, 5);
+    });
+
     test('o texto livre não cria motivos: duas frases do mesmo código contam juntas', () {
       // É o ponto todo da agregação por reason_code — ver bug (D). Com a coluna
       // `motivo` estas duas linhas seriam dois motivos distintos.

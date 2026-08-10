@@ -40,6 +40,9 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
   double _avaliacaoMedia = 0.0;
 
   // Variáveis dos Filtros Avançados
+  /// Estimado vs. real por fase, do maior desvio para o menor.
+  List<DesempenhoFase> _desempenhoFases = [];
+
   int? _clienteSelecionadoId;
   int? _tipoProdutoSelecionadoId;
 
@@ -187,6 +190,12 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
       // 7. Procurar o histórico de relatórios emitidos anteriormente (Auditoria)
       final dadosHistoricoRelatorios = await _relatoriosRepo.obterHistoricoEmissoes();
 
+      // 8. Desempenho temporal por fase, agregado no servidor.
+      final desempenho = await _encomendasRepo.obterDesempenhoFases(
+        clienteId: _clienteSelecionadoId,
+        tipoProdutoId: _tipoProdutoSelecionadoId,
+      );
+
       // --- MAPEAMENTO DAS ÚLTIMAS FASES (fim de linha de cada tipo de produto) ---
       final Map<int, int> ultimaFasePorProduto = {};
       final Map<int, int> ordemDaUltimaFase = {};
@@ -230,6 +239,7 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
           _dadosHistorico = dadosHistorico;
           _historicoRelatorios = dadosHistoricoRelatorios;
           _ultimaFasePorProduto = ultimaFasePorProduto;
+          _desempenhoFases = desempenho;
           _encomendasConcluidas = concluidas;
           _taxaEntregaNoPrazo = concluidas > 0 ? (noPrazo / concluidas) : 0.0;
           _isLoading = false;
@@ -246,6 +256,146 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
         });
       }
     }
+  }
+
+  /// Estimado vs. real por fase.
+  ///
+  /// A leitura que interessa não é o número absoluto, é o desvio: uma fase
+  /// sistematicamente acima do previsto ou é mais complexa do que o roteiro
+  /// admite, ou é onde a linha está a encravar.
+  Widget _construirPainelDesempenho() {
+    if (_desempenhoFases.isEmpty) {
+      return const Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Desempenho por Fase (Planeado vs. Real)',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: TemasCores.textoPrimario)),
+          SizedBox(height: 4),
+          Text('Ainda não há fases concluídas suficientes para calcular médias.',
+              style: TextStyle(fontSize: 12, color: TemasCores.textoTerciario, fontStyle: FontStyle.italic)),
+        ],
+      );
+    }
+
+    final int totalIgnoradas =
+        _desempenhoFases.fold(0, (soma, d) => soma + d.amostrasIgnoradas);
+
+    // A escala é comum a todas as barras, senão duas fases com durações muito
+    // diferentes pareciam iguais.
+    final double maxMinutos = _desempenhoFases.fold<double>(
+      1,
+      (max, d) => [max, d.minutosReais, d.minutosEstimados.toDouble()]
+          .reduce((a, b) => a > b ? a : b),
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Desempenho por Fase (Planeado vs. Real)',
+            style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: TemasCores.textoPrimario)),
+        const SizedBox(height: 4),
+        Text(
+          'Tempo estimado no roteiro contra a média medida no histórico, '
+          'da fase com maior desvio para a menor.'
+          '${totalIgnoradas > 0 ? ' $totalIgnoradas conclusão(ões) fora de escala ignoradas.' : ''}',
+          style: const TextStyle(fontSize: 11, color: TemasCores.textoTerciario),
+        ),
+        const SizedBox(height: 16),
+        ..._desempenhoFases.take(10).map((d) => _construirLinhaDesempenho(d, maxMinutos)),
+        const SizedBox(height: 8),
+        const Text(
+          'A duração inclui o tempo de paragem por avaria: uma fase pode surgir '
+          'acima do previsto por ter parado, e não por ser lenta.',
+          style: TextStyle(fontSize: 10, color: TemasCores.textoDesativado, fontStyle: FontStyle.italic),
+        ),
+      ],
+    );
+  }
+
+  Widget _construirLinhaDesempenho(DesempenhoFase d, double maxMinutos) {
+    final double desvio = d.desvioPercentagem ?? 0;
+    final Color corDesvio = desvio > 15
+        ? TemasCores.erroTextoForte
+        : desvio > 0
+            ? TemasCores.avisoTextoForte
+            : TemasCores.sucessoTextoForte;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '${d.nomeFase}  ·  ${d.nomeProduto}',
+                  style: const TextStyle(
+                      fontSize: 13, fontWeight: FontWeight.w600, color: TemasCores.textoPrimario),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: 8),
+              if (d.desvioPercentagem != null)
+                Text(
+                  '${desvio > 0 ? '+' : ''}${desvio.toStringAsFixed(0)}%',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: corDesvio),
+                )
+              else
+                const Text('sem estimativa',
+                    style: TextStyle(fontSize: 11, color: TemasCores.textoDesativado)),
+            ],
+          ),
+          const SizedBox(height: 6),
+          _barraDesempenho('Previsto', d.minutosEstimados.toDouble(), maxMinutos,
+              TemasCores.graficoBarraBase),
+          const SizedBox(height: 4),
+          _barraDesempenho('Real', d.minutosReais, maxMinutos, corDesvio),
+          const SizedBox(height: 4),
+          Text(
+            '${d.amostras} conclusõe(s) na média'
+            '${d.amostraFraca ? ' · amostra reduzida, ler com reserva' : ''}'
+            '${d.amostrasIgnoradas > 0 ? ' · ${d.amostrasIgnoradas} fora de escala' : ''}',
+            style: TextStyle(
+              fontSize: 10,
+              fontStyle: FontStyle.italic,
+              color: d.amostraFraca ? TemasCores.avisoTextoForte : TemasCores.textoTerciario,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _barraDesempenho(String rotulo, double minutos, double maxMinutos, Color cor) {
+    return Row(
+      children: [
+        SizedBox(
+          width: 56,
+          child: Text(rotulo,
+              style: const TextStyle(fontSize: 10, color: TemasCores.textoTerciario)),
+        ),
+        Expanded(
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: maxMinutos <= 0 ? 0 : (minutos / maxMinutos).clamp(0.0, 1.0),
+              minHeight: 8,
+              backgroundColor: TemasCores.superficieTenue,
+              valueColor: AlwaysStoppedAnimation<Color>(cor),
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        SizedBox(
+          width: 64,
+          child: Text('${minutos.toStringAsFixed(0)} min',
+              textAlign: TextAlign.right,
+              style: const TextStyle(fontSize: 10, color: TemasCores.textoSecundario)),
+        ),
+      ],
+    );
   }
 
   // --- GERAÇÃO DO DOCUMENTO PDF REAL E UPLOAD EMPRESARIAL ---
@@ -644,6 +794,13 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
                   ),
                 ],
               ),
+
+              // --- DESEMPENHO TEMPORAL POR FASE ---
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 24),
+                child: Divider(),
+              ),
+              _construirPainelDesempenho(),
 
               // --- MÓDULO DE AUDITORIA E LOGS ---
               const Padding(

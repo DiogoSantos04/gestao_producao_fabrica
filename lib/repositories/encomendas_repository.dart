@@ -59,6 +59,86 @@ class ParagemAgregada {
       ocorrencias == 0 ? 0 : (minutosTotais / ocorrencias).round();
 }
 
+/// Desempenho temporal de uma fase: o que o roteiro previa contra o que a
+/// fábrica levou.
+///
+/// Fecha a lacuna entre `fases_padrao.tempo_estimado` — escrito uma vez pelo
+/// admin e nunca confrontado com a realidade — e o histórico de produção.
+class DesempenhoFase {
+  final int faseId;
+  final String nomeFase;
+  final int ordemFase;
+  final String nomeProduto;
+
+  /// Fases concluídas que entraram na média.
+  final int amostras;
+
+  /// Conclusões descartadas por durarem mais do que o limite de escala.
+  ///
+  /// Existem porque o início de uma fase é inferido da conclusão da anterior:
+  /// uma ordem parada de um dia para o outro produz uma duração que mede
+  /// calendário, não execução. São mostradas em vez de escondidas.
+  final int amostrasIgnoradas;
+
+  final int minutosEstimados;
+  final double minutosReais;
+
+  /// Desvio em percentagem. Nulo quando a fase não tem tempo estimado.
+  final double? desvioPercentagem;
+
+  const DesempenhoFase({
+    required this.faseId,
+    required this.nomeFase,
+    required this.ordemFase,
+    required this.nomeProduto,
+    required this.amostras,
+    required this.amostrasIgnoradas,
+    required this.minutosEstimados,
+    required this.minutosReais,
+    this.desvioPercentagem,
+  });
+
+  factory DesempenhoFase.fromJson(Map<String, dynamic> json) => DesempenhoFase(
+        faseId: (json['fase_id'] as num?)?.toInt() ?? 0,
+        nomeFase: (json['nome_fase'] as String?) ?? 'Fase',
+        ordemFase: (json['ordem_fase'] as num?)?.toInt() ?? 0,
+        nomeProduto: (json['nome_tipo_produto'] as String?) ?? 'Sem produto',
+        amostras: (json['amostras'] as num?)?.toInt() ?? 0,
+        amostrasIgnoradas: (json['amostras_ignoradas'] as num?)?.toInt() ?? 0,
+        minutosEstimados: (json['minutos_estimados'] as num?)?.toInt() ?? 0,
+        minutosReais: (json['minutos_reais_media'] as num?)?.toDouble() ?? 0,
+        desvioPercentagem: (json['desvio_percentagem'] as num?)?.toDouble(),
+      );
+
+  /// A fase demorou mais do que o previsto.
+  bool get acimaDoPrevisto => (desvioPercentagem ?? 0) > 0;
+
+  /// Poucas conclusões para a média significar alguma coisa.
+  ///
+  /// Não esconde a linha — sinaliza-a. Uma média de duas observações é um
+  /// número, não uma tendência, e o ecrã tem de o dizer.
+  bool get amostraFraca => amostras < 5;
+}
+
+/// Como ordenar o Pareto das paragens.
+///
+/// Os dois critérios contam histórias diferentes e ambas são precisas: um
+/// motivo pode ser o mais frequente e custar pouco (arranca-se depressa),
+/// enquanto outro aparece três vezes por mês e come mais horas do que todos os
+/// outros juntos. Escolher só um esconde metade do problema.
+enum CriterioPareto {
+  /// Quantas vezes a paragem aconteceu.
+  ocorrencias,
+
+  /// Quantos minutos de linha a paragem custou.
+  tempoPerdido;
+
+  String get etiqueta => switch (this) {
+        CriterioPareto.ocorrencias => 'Ocorrências',
+        CriterioPareto.tempoPerdido => 'Tempo perdido',
+      };
+}
+
 /// Forma como uma [CondicaoEstado] compara a coluna.
 enum OperadorCondicao { igual, ehNulo, naoEhNulo, menorQue }
 
@@ -548,7 +628,8 @@ class EncomendasRepository extends BaseRepository {
   /// afeta só este método.
   Future<List<ParagemAgregada>> obterParetoParagens({
     int dias = 30,
-    int limite = 5,
+    int? limite,
+    CriterioPareto criterio = CriterioPareto.ocorrencias,
   }) {
     return guarda('carregar os motivos de paragem mais frequentes', () async {
       final desde = DateTime.now().subtract(Duration(days: dias));
@@ -574,7 +655,35 @@ class EncomendasRepository extends BaseRepository {
           .map((linha) => IncidenciaModel.fromJson({...linha, 'id': 0}))
           .toList();
 
-      return agregarPareto(incidencias, limite: limite);
+      return agregarPareto(incidencias, limite: limite, criterio: criterio);
+    });
+  }
+
+  /// Estimado vs. real por fase, do maior desvio para o menor.
+  ///
+  /// A agregação fica no servidor: o histórico cresce com cada fase concluída
+  /// de cada ordem, e o ecrã só precisa de uma linha por fase.
+  Future<List<DesempenhoFase>> obterDesempenhoFases({
+    DateTime? inicio,
+    DateTime? fim,
+    int? clienteId,
+    int? tipoProdutoId,
+  }) {
+    return guarda('calcular o desempenho das fases', () async {
+      String? dia(DateTime? d) => d == null
+          ? null
+          : '${d.year.toString().padLeft(4, '0')}-'
+              '${d.month.toString().padLeft(2, '0')}-'
+              '${d.day.toString().padLeft(2, '0')}';
+
+      final dados = await client.rpc('obter_desempenho_fases', params: {
+        'p_inicio': dia(inicio),
+        'p_fim': dia(fim),
+        'p_cliente_id': clienteId,
+        'p_tipo_produto_id': tipoProdutoId,
+      });
+
+      return comoLista(dados).map(DesempenhoFase.fromJson).toList();
     });
   }
 
@@ -586,7 +695,8 @@ class EncomendasRepository extends BaseRepository {
   /// início até [agora], porque é exatamente o tempo que está a custar.
   static List<ParagemAgregada> agregarPareto(
     List<IncidenciaModel> incidencias, {
-    int limite = 5,
+    int? limite,
+    CriterioPareto criterio = CriterioPareto.ocorrencias,
     DateTime? agora,
   }) {
     final instante = agora ?? DateTime.now();
@@ -615,18 +725,38 @@ class EncomendasRepository extends BaseRepository {
       );
     }
 
-    final ordenadas = porMotivo.values.toList()
+    final ordenadas = ordenarPareto(porMotivo.values, criterio: criterio);
+
+    // Sem limite devolve tudo: a curva acumulada do Pareto precisa do total
+    // real, e não do total dos que couberam no ecrã.
+    return limite == null ? ordenadas : ordenadas.take(limite).toList();
+  }
+
+  /// Ordena motivos de paragem pelo [criterio] escolhido.
+  ///
+  /// Está separado da agregação para o ecrã poder trocar de critério sem voltar
+  /// à rede: os dois números já vêm calculados em cada [ParagemAgregada].
+  static List<ParagemAgregada> ordenarPareto(
+    Iterable<ParagemAgregada> paragens, {
+    CriterioPareto criterio = CriterioPareto.ocorrencias,
+  }) {
+    return paragens.toList()
       ..sort((a, b) {
-        final porOcorrencias = b.ocorrencias.compareTo(a.ocorrencias);
-        if (porOcorrencias != 0) return porOcorrencias;
-        final porMinutos = b.minutosTotais.compareTo(a.minutosTotais);
-        if (porMinutos != 0) return porMinutos;
+        // O critério escolhido manda; o outro serve de primeiro desempate.
+        final principal = criterio == CriterioPareto.tempoPerdido
+            ? b.minutosTotais.compareTo(a.minutosTotais)
+            : b.ocorrencias.compareTo(a.ocorrencias);
+        if (principal != 0) return principal;
+
+        final secundario = criterio == CriterioPareto.tempoPerdido
+            ? b.ocorrencias.compareTo(a.ocorrencias)
+            : b.minutosTotais.compareTo(a.minutosTotais);
+        if (secundario != 0) return secundario;
+
         // Desempate estável: sem ele, dois motivos empatados podiam trocar de
         // lugar entre recarregamentos e o gráfico parecia mexer sozinho.
         return a.rotulo.compareTo(b.rotulo);
       });
-
-    return ordenadas.take(limite).toList();
   }
 
   /// Há quanto tempo, em média, as paragens em aberto estão a bloquear a linha.
