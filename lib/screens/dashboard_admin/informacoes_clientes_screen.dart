@@ -13,6 +13,7 @@ import 'widgets/linha_cliente.dart';
 import 'widgets/painel_detalhe_cliente.dart';
 import '../../models/cliente_model.dart';
 import '../../repositories/clientes_repository.dart';
+import '../../repositories/utilizadores_repository.dart';
 import '../../widgets/estado_erro.dart';
 import '../../widgets/rodape_paginacao.dart';
 
@@ -25,6 +26,7 @@ class ClientesScreen extends StatefulWidget {
 
 class _ClientesScreenState extends State<ClientesScreen> {
   final _clientesRepo = ClientesRepository();
+  final _utilizadoresRepo = UtilizadoresRepository();
   RealtimeChannel? _clientesSubscription;
 
   /// Os clientes já carregados — a primeira página mais o que o scroll trouxe.
@@ -235,6 +237,13 @@ class _ClientesScreenState extends State<ClientesScreen> {
   bool get _semFiltrosAtivos =>
       _searchController.text.trim().isEmpty && _filtroEstado == FiltroCliente.todos;
 
+  /// Cria a ficha do cliente e, se pedido, a conta de acesso que lhe fica
+  /// associada.
+  ///
+  /// A credencial é criada primeiro de propósito: é ela que produz a linha em
+  /// `utilizadores` para onde `clientes.utilizador_id` aponta. Se falhar, não se
+  /// chega a criar ficha nenhuma — melhor não ter cliente do que ter um cliente
+  /// que se dizia com acesso e não tem.
   Future<void> _inserirCliente({
     required String nome,
     required String email,
@@ -243,9 +252,20 @@ class _ClientesScreenState extends State<ClientesScreen> {
     required String pessoaContacto,
     required String morada,
     required bool ativo,
+    String? passwordAcesso,
   }) async {
     try {
       setState(() => _isLoading = true);
+
+      String? utilizadorId;
+      if (passwordAcesso != null) {
+        utilizadorId = await _utilizadoresRepo.criarCredencialCliente(
+          nome: nome,
+          email: email,
+          password: passwordAcesso,
+        );
+      }
+
       await _clientesRepo.criar({
         'nome_cliente': nome,
         'email': email,
@@ -254,8 +274,11 @@ class _ClientesScreenState extends State<ClientesScreen> {
         'pessoa_contacto': pessoaContacto,
         'morada': morada,
         'ativo': ativo,
+        'utilizador_id': ?utilizadorId,
       });
-      _mostrarMensagem('Conta de cliente criada com sucesso!');
+      _mostrarMensagem(utilizadorId == null
+          ? 'Cliente criado com sucesso!'
+          : 'Cliente criado e já disponível em Utilizadores!');
       _carregarClientes();
     } catch (e) {
       _mostrarMensagem('Erro ao criar cliente: $e', eErro: true);
@@ -319,6 +342,7 @@ class _ClientesScreenState extends State<ClientesScreen> {
         pessoaContacto: dados.pessoaContacto,
         morada: dados.morada,
         ativo: dados.ativo,
+        passwordAcesso: dados.passwordAcesso,
       );
     } else {
       await _atualizarCliente(
