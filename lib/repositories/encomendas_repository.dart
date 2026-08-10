@@ -80,8 +80,19 @@ class DesempenhoFase {
   /// calendário, não execução. São mostradas em vez de escondidas.
   final int amostrasIgnoradas;
 
+  /// Conclusões que já trazem o tempo de paragem registado.
+  ///
+  /// Zero nas fases cujas conclusões são todas anteriores à coluna
+  /// `historico_producao.segundos_parados`: aí só há duração bruta, e a app
+  /// não pode fingir que sabe quanto tempo a fase esteve parada.
+  final int amostrasComParagem;
+
   final int minutosEstimados;
   final double minutosReais;
+
+  /// Média já sem o tempo de avaria. Nula enquanto não houver conclusões com
+  /// paragem registada.
+  final double? minutosLiquidos;
 
   /// Desvio em percentagem. Nulo quando a fase não tem tempo estimado.
   final double? desvioPercentagem;
@@ -93,8 +104,10 @@ class DesempenhoFase {
     required this.nomeProduto,
     required this.amostras,
     required this.amostrasIgnoradas,
+    required this.amostrasComParagem,
     required this.minutosEstimados,
     required this.minutosReais,
+    this.minutosLiquidos,
     this.desvioPercentagem,
   });
 
@@ -105,10 +118,21 @@ class DesempenhoFase {
         nomeProduto: (json['nome_tipo_produto'] as String?) ?? 'Sem produto',
         amostras: (json['amostras'] as num?)?.toInt() ?? 0,
         amostrasIgnoradas: (json['amostras_ignoradas'] as num?)?.toInt() ?? 0,
+        amostrasComParagem: (json['amostras_com_paragem'] as num?)?.toInt() ?? 0,
         minutosEstimados: (json['minutos_estimados'] as num?)?.toInt() ?? 0,
         minutosReais: (json['minutos_reais_media'] as num?)?.toDouble() ?? 0,
+        minutosLiquidos: (json['minutos_liquidos_media'] as num?)?.toDouble(),
         desvioPercentagem: (json['desvio_percentagem'] as num?)?.toDouble(),
       );
+
+  /// A fase tem tempo de paragem medido e ele muda a leitura.
+  ///
+  /// Sem isto, uma avaria de três horas aparece como lentidão do posto, e a
+  /// decisão que o gestor toma a seguir é a errada.
+  bool get temParagemMedida =>
+      amostrasComParagem > 0 &&
+      minutosLiquidos != null &&
+      (minutosReais - minutosLiquidos!) >= 1;
 
   /// A fase demorou mais do que o previsto.
   bool get acimaDoPrevisto => (desvioPercentagem ?? 0) > 0;

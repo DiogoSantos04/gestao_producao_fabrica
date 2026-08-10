@@ -304,8 +304,9 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
         ..._desempenhoFases.take(10).map((d) => _construirLinhaDesempenho(d, maxMinutos)),
         const SizedBox(height: 8),
         const Text(
-          'A duração inclui o tempo de paragem por avaria: uma fase pode surgir '
-          'acima do previsto por ter parado, e não por ser lenta.',
+          'A barra "Real" é bruta e inclui o tempo de paragem por avaria. '
+          '"Sem paragens" só aparece nas fases concluídas depois de o sistema '
+          'passar a registar o tempo parado — nas anteriores esse tempo não foi medido.',
           style: TextStyle(fontSize: 10, color: TemasCores.textoDesativado, fontStyle: FontStyle.italic),
         ),
       ],
@@ -352,6 +353,13 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
               TemasCores.graficoBarraBase),
           const SizedBox(height: 4),
           _barraDesempenho('Real', d.minutosReais, maxMinutos, corDesvio),
+          // Só aparece quando há paragens medidas: separa "a fase é lenta" de
+          // "a máquina esteve parada", que exigem decisões opostas.
+          if (d.temParagemMedida) ...[
+            const SizedBox(height: 4),
+            _barraDesempenho(
+                'Sem paragens', d.minutosLiquidos!, maxMinutos, TemasCores.sucessoTextoForte),
+          ],
           const SizedBox(height: 4),
           Text(
             '${d.amostras} conclusõe(s) na média'
