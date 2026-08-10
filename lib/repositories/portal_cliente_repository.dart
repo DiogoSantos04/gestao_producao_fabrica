@@ -26,23 +26,42 @@ class FaseRoteiro {
 /// Deliberadamente **não** tem cliente, observações nem motivo de cancelamento:
 /// a função `rastrear_encomenda` no servidor não os devolve (ver bug (C)).
 class RastreioEncomenda {
+  /// Identificador da encomenda, necessário para confirmar a receção.
+  final int? id;
+
   final String codigoRastreio;
   final DateTime? dataEntrega;
   final String? nomeProduto;
   final int? faseAtualId;
   final bool cancelada;
   final bool emSuspenso;
+
+  /// Momento em que o cliente confirmou ter recebido a encomenda.
+  ///
+  /// Deliberadamente **não** é um valor de [EstadoOrdem]: a receção é um passo
+  /// logístico posterior ao fabrico, e não um estado de produção. Acrescentá-la
+  /// ao enum faria `derivar()` deixar de devolver `concluida` para estas ordens,
+  /// e todo o código que compara com `EstadoOrdem.concluida` — relatórios e
+  /// KPIs — passaria a excluí-las sem dar erro. É a forma exata do bug (b) em
+  /// docs/BUGS_RESOLVIDOS.md.
+  final DateTime? dataConfirmacaoRececao;
+
   final List<FaseRoteiro> fases;
 
   const RastreioEncomenda({
+    this.id,
     required this.codigoRastreio,
     this.dataEntrega,
     this.nomeProduto,
     this.faseAtualId,
     this.cancelada = false,
     this.emSuspenso = false,
+    this.dataConfirmacaoRececao,
     this.fases = const [],
   });
+
+  /// O cliente já confirmou a receção física.
+  bool get rececaoConfirmada => dataConfirmacaoRececao != null;
 
   factory RastreioEncomenda.fromJson(Map<String, dynamic> json) {
     final fases = (json['fases'] as List? ?? const [])
@@ -52,12 +71,15 @@ class RastreioEncomenda {
       ..sort((a, b) => a.ordem.compareTo(b.ordem));
 
     return RastreioEncomenda(
+      id: (json['id'] as num?)?.toInt(),
       codigoRastreio: (json['codigo_rastreio'] as String?) ?? '',
       dataEntrega: DateTime.tryParse(json['data_entrega']?.toString() ?? ''),
       nomeProduto: json['nome_tipo_produto'] as String?,
       faseAtualId: (json['fase_atual_id'] as num?)?.toInt(),
       cancelada: json['cancelada'] == true,
       emSuspenso: json['em_suspenso'] == true,
+      dataConfirmacaoRececao:
+          DateTime.tryParse(json['data_confirmacao_rececao']?.toString() ?? ''),
       fases: fases,
     );
   }
@@ -325,6 +347,28 @@ class PortalClienteRepository extends BaseRepository {
 
       if (resposta == null) return null;
       return RastreioEncomenda.fromJson(Map<String, dynamic>.from(resposta as Map));
+    });
+  }
+
+  /// Confirma a receção física de uma encomenda concluída.
+  ///
+  /// Fecha a rastreabilidade do lado do destinatário: até aqui o percurso de uma
+  /// ordem terminava na fábrica, com a última fase concluída, e nada registava
+  /// que ela tinha efetivamente chegado.
+  ///
+  /// Ao contrário de [rastrear], **exige sessão iniciada**. O rastreio é
+  /// consultável por quem tenha o código, mas confirmar é um ato de vontade do
+  /// destinatário: a função no servidor compara o dono da encomenda com
+  /// `cliente_atual_id()` e recusa tudo o resto. Devolve o momento gravado pelo
+  /// relógio do servidor.
+  Future<DateTime?> confirmarRececao(int encomendaId) {
+    return guarda('confirmar a receção da encomenda', () async {
+      final resposta = await client.rpc(
+        'confirmar_rececao_encomenda',
+        params: {'p_encomenda_id': encomendaId},
+      );
+
+      return DateTime.tryParse(resposta?.toString() ?? '');
     });
   }
 

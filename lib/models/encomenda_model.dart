@@ -41,6 +41,13 @@ class EncomendaModel {
   /// que a fase começou e o que o histórico usa.
   final int segundosParadosFase;
 
+  /// Momento em que o cliente confirmou ter recebido a encomenda.
+  ///
+  /// Não entra em [EstadoOrdem]: a receção é logística posterior ao fabrico, e
+  /// uma ordem recebida continua a ser uma ordem concluída para todos os
+  /// indicadores. Ver a nota em `RastreioEncomenda.dataConfirmacaoRececao`.
+  final DateTime? dataConfirmacaoRececao;
+
   /// Campos vindos das junções. Ficam nulos quando a query não os pediu.
   final String? nomeCliente;
   final String? nomeProduto;
@@ -69,6 +76,7 @@ class EncomendaModel {
     this.emSuspenso = false,
     this.dataInicioFase,
     this.segundosParadosFase = 0,
+    this.dataConfirmacaoRececao,
     this.nomeCliente,
     this.nomeProduto,
     this.nomeFaseAtual,
@@ -102,6 +110,7 @@ class EncomendaModel {
       emSuspenso: json['em_suspenso'] == true,
       dataInicioFase: _data(json['data_inicio_fase']),
       segundosParadosFase: _inteiro(json['segundos_parados_fase']) ?? 0,
+      dataConfirmacaoRececao: _data(json['data_confirmacao_rececao']),
       nomeCliente: cliente?['nome_cliente'] as String?,
       nomeProduto: produto?['nome_tipo_produto'] as String?,
       nomeFaseAtual: fase?['nome_fase_padrao'] as String?,

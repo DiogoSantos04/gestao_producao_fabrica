@@ -80,6 +80,14 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
   /// Ordens suspensas (WIP Hold). Estavam só visíveis dentro dos alertas.
   int _encomendasEmHold = 0;
 
+  /// Ordens já concluídas e, dessas, quantas o cliente confirmou ter recebido.
+  ///
+  /// Mede o fecho da rastreabilidade fora da fábrica: uma ordem concluída sem
+  /// receção confirmada percorreu o roteiro todo mas não tem prova de ter
+  /// chegado ao destinatário.
+  int _totalConcluidas = 0;
+  int _rececoesConfirmadas = 0;
+
   /// Percentagem de postos que não estão em estado 'Parado'.
   double _disponibilidadePostos = 100.0;
 
@@ -185,6 +193,7 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
       int ativas = 0;
       int atrasadas = 0;
       int emHold = 0;
+      int rececoesConfirmadas = 0;
 
       // Ordens já concluídas, para depois as datar pelo dia em que fecharam.
       final Set<int> idsConcluidas = {};
@@ -216,6 +225,11 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
           // Concluída: não ocupa posto nenhum. Em que dia fechou decide-se
           // mais abaixo, pela data da última fase.
           idsConcluidas.add(enc.id);
+
+          // Fecho do ciclo do lado do destinatário. Conta-se sobre as
+          // concluídas, e não sobre todas as ordens, porque só essas podem
+          // ter sido recebidas.
+          if (enc.dataConfirmacaoRececao != null) rececoesConfirmadas++;
         } else {
           // Em produção ou suspensa: continua a ocupar um posto na linha.
           ativas++;
@@ -283,6 +297,8 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
         _concluidasHoje = concluidasHoje;
         _concluidasOntem = concluidasOntem;
         _encomendasEmHold = emHold;
+        _totalConcluidas = idsConcluidas.length;
+        _rececoesConfirmadas = rececoesConfirmadas;
         _disponibilidadePostos = disponibilidade;
         _postosParados = postosParados;
         _totalPostos = totalPostos;
@@ -419,6 +435,18 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
                             fundoIcone: TemasCores.adminAcentoFundo,
                             icone: Icons.bolt_outlined,
                             alerta: _disponibilidadePostos < 90,
+                          ),
+                          _buildKpiCard(
+                            titulo: 'Entregas Confirmadas',
+                            valor: _totalConcluidas == 0
+                                ? '—'
+                                : '${((_rececoesConfirmadas / _totalConcluidas) * 100).toStringAsFixed(0)}%',
+                            subtitulo: _totalConcluidas == 0
+                                ? 'Ainda sem ordens concluídas'
+                                : '$_rececoesConfirmadas de $_totalConcluidas concluídas recebidas',
+                            corIcone: TemasCores.sucessoForte,
+                            fundoIcone: TemasCores.sucessoFundo,
+                            icone: Icons.inventory_2_outlined,
                           ),
                         ],
                       );
