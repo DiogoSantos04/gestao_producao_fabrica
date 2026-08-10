@@ -173,6 +173,7 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
     required String posto,
     required int tempo,
     required List<String> checklist,
+    String nomePublico = '',
   }) async {
     try {
       if (_tipoProdutoSelecionado == null) {
@@ -189,6 +190,7 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
         tempo: tempo,
         checklist: checklist,
         ordem: id == null ? (_fases.length + 1) : null,
+        nomePublico: nomePublico,
       );
 
       await _carregarFases(_tipoProdutoSelecionado!['id']);
@@ -598,6 +600,25 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
                                               ),
                                             ],
                                           ),
+                                          // Sem nome público, o cliente vê o nome
+                                          // técnico — não vale a pena repeti-lo.
+                                          if (fase.nomeParaCliente != fase.nomeFasePadrao) ...[
+                                            const SizedBox(height: 4),
+                                            Row(
+                                              children: [
+                                                const Icon(Icons.visibility_outlined,
+                                                    size: 12, color: TemasCores.textoTerciario),
+                                                const SizedBox(width: 4),
+                                                Text(
+                                                  'O cliente vê: ${fase.nomeParaCliente}',
+                                                  style: const TextStyle(
+                                                      fontSize: 11,
+                                                      fontStyle: FontStyle.italic,
+                                                      color: TemasCores.textoTerciario),
+                                                ),
+                                              ],
+                                            ),
+                                          ],
                                           const SizedBox(height: 6),
                                           Text(
                                             fase.descricao ?? 'Sem descrição.',
@@ -770,6 +791,7 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
 
   void _abrirDialogFase({FaseModel? faseExistente}) {
     final nomeController = TextEditingController(text: faseExistente?.nomeFasePadrao ?? '');
+    final nomePublicoController = TextEditingController(text: faseExistente?.nomePublico ?? '');
     final descController = TextEditingController(text: faseExistente?.descricao ?? '');
 
     String postoSelecionado = faseExistente?.postoTrabalho ?? _postosTrabalhoDisponiveis.first;
@@ -801,6 +823,15 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
                         controller: nomeController,
                         decoration: const InputDecoration(
                           labelText: 'Nome da Fase * (Ex: Corte de Painéis)',
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: nomePublicoController,
+                        decoration: const InputDecoration(
+                          labelText: 'Nome visível ao cliente (opcional)',
+                          helperText: 'Em branco, o cliente vê o nome técnico da fase',
+                          helperMaxLines: 2,
                         ),
                       ),
                       const SizedBox(height: 8),
@@ -916,6 +947,7 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
                       posto: postoSelecionado,
                       tempo: int.tryParse(tempoController.text) ?? 15,
                       checklist: checklistLocal,
+                      nomePublico: nomePublicoController.text,
                     );
                     Navigator.pop(context);
                   },
