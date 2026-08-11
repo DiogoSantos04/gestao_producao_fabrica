@@ -29,3 +29,46 @@ jobs:
 
       - name: Testes
         run: flutter test
+
+  # Compila a aplicação para Android. Corre nos servidores da GitHub, que já
+  # trazem o SDK Android instalado: não é preciso o SDK em nenhuma máquina
+  # nossa, e a compilação — que é lenta — não ocupa o portátil de ninguém.
+  #
+  # Depende da análise e dos testes: não vale a pena gastar minutos a compilar
+  # código que já se sabe que não passa.
+  apk-android:
+    needs: analise-e-testes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # O Gradle do Android precisa de JDK 17. O runner traz várias versões
+      # instaladas e a que está ativa por omissão nem sempre é esta.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Instalar dependências (com as versões do pubspec.lock)
+        run: flutter pub get --enforce-lockfile
+
+      # Build de debug e não de release: uma APK de release tem de ser assinada
+      # com uma chave criptográfica, que teria de ficar guardada nos secrets do
+      # repositório. Para instalar e testar num telemóvel, a de debug serve —
+      # é apenas maior e um pouco mais lenta.
+      - name: Compilar APK
+        run: flutter build apk --debug
+
+      - name: Publicar a APK como artefacto
+        uses: actions/upload-artifact@v4
+        with:
+          name: gestao-producao-apk
+          path: build/app/outputs/flutter-apk/app-debug.apk
+          # Sem retenção infinita: cada execução gera uma APK e estas contam
+          # para a quota de armazenamento do repositório.
+          retention-days: 14

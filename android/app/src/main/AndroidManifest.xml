@@ -1,4 +1,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Toda a aplicação vive contra o Supabase: sem rede não há sessão, nem
+         ordens, nem rastreio. O Flutter declara esta permissão apenas nos
+         manifestos de debug e profile, que gera sozinho — numa build de
+         release a aplicação instalaria e abriria, mas nenhum pedido sairia do
+         dispositivo, e sem erro visível. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+
     <application
         android:label="gestao_producao_fabrica"
         android:name="${applicationName}"
