@@ -29,6 +29,7 @@ class DadosCliente {
     required this.pessoaContacto,
     required this.morada,
     required this.ativo,
+    this.passwordAcesso,
   });
 
   final String nome;
@@ -38,6 +39,10 @@ class DadosCliente {
   final String pessoaContacto;
   final String morada;
   final bool ativo;
+
+  /// Palavra-passe inicial da conta de acesso a criar, ou `null` quando o
+  /// cliente fica sem credencial (edição, ou criação com o acesso desligado).
+  final String? passwordAcesso;
 }
 
 /// Formulário de criação e de edição de um cliente — é o mesmo, mudando apenas
@@ -71,9 +76,19 @@ class _DialogoClienteState extends State<DialogoCliente> {
   late final TextEditingController _pessoaContacto;
   late final TextEditingController _morada;
   late final TextEditingController _contacto;
+  final TextEditingController _password = TextEditingController();
   late bool _acessoAtivo;
 
+  /// Só existe na criação: um cliente novo nasce, por omissão, já com conta de
+  /// acesso — é isso que o faz aparecer na lista de Utilizadores.
+  bool _criarAcesso = true;
+  bool _ocultarPassword = true;
+  String? _erro;
+
   bool get _eEdicao => widget.clienteExistente != null;
+
+  /// Na edição a credencial já existe (ou não) e não se mexe aqui.
+  bool get _podeCriarAcesso => !_eEdicao && _criarAcesso;
 
   @override
   void initState() {
@@ -98,16 +113,41 @@ class _DialogoClienteState extends State<DialogoCliente> {
     _pessoaContacto.dispose();
     _morada.dispose();
     _contacto.dispose();
+    _password.dispose();
     super.dispose();
+  }
+
+  /// Devolve a primeira falha do formulário, ou `null` se estiver pronto.
+  ///
+  /// O email só é obrigatório quando se cria acesso, porque aí é a credencial
+  /// de login; sem acesso continua a ser apenas um contacto.
+  String? _validar() {
+    if (_nome.text.trim().isEmpty) return 'Indique o nome do cliente.';
+    if (_contacto.text.trim().isEmpty) return 'Indique o contacto telefónico.';
+    if (!_podeCriarAcesso) return null;
+
+    final email = _email.text.trim();
+    if (email.isEmpty) return 'O email é obrigatório para criar a conta de acesso.';
+    if (!email.contains('@') || !email.contains('.')) return 'Email inválido.';
+    if (_password.text.trim().length < 6) {
+      return 'A palavra-passe de acesso tem de ter pelo menos 6 caracteres.';
+    }
+    return null;
   }
 
   void _gravar() {
     // Nome e contacto são obrigatórios; sem eles o botão não faz nada, tal como
-    // antes.
-    if (_nome.text.isEmpty || _contacto.text.isEmpty) return;
+    // antes. O erro passou a ser dito em vez de o botão ficar mudo.
+    final erro = _validar();
+    if (erro != null) {
+      setState(() => _erro = erro);
+      return;
+    }
+
     Navigator.pop(
       context,
       DadosCliente(
+        passwordAcesso: _podeCriarAcesso ? _password.text.trim() : null,
         nome: _nome.text.trim(),
         email: _email.text.trim(),
         contacto: _contacto.text.trim(),
@@ -200,6 +240,37 @@ class _DialogoClienteState extends State<DialogoCliente> {
                 activeThumbColor: TemasCores.textoPrimario,
                 onChanged: (val) => setState(() => _acessoAtivo = val),
               ),
+              if (!_eEdicao) ...[
+                const Divider(height: 24),
+                SwitchListTile(
+                  title: const Text('Criar conta de acesso ao portal',
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+                  subtitle: Text(_criarAcesso
+                      ? 'O cliente passa a constar em Utilizadores, com perfil Cliente'
+                      : 'Fica só como ficha de cliente, sem login'),
+                  value: _criarAcesso,
+                  activeThumbColor: TemasCores.textoPrimario,
+                  onChanged: (val) => setState(() => _criarAcesso = val),
+                ),
+                if (_criarAcesso)
+                  TextField(
+                    controller: _password,
+                    obscureText: _ocultarPassword,
+                    decoration: InputDecoration(
+                      labelText: 'Palavra-passe inicial *',
+                      helperText: 'Entregue-a ao cliente; ele pode alterá-la no perfil.',
+                      prefixIcon: const Icon(Icons.lock_outline),
+                      suffixIcon: IconButton(
+                        icon: Icon(_ocultarPassword ? Icons.visibility_off : Icons.visibility),
+                        onPressed: () => setState(() => _ocultarPassword = !_ocultarPassword),
+                      ),
+                    ),
+                  ),
+              ],
+              if (_erro != null) ...[
+                const SizedBox(height: 12),
+                Text(_erro!, style: const TextStyle(color: Colors.red, fontSize: 12)),
+              ],
             ],
           ),
         ),

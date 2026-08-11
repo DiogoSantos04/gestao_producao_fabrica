@@ -111,39 +111,72 @@ class UtilizadoresRepository extends BaseRepository {
     required String password,
   }) {
     return guarda('criar o funcionário', () async {
-      final tempClient = SupabaseClient(
-        SupabaseConfig.url,
-        SupabaseConfig.publishableKey,
-        // Fluxo 'implicit' evita o PKCE, que exigiria asyncStorage neste cliente
-        // isolado. Aqui só criamos a conta, não persistimos sessão.
-        authOptions: const AuthClientOptions(authFlowType: AuthFlowType.implicit),
-      );
-      try {
-        final AuthResponse res = await tempClient.auth.signUp(
-          email: email,
-          password: password,
-          data: {'nome_utilizador': nome},
-        );
-        final novoUser = res.user;
-        if (novoUser == null) {
-          throw const RepositoryException('Não foi possível criar a credencial do funcionário.');
-        }
-
-        // A linha de perfil já foi criada pelo trigger, como
-        // 'Cliente'/'Pendente'. A promoção a operador ativo é feita pelo cliente
-        // partilhado, que é o que tem a sessão do administrador: o cliente
-        // temporário está autenticado como o próprio funcionário e o trigger
-        // `trg_impedir_autopromocao` recusaria a alteração — que é exatamente o
-        // que se quer, porque é o que impede uma conta de se promover a si mesma.
-        await client.from('utilizadores').update({
-          'nome_utilizador': nome,
-          'perfil': 'Operador',
-          'estado_conta': 'Ativo',
-        }).eq('utilizador_id', novoUser.id);
-      } finally {
-        await tempClient.dispose();
-      }
+      await _criarCredencial(nome: nome, email: email, password: password, perfil: 'Operador');
     });
+  }
+
+  /// Cria a conta de acesso de um cliente e devolve o UUID do Auth.
+  ///
+  /// Existe para a aba Clientes: um cliente criado lá passa a ter logo linha em
+  /// `utilizadores` (perfil `Cliente`, ativo), que é o que permite ligar
+  /// `clientes.utilizador_id` — a coluna tem chave estrangeira para
+  /// `utilizadores`, que por sua vez a tem para `auth.users`. Sem credencial no
+  /// Auth não há linha de perfil possível, e por isso isto não pode ser um
+  /// simples trigger do lado da base de dados.
+  Future<String> criarCredencialCliente({
+    required String nome,
+    required String email,
+    required String password,
+  }) {
+    return guarda('criar a conta de acesso do cliente', () async {
+      return _criarCredencial(nome: nome, email: email, password: password, perfil: 'Cliente');
+    });
+  }
+
+  /// Cria credencial no Auth e promove a linha de perfil ao papel indicado.
+  ///
+  /// Usa um cliente Supabase isolado e temporário: um `signUp` no cliente
+  /// partilhado substituiria a sessão ativa pela do novo utilizador.
+  Future<String> _criarCredencial({
+    required String nome,
+    required String email,
+    required String password,
+    required String perfil,
+  }) async {
+    final tempClient = SupabaseClient(
+      SupabaseConfig.url,
+      SupabaseConfig.publishableKey,
+      // Fluxo 'implicit' evita o PKCE, que exigiria asyncStorage neste cliente
+      // isolado. Aqui só criamos a conta, não persistimos sessão.
+      authOptions: const AuthClientOptions(authFlowType: AuthFlowType.implicit),
+    );
+    try {
+      final AuthResponse res = await tempClient.auth.signUp(
+        email: email,
+        password: password,
+        data: {'nome_utilizador': nome},
+      );
+      final novoUser = res.user;
+      if (novoUser == null) {
+        throw const RepositoryException('Não foi possível criar a credencial de acesso.');
+      }
+
+      // A linha de perfil já foi criada pelo trigger, como 'Cliente'/'Pendente'.
+      // A promoção ao papel final é feita pelo cliente partilhado, que é o que
+      // tem a sessão do administrador: o cliente temporário está autenticado
+      // como o próprio utilizador criado e o trigger `trg_impedir_autopromocao`
+      // recusaria a alteração — que é exatamente o que se quer, porque é o que
+      // impede uma conta de se promover a si mesma.
+      await client.from('utilizadores').update({
+        'nome_utilizador': nome,
+        'perfil': perfil,
+        'estado_conta': 'Ativo',
+      }).eq('utilizador_id', novoUser.id);
+
+      return novoUser.id;
+    } finally {
+      await tempClient.dispose();
+    }
   }
 
   /// Regista um pedido de acesso feito pelo próprio, a aguardar aprovação.

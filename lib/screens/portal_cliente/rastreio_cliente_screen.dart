@@ -32,6 +32,9 @@ class _RastreioClienteScreenState extends State<RastreioClienteScreen> {
   RastreioEncomenda? _encomenda;
   String? _erro;
 
+  /// Confirmação de receção em curso — desativa o botão para evitar duplo envio.
+  bool _aConfirmarRececao = false;
+
   /// Código atualmente apresentado, usado para refazer a consulta quando a
   /// produção avança.
   String? _codigoEmCurso;
@@ -133,6 +136,69 @@ class _RastreioClienteScreenState extends State<RastreioClienteScreen> {
     if (data == null) return 'A definir';
     final d = data.toLocal();
     return '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
+  }
+
+  String _formatarDataHora(DateTime data) {
+    final d = data.toLocal();
+    final hora = '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+    return '${_formatarData(d)} às $hora';
+  }
+
+  /// Pede confirmação e regista a receção física da encomenda.
+  ///
+  /// A confirmação é pedida porque a operação não tem volta do lado do cliente:
+  /// a função no servidor recusa uma segunda confirmação, para a data registada
+  /// não poder ser reescrita mais tarde.
+  Future<void> _confirmarRececao(RastreioEncomenda enc) async {
+    final id = enc.id;
+    if (id == null) return;
+
+    final confirmou = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Confirmar receção'),
+        content: Text(
+          'Confirma que recebeu a encomenda ${enc.codigoRastreio}?\n\n'
+          'A data e hora ficam registadas e não podem ser alteradas depois.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Confirmar'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmou != true) return;
+    if (!mounted) return;
+    setState(() => _aConfirmarRececao = true);
+
+    try {
+      await _repositorio.confirmarRececao(id);
+      if (!mounted) return;
+      // Relê em vez de assumir: a data que passa a ser mostrada é a do relógio
+      // do servidor, e não a do dispositivo.
+      await _buscarRastreio(silencioso: true);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Receção confirmada. Obrigado!'),
+          backgroundColor: TemasCores.sucesso,
+        ),
+      );
+    } on RepositoryException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.mensagem), backgroundColor: TemasCores.erro),
+      );
+    } finally {
+      if (mounted) setState(() => _aConfirmarRececao = false);
+    }
   }
 
   @override
@@ -282,7 +348,7 @@ class _RastreioClienteScreenState extends State<RastreioClienteScreen> {
               ],
             ),
             const SizedBox(height: 12),
-            _construirBadgeEstado(estado),
+            _construirBadgeEstado(estado, enc),
             const SizedBox(height: 12),
             Row(
               children: [
@@ -324,6 +390,9 @@ class _RastreioClienteScreenState extends State<RastreioClienteScreen> {
               )
             else
               ...List.generate(enc.fases.length, (index) => _construirEtapa(enc, estado, index)),
+            // A entrega só entra na linha temporal depois de a produção acabar:
+            // é o passo que fecha a rastreabilidade do lado do destinatário.
+            if (estado == EstadoOrdem.concluida) _construirEtapaRececao(enc),
             // Sem sessão iniciada (o rastreio é público) a RPC do contacto não
             // é executável, e mostrar um botão que só devolve erro é pior do
             // que não o mostrar.
@@ -347,13 +416,93 @@ class _RastreioClienteScreenState extends State<RastreioClienteScreen> {
     );
   }
 
-  Widget _construirBadgeEstado(EstadoOrdem estado) {
+  /// Badge de estado tal como o cliente o vê.
+  ///
+  /// "RECEBIDA" é um rótulo de apresentação, não um [EstadoOrdem]: no servidor e
+  /// nos indicadores estas ordens continuam concluídas.
+  Widget _construirBadgeEstado(EstadoOrdem estado, RastreioEncomenda enc) {
+    final bool recebida = estado == EstadoOrdem.concluida && enc.rececaoConfirmada;
     final cores = coresEstadoOrdem(estado);
 
     return EtiquetaEstado.destacada(
-      rotulo: estado == EstadoOrdem.emHold ? 'PRODUÇÃO SUSPENSA' : estado.etiqueta,
+      rotulo: recebida
+          ? 'RECEBIDA'
+          : estado == EstadoOrdem.emHold
+              ? 'PRODUÇÃO SUSPENSA'
+              : estado.etiqueta,
       fundo: cores.fundo,
       texto: cores.texto,
+    );
+  }
+
+  /// Etapa final da linha temporal: a entrega ao destinatário.
+  ///
+  /// Só aparece depois de a produção terminar. Enquanto a encomenda estiver na
+  /// linha, anunciar uma etapa de entrega que ainda não se pode cumprir seria
+  /// prometer ao cliente um passo que não controla.
+  Widget _construirEtapaRececao(RastreioEncomenda enc) {
+    final data = enc.dataConfirmacaoRececao;
+    final bool confirmada = data != null;
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(
+          confirmada ? Icons.inventory_2 : Icons.inventory_2_outlined,
+          color: confirmada ? TemasCores.sucesso : TemasCores.textoTerciarioFrio,
+          size: 22,
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Receção pelo cliente',
+                style: TextStyle(
+                  fontWeight: confirmada ? FontWeight.bold : FontWeight.normal,
+                  color: confirmada
+                      ? TemasCores.sucessoTextoForte
+                      : TemasCores.textoSecundarioFrio,
+                  fontSize: 14,
+                ),
+              ),
+              Text(
+                confirmada
+                    ? 'Confirmada em ${_formatarDataHora(data)}'
+                    : 'Por confirmar',
+                style: const TextStyle(fontSize: 12, color: TemasCores.textoTerciarioFrio),
+              ),
+              if (!confirmada) ...[
+                const SizedBox(height: 10),
+                if (_temSessao)
+                  FilledButton.icon(
+                    onPressed: _aConfirmarRececao ? null : () => _confirmarRececao(enc),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: TemasCores.sucesso,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    icon: _aConfirmarRececao
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        : const Icon(Icons.check, size: 18),
+                    label: const Text('Confirmar Receção'),
+                  )
+                else
+                  // O rastreio é público, mas confirmar é um ato identificado.
+                  const Text(
+                    'Inicie sessão no portal para confirmar a receção.',
+                    style: TextStyle(fontSize: 12, color: TemasCores.textoSecundarioFrio, fontStyle: FontStyle.italic),
+                  ),
+              ],
+              const SizedBox(height: 12),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -396,7 +545,9 @@ class _RastreioClienteScreenState extends State<RastreioClienteScreen> {
               color: corIcone,
               size: 22,
             ),
-            if (index < enc.fases.length - 1)
+            // A última fase passa a ter conector quando a etapa de receção a
+            // segue, para a linha não ficar interrompida antes do fim.
+            if (index < enc.fases.length - 1 || estado == EstadoOrdem.concluida)
               Container(
                 width: 2,
                 height: 36,

@@ -80,12 +80,26 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
   /// Ordens suspensas (WIP Hold). Estavam só visíveis dentro dos alertas.
   int _encomendasEmHold = 0;
 
+  /// Ordens já concluídas e, dessas, quantas o cliente confirmou ter recebido.
+  ///
+  /// Mede o fecho da rastreabilidade fora da fábrica: uma ordem concluída sem
+  /// receção confirmada percorreu o roteiro todo mas não tem prova de ter
+  /// chegado ao destinatário.
+  int _totalConcluidas = 0;
+  int _rececoesConfirmadas = 0;
+
   /// Percentagem de postos que não estão em estado 'Parado'.
   double _disponibilidadePostos = 100.0;
 
   /// Quantos postos estão 'Parado' agora — dá contexto à percentagem.
   int _postosParados = 0;
   int _totalPostos = 0;
+
+  /// Critério de ordenação do Pareto das paragens, escolhido pelo utilizador.
+  ///
+  /// Trocar de critério não volta à rede: `ParagemAgregada` já traz as
+  /// ocorrências e os minutos totais de cada motivo.
+  CriterioPareto _criterioPareto = CriterioPareto.ocorrencias;
 
   /// Ordens ativas em cada posto físico da fábrica.
   List<OcupacaoPosto> _ocupacaoPostos = [];
@@ -185,6 +199,7 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
       int ativas = 0;
       int atrasadas = 0;
       int emHold = 0;
+      int rececoesConfirmadas = 0;
 
       // Ordens já concluídas, para depois as datar pelo dia em que fecharam.
       final Set<int> idsConcluidas = {};
@@ -216,6 +231,11 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
           // Concluída: não ocupa posto nenhum. Em que dia fechou decide-se
           // mais abaixo, pela data da última fase.
           idsConcluidas.add(enc.id);
+
+          // Fecho do ciclo do lado do destinatário. Conta-se sobre as
+          // concluídas, e não sobre todas as ordens, porque só essas podem
+          // ter sido recebidas.
+          if (enc.dataConfirmacaoRececao != null) rececoesConfirmadas++;
         } else {
           // Em produção ou suspensa: continua a ocupar um posto na linha.
           ativas++;
@@ -283,6 +303,8 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
         _concluidasHoje = concluidasHoje;
         _concluidasOntem = concluidasOntem;
         _encomendasEmHold = emHold;
+        _totalConcluidas = idsConcluidas.length;
+        _rececoesConfirmadas = rececoesConfirmadas;
         _disponibilidadePostos = disponibilidade;
         _postosParados = postosParados;
         _totalPostos = totalPostos;
@@ -419,6 +441,18 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
                             fundoIcone: TemasCores.adminAcentoFundo,
                             icone: Icons.bolt_outlined,
                             alerta: _disponibilidadePostos < 90,
+                          ),
+                          _buildKpiCard(
+                            titulo: 'Entregas Confirmadas',
+                            valor: _totalConcluidas == 0
+                                ? '—'
+                                : '${((_rececoesConfirmadas / _totalConcluidas) * 100).toStringAsFixed(0)}%',
+                            subtitulo: _totalConcluidas == 0
+                                ? 'Ainda sem ordens concluídas'
+                                : '$_rececoesConfirmadas de $_totalConcluidas concluídas recebidas',
+                            corIcone: TemasCores.sucessoForte,
+                            fundoIcone: TemasCores.sucessoFundo,
+                            icone: Icons.inventory_2_outlined,
                           ),
                         ],
                       );
@@ -665,8 +699,24 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
   /// que interessa é a ordem de grandeza entre eles — com cinco motivos, uma
   /// escala sobre o total deixaria todas as barras curtas e indistinguíveis.
   Widget _buildParetoCard() {
-    final int maxOcorrencias =
-        _paretoParagens.fold(0, (max, p) => p.ocorrencias > max ? p.ocorrencias : max);
+    // Ordena pelo critério escolhido. A lista chega inteira do repositório para
+    // a curva acumulada poder ser calculada sobre o total real das paragens, e
+    // não sobre o total das cinco que cabem no ecrã.
+    final List<ParagemAgregada> ordenadas =
+        EncomendasRepository.ordenarPareto(_paretoParagens, criterio: _criterioPareto);
+    final List<ParagemAgregada> topo = ordenadas.take(5).toList();
+
+    int valorDe(ParagemAgregada p) => _criterioPareto == CriterioPareto.tempoPerdido
+        ? p.minutosTotais
+        : p.ocorrencias;
+
+    final int valorMaximo = topo.fold(0, (max, p) => valorDe(p) > max ? valorDe(p) : max);
+    final int totalGeral = ordenadas.fold(0, (soma, p) => soma + valorDe(p));
+
+    // MTTR: tempo médio de reparação de todas as paragens do período.
+    final int totalOcorrencias = ordenadas.fold(0, (soma, p) => soma + p.ocorrencias);
+    final int totalMinutos = ordenadas.fold(0, (soma, p) => soma + p.minutosTotais);
+    final int mttr = totalOcorrencias == 0 ? 0 : (totalMinutos / totalOcorrencias).round();
 
     return Card(
       color: TemasCores.superficie,
@@ -680,17 +730,39 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Motivos de Paragem Mais Frequentes',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: TemasCores.textoPrimario),
+            Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 16,
+              runSpacing: 12,
+              children: [
+                const Text(
+                  'Análise de Paragens (Pareto)',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: TemasCores.textoPrimario),
+                ),
+                SegmentedButton<CriterioPareto>(
+                  segments: CriterioPareto.values
+                      .map((c) => ButtonSegment<CriterioPareto>(
+                            value: c,
+                            label: Text(c.etiqueta, style: const TextStyle(fontSize: 11)),
+                          ))
+                      .toList(),
+                  selected: {_criterioPareto},
+                  showSelectedIcon: false,
+                  style: const ButtonStyle(visualDensity: VisualDensity.compact),
+                  onSelectionChanged: (selecao) =>
+                      setState(() => _criterioPareto = selecao.first),
+                ),
+              ],
             ),
             const SizedBox(height: 4),
-            const Text(
-              'Top 5 por motivo oficial, nos últimos $_diasPareto dias',
-              style: TextStyle(fontSize: 13, color: TemasCores.textoTerciario),
+            Text(
+              'Top 5 por motivo oficial, nos últimos $_diasPareto dias · '
+              'MTTR ${_formatarDuracao(mttr)}',
+              style: const TextStyle(fontSize: 13, color: TemasCores.textoTerciario),
             ),
             const SizedBox(height: 20),
-            if (_paretoParagens.isEmpty)
+            if (topo.isEmpty)
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 24),
                 child: Center(
@@ -701,19 +773,38 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
                 ),
               )
             else
-              ...List.generate(
-                _paretoParagens.length,
-                (i) => _buildLinhaPareto(i + 1, _paretoParagens[i], maxOcorrencias),
-              ),
+              // A percentagem acumulada usa o total de todas as paragens do
+              // período, não só o das cinco mostradas — é o que permite ler
+              // "estes cinco motivos são 80% do problema".
+              ...() {
+                int acumulado = 0;
+                return List.generate(topo.length, (i) {
+                  acumulado += valorDe(topo[i]);
+                  return _buildLinhaPareto(
+                    posicao: i + 1,
+                    paragem: topo[i],
+                    valor: valorDe(topo[i]),
+                    valorMaximo: valorMaximo,
+                    percentagemAcumulada:
+                        totalGeral == 0 ? 0 : (acumulado / totalGeral) * 100,
+                  );
+                });
+              }(),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildLinhaPareto(int posicao, ParagemAgregada paragem, int maxOcorrencias) {
-    final double fracao =
-        maxOcorrencias == 0 ? 0 : paragem.ocorrencias / maxOcorrencias;
+  Widget _buildLinhaPareto({
+    required int posicao,
+    required ParagemAgregada paragem,
+    required int valor,
+    required int valorMaximo,
+    required double percentagemAcumulada,
+  }) {
+    final double fracao = valorMaximo == 0 ? 0 : valor / valorMaximo;
+    final bool porTempo = _criterioPareto == CriterioPareto.tempoPerdido;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
@@ -741,7 +832,7 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
               ),
               const SizedBox(width: 8),
               Text(
-                '${paragem.ocorrencias}×',
+                porTempo ? _formatarDuracao(valor) : '$valor×',
                 style: const TextStyle(
                     fontSize: 13, fontWeight: FontWeight.bold, color: TemasCores.textoSecundario),
               ),
@@ -763,12 +854,33 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
                   ),
                 ),
                 const SizedBox(height: 4),
-                Text(
-                  '${paragem.categoria} · ${_formatarDuracao(paragem.minutosTotais)} no total '
-                  '· ${_formatarDuracao(paragem.minutosMedios)} em média',
-                  style: const TextStyle(fontSize: 11, color: TemasCores.textoTerciario),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '${paragem.categoria} · ${paragem.ocorrencias}× '
+                        '· ${_formatarDuracao(paragem.minutosTotais)} no total '
+                        '· ${_formatarDuracao(paragem.minutosMedios)} em média',
+                        style: const TextStyle(fontSize: 11, color: TemasCores.textoTerciario),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    // Curva acumulada: onde este motivo põe o total. A regra
+                    // 80/20 lê-se aqui — os motivos até aos 80% são os que
+                    // vale a pena atacar primeiro.
+                    Text(
+                      '${percentagemAcumulada.toStringAsFixed(0)}% acum.',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: percentagemAcumulada <= 80
+                            ? TemasCores.erroTextoForte
+                            : TemasCores.textoTerciario,
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),

@@ -19,6 +19,13 @@ class FaseModel {
   /// Ligação real ao posto de trabalho (ver bug (a) em docs/BUGS_RESOLVIDOS.md).
   final int? postoTrabalhoId;
 
+  /// Nome da fase em linguagem para o cliente, quando o admin o definiu.
+  ///
+  /// Existe porque o roteiro é configurável: um mapa fixo de tradução no código
+  /// deixaria de cobrir qualquer fase criada depois. Vazio ou nulo significa
+  /// "usar o nome técnico" — ver [nomeParaCliente].
+  final String? nomePublico;
+
   final List<String> checklist;
 
   const FaseModel({
@@ -31,8 +38,19 @@ class FaseModel {
     this.tempoEstimado = 0,
     this.postoTrabalho,
     this.postoTrabalhoId,
+    this.nomePublico,
     this.checklist = const [],
   });
+
+  /// Nome a mostrar ao cliente: o público quando existe, o técnico caso
+  /// contrário.
+  ///
+  /// O portal recebe já este nome resolvido pela função `rastrear_encomenda`.
+  /// Aqui serve os ecrãs do admin, para mostrar o que o cliente vai ver.
+  String get nomeParaCliente {
+    final publico = nomePublico?.trim() ?? '';
+    return publico.isEmpty ? nomeFasePadrao : publico;
+  }
 
   factory FaseModel.fromJson(Map<String, dynamic> json) {
     return FaseModel(
@@ -45,6 +63,7 @@ class FaseModel {
       tempoEstimado: (json['tempo_estimado'] as num?)?.toInt() ?? 0,
       postoTrabalho: json['posto_trabalho'] as String?,
       postoTrabalhoId: (json['posto_trabalho_id'] as num?)?.toInt(),
+      nomePublico: json['nome_publico'] as String?,
       checklist: _checklist(json['checklist']),
     );
   }

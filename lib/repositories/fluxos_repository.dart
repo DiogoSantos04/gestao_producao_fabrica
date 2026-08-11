@@ -143,6 +143,7 @@ class FluxosRepository extends BaseRepository {
     required int tempo,
     required List<String> checklist,
     int? ordem,
+    String nomePublico = '',
   }) {
     return guarda('guardar a fase', () async {
       final dados = <String, dynamic>{
@@ -155,6 +156,11 @@ class FluxosRepository extends BaseRepository {
         'ordem': ordem,
       };
       dados.removeWhere((_, v) => v == null);
+
+      // Escrito depois do `removeWhere` de propósito: apagar o nome público tem
+      // de gravar NULL, e não ser descartado como se o campo não viesse.
+      final publico = nomePublico.trim();
+      dados['nome_publico'] = publico.isEmpty ? null : publico;
 
       if (id == null) {
         await client.from('fases_padrao').insert(dados);
@@ -181,6 +187,7 @@ class FluxosRepository extends BaseRepository {
           .map((fase) => {
                 'tipos_produto_id': novoTipoProdutoId,
                 'nome_fase_padrao': fase.nomeFasePadrao,
+                'nome_publico': fase.nomePublico,
                 'descricao': fase.descricao,
                 'posto_trabalho': fase.postoTrabalho,
                 'posto_trabalho_id': fase.postoTrabalhoId,
