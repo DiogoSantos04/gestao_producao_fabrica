@@ -64,9 +64,15 @@ class EstiloKpi {
   final bool expandirTexto;
 
   /// Preset do dashboard principal: `Card` elevado, valor grande a preto.
+  ///
+  /// Padding vertical mais apertado do que o horizontal: com os quatro
+  /// blocos de texto (título, valor, subtítulo até 2 linhas) mais o
+  /// `EdgeInsets.all(16)` original, o cartão com o subtítulo mais comprido
+  /// ("Disponibilidade de Postos") estourava por baixo do `mainAxisExtent`
+  /// fixo da grelha.
   static const principal = EstiloKpi(
     moldura: MolduraKpi.cartao,
-    paddingExterior: EdgeInsets.all(16),
+    paddingExterior: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
     estiloTitulo: TextStyle(fontSize: 13, color: TemasCores.textoTerciario, fontWeight: FontWeight.w500),
     estiloValor: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: TemasCores.textoPrimario),
     estiloSubtitulo: TextStyle(fontSize: 11, color: TemasCores.textoDesativado),

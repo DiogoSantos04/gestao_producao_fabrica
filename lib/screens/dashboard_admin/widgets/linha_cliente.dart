@@ -32,11 +32,14 @@ class LinhaCliente extends StatelessWidget {
             Expanded(flex: 3, child: _ColunaIdentificacao(cliente: cliente)),
             Expanded(flex: 3, child: _ColunaContacto(cliente: cliente)),
             Expanded(
-              flex: 2,
+              flex: 1,
               child: _ColunaHistorico(cliente: cliente, aoAbrirDetalhe: aoAbrirDetalhe),
             ),
             Expanded(flex: 2, child: _ColunaAcessoPortal(ativo: cliente.ativo)),
-            Expanded(flex: 2, child: _ColunaAcoes(aoEditar: aoEditar)),
+            // O botão "Editar Dados" (ícone + texto + padding) não cabia no
+            // `flex: 2` original assim que a tabela ficasse à largura mínima
+            // do scroll horizontal — estourava à direita em toda a linha.
+            Expanded(flex: 3, child: _ColunaAcoes(aoEditar: aoEditar)),
           ],
         ),
       ),
@@ -57,13 +60,19 @@ class CabecalhoTabelaClientes extends StatelessWidget {
       padding: EdgeInsets.symmetric(vertical: 16, horizontal: 8),
       child: Row(
         children: [
-          Expanded(flex: 3, child: Text('Cliente & NIF', style: _estilo)),
-          Expanded(flex: 3, child: Text('Contacto / Interlocutor', style: _estilo)),
-          Expanded(flex: 2, child: Text('Histórico', style: _estilo)),
-          Expanded(flex: 2, child: Text('Acesso ao Portal', style: _estilo)),
+          Expanded(flex: 3, child: Text('Cliente & NIF', style: _estilo, overflow: TextOverflow.ellipsis)),
           Expanded(
-            flex: 2,
-            child: Align(alignment: Alignment.centerRight, child: Text('Ações', style: _estilo)),
+              flex: 3,
+              child: Text('Contacto / Interlocutor', style: _estilo, overflow: TextOverflow.ellipsis)),
+          Expanded(flex: 1, child: Text('Histórico', style: _estilo, overflow: TextOverflow.ellipsis)),
+          Expanded(
+              flex: 2,
+              child: Text('Acesso ao Portal', style: _estilo, overflow: TextOverflow.ellipsis)),
+          Expanded(
+            flex: 3,
+            child: Align(
+                alignment: Alignment.centerRight,
+                child: Text('Ações', style: _estilo, overflow: TextOverflow.ellipsis)),
           ),
         ],
       ),
@@ -178,27 +187,35 @@ class _ColunaHistorico extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        InkWell(
-          onTap: aoAbrirDetalhe,
-          borderRadius: BorderRadius.circular(6),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              color: TemasCores.superficie,
-              borderRadius: BorderRadius.circular(6),
-              border: Border.all(color: TemasCores.bordaForte),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.history_toggle_off_rounded, size: 13, color: TemasCores.textoApoio),
-                const SizedBox(width: 6),
-                Text(
-                  '${cliente.totalEncomendas} encomendas',
-                  style: const TextStyle(
-                      color: TemasCores.textoApoioForte, fontSize: 12, fontWeight: FontWeight.w600),
-                ),
-              ],
+        // `Flexible` no botão e no texto lá dentro: a coluna "Histórico" é a
+        // mais estreita da tabela (flex 1), e "N encomendas" sem largura
+        // finita para o `ellipsis` cortar estourava para fora da coluna.
+        Flexible(
+          child: InkWell(
+            onTap: aoAbrirDetalhe,
+            borderRadius: BorderRadius.circular(6),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: TemasCores.superficie,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: TemasCores.bordaForte),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.history_toggle_off_rounded, size: 13, color: TemasCores.textoApoio),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      '${cliente.totalEncomendas} encomendas',
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          color: TemasCores.textoApoioForte, fontSize: 12, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -217,21 +234,23 @@ class _ColunaAcessoPortal extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-          decoration: BoxDecoration(
-            color: ativo ? TemasCores.estadoAtivoFundo : TemasCores.estadoInativoFundo,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Text(
-            ativo ? 'Ativo' : 'Inativo',
-            maxLines: 1,
-            softWrap: false,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: ativo ? TemasCores.textoInverso : TemasCores.textoSecundario,
-              fontSize: 11,
-              fontWeight: FontWeight.bold,
+        Flexible(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            decoration: BoxDecoration(
+              color: ativo ? TemasCores.estadoAtivoFundo : TemasCores.estadoInativoFundo,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              ativo ? 'Ativo' : 'Inativo',
+              maxLines: 1,
+              softWrap: false,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: ativo ? TemasCores.textoInverso : TemasCores.textoSecundario,
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+              ),
             ),
           ),
         ),
@@ -248,19 +267,26 @@ class _ColunaAcoes extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // `Align` não limita a largura do filho — só a posição — pelo que o
+    // botão, à largura natural do texto "Editar Dados", conseguia estourar
+    // para fora da coluna. O `FittedBox` garante que encolhe em vez disso.
     return Align(
       alignment: Alignment.centerRight,
-      child: OutlinedButton.icon(
-        onPressed: aoEditar,
-        style: OutlinedButton.styleFrom(
-          side: const BorderSide(color: TemasCores.bordaForte),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        alignment: Alignment.centerRight,
+        child: OutlinedButton.icon(
+          onPressed: aoEditar,
+          style: OutlinedButton.styleFrom(
+            side: const BorderSide(color: TemasCores.bordaForte),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+          ),
+          icon: const Icon(Icons.edit_outlined, size: 14, color: TemasCores.textoPrimario),
+          label: const Text('Editar Dados',
+              style: TextStyle(
+                  color: TemasCores.textoPrimario, fontSize: 12, fontWeight: FontWeight.w500)),
         ),
-        icon: const Icon(Icons.edit_outlined, size: 14, color: TemasCores.textoPrimario),
-        label: const Text('Editar Dados',
-            style: TextStyle(
-                color: TemasCores.textoPrimario, fontSize: 12, fontWeight: FontWeight.w500)),
       ),
     );
   }

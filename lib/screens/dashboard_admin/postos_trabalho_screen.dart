@@ -417,17 +417,21 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
                                                   Row(
                                                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                                     children: [
-                                                      Text(
-                                                        ordemAtiva.codigoRastreio ??
-                                                            Formatos.referenciaOrdem(
-                                                              ordemAtiva.id,
-                                                              criadaEm: ordemAtiva.createdAt
-                                                                  ?.toIso8601String(),
-                                                            ),
-                                                        style: TextStyle(
-                                                          fontWeight: FontWeight.bold,
-                                                          color: temIncidencia ? TemasCores.erroTextoIntenso : TemasCores.infoTextoIntenso,
-                                                          fontSize: 12,
+                                                      Flexible(
+                                                        child: Text(
+                                                          ordemAtiva.codigoRastreio ??
+                                                              Formatos.referenciaOrdem(
+                                                                ordemAtiva.id,
+                                                                criadaEm: ordemAtiva.createdAt
+                                                                    ?.toIso8601String(),
+                                                              ),
+                                                          maxLines: 1,
+                                                          overflow: TextOverflow.ellipsis,
+                                                          style: TextStyle(
+                                                            fontWeight: FontWeight.bold,
+                                                            color: temIncidencia ? TemasCores.erroTextoIntenso : TemasCores.infoTextoIntenso,
+                                                            fontSize: 12,
+                                                          ),
                                                         ),
                                                       ),
                                                       if (temIncidencia)

@@ -904,7 +904,12 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(label, style: const TextStyle(color: TemasCores.textoTerciario, fontSize: 13, fontWeight: FontWeight.w500)),
+        Flexible(
+          child: Text(label,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: TemasCores.textoTerciario, fontSize: 13, fontWeight: FontWeight.w500)),
+        ),
+        const SizedBox(width: 8),
         Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: TemasCores.textoPrimario)),
       ],
     );

@@ -609,67 +609,91 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
                       const SizedBox(height: 20),
 
                       // PESQUISA E FILTROS DE ESTADO (FIXOS NO TOPO)
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextField(
-                              controller: _searchController,
-                              decoration: InputDecoration(
-                                hintText: 'Pesquisar por Código de Rastreio ou Cliente...',
-                                prefixIcon: const Icon(Icons.search, color: TemasCores.adminAcento, size: 20),
-                                fillColor: TemasCores.superficieSuave,
-                                filled: true,
-                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-                                contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-                              ),
+                      Builder(
+                        builder: (context) {
+                          final campoPesquisa = TextField(
+                            controller: _searchController,
+                            decoration: InputDecoration(
+                              hintText: 'Pesquisar por Código de Rastreio ou Cliente...',
+                              prefixIcon: const Icon(Icons.search, color: TemasCores.adminAcento, size: 20),
+                              fillColor: TemasCores.superficieSuave,
+                              filled: true,
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 16),
                             ),
-                          ),
-                          const SizedBox(width: 12),
-                          SegmentedButton<FiltroEstadoOrdem>(
-                            style: const ButtonStyle(
-                              visualDensity: VisualDensity.compact,
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          );
+
+                          // 6 segmentos não encolhem — o `SegmentedButton` não
+                          // é um widget que se adapte sozinho, e ao lado do
+                          // campo de pesquisa (`Expanded`) estourava a linha
+                          // inteira em ecrã estreito. Ganha scroll horizontal
+                          // próprio, dentro de uma largura já limitada.
+                          final filtros = SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: SegmentedButton<FiltroEstadoOrdem>(
+                              style: const ButtonStyle(
+                                visualDensity: VisualDensity.compact,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                              segments: const [
+                                ButtonSegment(
+                                  value: FiltroEstadoOrdem.todos,
+                                  label: Text('Todas', style: TextStyle(fontSize: 12)),
+                                ),
+                                ButtonSegment(
+                                  value: FiltroEstadoOrdem.emProducao,
+                                  label: Text('Em Produção', style: TextStyle(fontSize: 12)),
+                                  icon: Icon(Icons.circle, color: TemasCores.sucesso, size: 8),
+                                ),
+                                ButtonSegment(
+                                  value: FiltroEstadoOrdem.emHold,
+                                  label: Text('ON HOLD', style: TextStyle(fontSize: 12)),
+                                  icon: Icon(Icons.circle, color: TemasCores.erro, size: 8),
+                                ),
+                                ButtonSegment(
+                                  value: FiltroEstadoOrdem.atrasada,
+                                  label: Text('Atrasadas', style: TextStyle(fontSize: 12)),
+                                  icon: Icon(Icons.warning_amber_rounded, size: 14),
+                                ),
+                                ButtonSegment(
+                                  value: FiltroEstadoOrdem.concluida,
+                                  label: Text('Concluídas', style: TextStyle(fontSize: 12)),
+                                  icon: Icon(Icons.flag_rounded, size: 14),
+                                ),
+                                ButtonSegment(
+                                  value: FiltroEstadoOrdem.cancelada,
+                                  label: Text('Canceladas', style: TextStyle(fontSize: 12)),
+                                  icon: Icon(Icons.block_rounded, size: 14),
+                                ),
+                              ],
+                              selected: {_filtroEstado},
+                              onSelectionChanged: (set) {
+                                setState(() => _filtroEstado = set.first);
+                                // Mudar de filtro recomeça a paginação do início.
+                                _voltarAoTopo();
+                                _carregarEncomendas();
+                              },
                             ),
-                            segments: const [
-                              ButtonSegment(
-                                value: FiltroEstadoOrdem.todos,
-                                label: Text('Todas', style: TextStyle(fontSize: 12)),
-                              ),
-                              ButtonSegment(
-                                value: FiltroEstadoOrdem.emProducao,
-                                label: Text('Em Produção', style: TextStyle(fontSize: 12)),
-                                icon: Icon(Icons.circle, color: TemasCores.sucesso, size: 8),
-                              ),
-                              ButtonSegment(
-                                value: FiltroEstadoOrdem.emHold,
-                                label: Text('ON HOLD', style: TextStyle(fontSize: 12)),
-                                icon: Icon(Icons.circle, color: TemasCores.erro, size: 8),
-                              ),
-                              ButtonSegment(
-                                value: FiltroEstadoOrdem.atrasada,
-                                label: Text('Atrasadas', style: TextStyle(fontSize: 12)),
-                                icon: Icon(Icons.warning_amber_rounded, size: 14),
-                              ),
-                              ButtonSegment(
-                                value: FiltroEstadoOrdem.concluida,
-                                label: Text('Concluídas', style: TextStyle(fontSize: 12)),
-                                icon: Icon(Icons.flag_rounded, size: 14),
-                              ),
-                              ButtonSegment(
-                                value: FiltroEstadoOrdem.cancelada,
-                                label: Text('Canceladas', style: TextStyle(fontSize: 12)),
-                                icon: Icon(Icons.block_rounded, size: 14),
-                              ),
+                          );
+
+                          if (context.ehAmplo) {
+                            return Row(
+                              children: [
+                                Expanded(child: campoPesquisa),
+                                const SizedBox(width: 12),
+                                filtros,
+                              ],
+                            );
+                          }
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              campoPesquisa,
+                              const SizedBox(height: 12),
+                              filtros,
                             ],
-                            selected: {_filtroEstado},
-                            onSelectionChanged: (set) {
-                              setState(() => _filtroEstado = set.first);
-                              // Mudar de filtro recomeça a paginação do início.
-                              _voltarAoTopo();
-                              _carregarEncomendas();
-                            },
-                          ),
-                        ],
+                          );
+                        },
                       ),
                       const SizedBox(height: 20),
 

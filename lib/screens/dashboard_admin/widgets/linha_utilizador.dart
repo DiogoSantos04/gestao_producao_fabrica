@@ -80,14 +80,19 @@ class LinhaUtilizador extends StatelessWidget {
               ),
             ),
             // Perfil (Badge)
+            //
+            // A etiqueta ("Técnico de Manutenção" é a mais comprida) precisa
+            // de `Flexible`: sem ele, o `Row` dá-lhe largura livre e o
+            // `ellipsis` do texto lá dentro nunca chega a ter uma largura
+            // finita para cortar — a pílula estoura para fora da coluna.
             Expanded(
               flex: 2,
-              child: Row(children: [EtiquetaPerfil(perfil: ut.perfil)]),
+              child: Row(children: [Flexible(child: EtiquetaPerfil(perfil: ut.perfil))]),
             ),
             // Estado da Conta (Badge)
             Expanded(
               flex: 2,
-              child: Row(children: [EtiquetaEstadoConta(estado: ut.estadoConta)]),
+              child: Row(children: [Flexible(child: EtiquetaEstadoConta(estado: ut.estadoConta))]),
             ),
             // Ações
             Expanded(

@@ -1,6 +1,7 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show RealtimeChannel;
+import '../../core/breakpoints.dart';
 import '../../core/mensagens.dart';
 import '../../core/realtime.dart';
 import '../../core/temas_cores.dart';
@@ -314,7 +315,7 @@ class _CriarEncomendaScreenState extends State<CriarEncomendaScreen> {
       child: Scaffold(
         backgroundColor: TemasCores.fundoEcraFrio,
         body: Padding(
-          padding: const EdgeInsets.all(24),
+          padding: paddingEcra(context),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [

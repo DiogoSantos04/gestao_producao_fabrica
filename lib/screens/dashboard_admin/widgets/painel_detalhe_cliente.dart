@@ -293,9 +293,13 @@ class _TituloSeccao extends StatelessWidget {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(titulo,
-            style: const TextStyle(
-                fontSize: 14, fontWeight: FontWeight.bold, color: TemasCores.textoPrimario)),
+        Flexible(
+          child: Text(titulo,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                  fontSize: 14, fontWeight: FontWeight.bold, color: TemasCores.textoPrimario)),
+        ),
+        const SizedBox(width: 8),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
           decoration: BoxDecoration(color: fundoContador, borderRadius: BorderRadius.circular(10)),
@@ -346,15 +350,23 @@ class _ItemSeccao extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(titulo,
-                  style: const TextStyle(
-                      fontWeight: FontWeight.bold, fontSize: 12, color: TemasCores.textoPrimario)),
-              Text(subtitulo, style: const TextStyle(fontSize: 11, color: TemasCores.textoApoio)),
-            ],
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(titulo,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.bold, fontSize: 12, color: TemasCores.textoPrimario)),
+                Text(subtitulo,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 11, color: TemasCores.textoApoio)),
+              ],
+            ),
           ),
+          const SizedBox(width: 8),
           trailing,
         ],
       ),

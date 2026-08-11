@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show RealtimeChannel;
+import '../../core/breakpoints.dart';
 import '../../core/realtime.dart';
 import '../../core/temas_cores.dart';
 import '../../models/encomenda_model.dart';
@@ -23,7 +24,9 @@ String descreverVariacaoDiaria(int hoje, int ontem) {
   if (diferenca == 0) {
     // Zero e zero não é "estável": é uma linha que não produziu nada em dois
     // dias, e dizer "igual a ontem" mascarava-o.
-    return hoje == 0 ? 'Nada concluído ontem nem hoje' : 'Igual a ontem ($ontem)';
+    return hoje == 0
+        ? 'Nada concluído ontem nem hoje'
+        : 'Igual a ontem ($ontem)';
   }
   final sinal = diferenca > 0 ? '+' : '−';
   return '$sinal${diferenca.abs()} vs ontem ($ontem)';
@@ -40,7 +43,8 @@ class DashboardPrincipalScreen extends StatefulWidget {
   final void Function(FiltroEstadoOrdem filtro)? aoAbrirOrdens;
 
   @override
-  State<DashboardPrincipalScreen> createState() => _DashboardPrincipalScreenState();
+  State<DashboardPrincipalScreen> createState() =>
+      _DashboardPrincipalScreenState();
 }
 
 class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
@@ -119,7 +123,7 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
     super.initState();
     _carregarDadosDashboard();
     _inicializarSubscricaoTempoReal();
-    
+
     // Serve apenas para refrescar os contadores "há X min" dos alertas.
     // Estava a 1 segundo, o que reconstruía o dashboard inteiro 60x por minuto.
     _everySecondTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
@@ -182,17 +186,19 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
 
       // 2. Carrega as encomendas trazendo o nome da fase onde se encontram atualmente
       // Ordens canceladas não contam para nenhum indicador operacional.
-      final List<EncomendaModel> encomendas = await _encomendasRepo.obterParaDashboard();
+      final List<EncomendaModel> encomendas = await _encomendasRepo
+          .obterParaDashboard();
 
       // 3. Carrega as incidências ativas (as resolvidas não são paragens)
-      final List<Map<String, dynamic>> incidenciasRaw = await _encomendasRepo.obterIncidenciasAbertas();
+      final List<Map<String, dynamic>> incidenciasRaw = await _encomendasRepo
+          .obterIncidenciasAbertas();
 
       // 3b. Motivos de paragem mais frequentes do último mês. Inclui as já
       // resolvidas de propósito: o Pareto serve para decidir onde atacar a
       // causa raiz, e uma avaria que se repete e se resolve depressa é
       // exatamente o que se quer ver.
-      final List<ParagemAgregada> pareto =
-          await _encomendasRepo.obterParetoParagens(dias: _diasPareto);
+      final List<ParagemAgregada> pareto = await _encomendasRepo
+          .obterParetoParagens(dias: _diasPareto);
 
       if (!mounted) return;
 
@@ -215,8 +221,8 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
       // 4. Última fase concluída de cada ordem nos dois dias. Uma janela só,
       // em vez de uma leitura por dia: são poucas linhas e evita que os dois
       // lados da comparação venham de instantes diferentes.
-      final Map<int, DateTime> ultimasConclusoes =
-          await _encomendasRepo.obterUltimasConclusoes(desde: ontem, ate: hoje);
+      final Map<int, DateTime> ultimasConclusoes = await _encomendasRepo
+          .obterUltimasConclusoes(desde: ontem, ate: hoje);
 
       // 5. Processamento posicional das encomendas
       //
@@ -282,19 +288,25 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
 
       if (!mounted) return;
 
-      final Map<String, int> postosPorEstado =
-          PostosRepository.contarPorEstado(postos);
+      final Map<String, int> postosPorEstado = PostosRepository.contarPorEstado(
+        postos,
+      );
       final List<OcupacaoPosto> ocupacao = PostosRepository.distribuirOrdens(
         postos: postos,
         postoPorFase: postoPorFase,
         fasesAtuais: fasesAtuais,
       );
 
-      final int totalPostos =
-          postosPorEstado.values.fold(0, (soma, n) => soma + n);
+      final int totalPostos = postosPorEstado.values.fold(
+        0,
+        (soma, n) => soma + n,
+      );
       final int postosParados = postosPorEstado[EstadoPosto.parado] ?? 0;
       final double disponibilidade = totalPostos > 0
-          ? (((totalPostos - postosParados) / totalPostos) * 100).clamp(0.0, 100.0)
+          ? (((totalPostos - postosParados) / totalPostos) * 100).clamp(
+              0.0,
+              100.0,
+            )
           : 100.0;
 
       setState(() {
@@ -315,7 +327,6 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
         _erroCarregamento = null;
         _carregouUmaVez = true;
       });
-
     } catch (e) {
       debugPrint('❌ Erro ao processar dados do dashboard: $e');
       if (mounted) {
@@ -370,7 +381,7 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
+              padding: paddingEcra(context),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -379,7 +390,8 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
                   // possivelmente desatualizados em vez de mentirem em silêncio.
                   if (_erroCarregamento != null)
                     EstadoErro.compacto(
-                      titulo: 'Os indicadores podem estar desatualizados — falhou a última atualização.',
+                      titulo:
+                          'Os indicadores podem estar desatualizados — falhou a última atualização.',
                       detalhe: _erroCarregamento,
                       aoRepetir: _carregarDadosDashboard,
                     ),
@@ -387,13 +399,21 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
                   LayoutBuilder(
                     builder: (context, constraints) {
                       final int colunas = _colunasKpi(larguraEcra);
-                      return GridView.count(
-                        crossAxisCount: colunas,
-                        crossAxisSpacing: 16,
-                        mainAxisSpacing: 16,
+                      return GridView(
+                        // Altura fixa, não proporção: o conteúdo (título +
+                        // valor + até 2 linhas de subtítulo) tem sempre a
+                        // mesma altura, seja qual for a largura do cartão —
+                        // com `childAspectRatio` (GridView.count), a 1 coluna
+                        // o cartão ficava demasiado baixo e o texto estourava
+                        // por baixo.
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: colunas,
+                          crossAxisSpacing: 16,
+                          mainAxisSpacing: 16,
+                          mainAxisExtent: 132,
+                        ),
                         shrinkWrap: true,
                         physics: const NeverScrollableScrollPhysics(),
-                        childAspectRatio: _proporcaoKpi(colunas),
                         children: [
                           _buildKpiCard(
                             titulo: 'Encomendas Ativas',
@@ -426,14 +446,18 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
                           _buildKpiCard(
                             titulo: 'Concluídas Hoje',
                             valor: '$_concluidasHoje',
-                            subtitulo: descreverVariacaoDiaria(_concluidasHoje, _concluidasOntem),
+                            subtitulo: descreverVariacaoDiaria(
+                              _concluidasHoje,
+                              _concluidasOntem,
+                            ),
                             corIcone: TemasCores.sucessoForte,
                             fundoIcone: TemasCores.sucessoFundo,
                             icone: Icons.check_circle_outline,
                           ),
                           _buildKpiCard(
                             titulo: 'Disponibilidade de Postos',
-                            valor: '${_disponibilidadePostos.toStringAsFixed(0)}%',
+                            valor:
+                                '${_disponibilidadePostos.toStringAsFixed(0)}%',
                             subtitulo: _totalPostos == 0
                                 ? 'Sem postos registados'
                                 : '% de postos operacionais · $_postosParados de $_totalPostos parados',
@@ -487,36 +511,52 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Painel de Controlo Operacional',
-              style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: TemasCores.textoPrimario),
-            ),
-            const SizedBox(height: 4),
-            Row(
-              children: [
-                Container(
-                  width: 8,
-                  height: 8,
-                  decoration: const BoxDecoration(
-                    color: TemasCores.sucesso,
-                    shape: BoxShape.circle,
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Painel de Controlo Operacional',
+                style: TextStyle(
+                  fontSize: 26,
+                  fontWeight: FontWeight.bold,
+                  color: TemasCores.textoPrimario,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: const BoxDecoration(
+                      color: TemasCores.sucesso,
+                      shape: BoxShape.circle,
+                    ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                const Text(
-                  'Ligação ao Chão de Fábrica Ativa',
-                  style: TextStyle(fontSize: 13, color: TemasCores.textoApoio, fontWeight: FontWeight.w500),
-                ),
-              ],
-            ),
-          ],
+                  const SizedBox(width: 8),
+                  const Flexible(
+                    child: Text(
+                      'Ligação ao Chão de Fábrica Ativa',
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: TemasCores.textoApoio,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
         IconButton(
           onPressed: _carregarDadosDashboard,
-          icon: const Icon(Icons.refresh_rounded, color: TemasCores.adminAcento),
+          icon: const Icon(
+            Icons.refresh_rounded,
+            color: TemasCores.adminAcento,
+          ),
           tooltip: 'Forçar Sincronização',
         ),
       ],
@@ -535,15 +575,6 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
     if (largura < 1500) return 3;
     return 5;
   }
-
-  /// Proporção de cada cartão de KPI: quanto menos colunas, mais largo fica o
-  /// cartão, pelo que a proporção tem de acompanhar para a altura não disparar.
-  static double _proporcaoKpi(int colunas) => switch (colunas) {
-        1 => 4.0,
-        2 => 2.6,
-        3 => 2.4,
-        _ => 1.9,
-      };
 
   /// Um cartão de KPI, navegável quando [filtro] identifica as ordens que estão
   /// por trás do número.
@@ -579,8 +610,10 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
   }
 
   Widget _buildChartCard() {
-    final int valorMaximo =
-        _ocupacaoPostos.fold(0, (max, o) => o.ordens > max ? o.ordens : max);
+    final int valorMaximo = _ocupacaoPostos.fold(
+      0,
+      (max, o) => o.ordens > max ? o.ordens : max,
+    );
     const double alturaGrafico = 250.0;
 
     return Card(
@@ -597,7 +630,11 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
           children: [
             const Text(
               'Ocupação dos Postos de Trabalho',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: TemasCores.textoPrimario),
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: TemasCores.textoPrimario,
+              ),
             ),
             const SizedBox(height: 4),
             const Text(
@@ -611,86 +648,135 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
                 child: Center(
                   child: Text(
                     'Sem postos de trabalho registados.',
-                    style: TextStyle(fontSize: 12, color: TemasCores.textoTerciario),
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: TemasCores.textoTerciario,
+                    ),
                   ),
                 ),
               )
             else
               SizedBox(
                 height: alturaGrafico,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: _ocupacaoPostos.map((ocupacao) {
-                    final int quantidade = ocupacao.ordens;
-                    final bool parado = ocupacao.posto.parado;
-
-                    final double percentagemAltura = valorMaximo == 0 ? 0.05 : (quantidade / valorMaximo);
-
-                    return Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 2.0),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            AnimatedOpacity(
-                              duration: const Duration(milliseconds: 300),
-                              opacity: quantidade > 0 ? 1.0 : 0.4,
-                              child: Text(
-                                '$quantidade',
-                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            AnimatedContainer(
-                              duration: const Duration(milliseconds: 500),
-                              curve: Curves.easeOutBack,
-                              width: 24,
-                              height: (alturaGrafico - 65) * percentagemAltura,
-                              decoration: BoxDecoration(
-                                // Um posto parado com ordens em cima é o pior
-                                // caso do chão de fábrica: a barra diz-se logo,
-                                // sem obrigar a cruzar com o cartão de
-                                // disponibilidade.
-                                gradient: LinearGradient(
-                                  colors: parado
-                                      ? const [TemasCores.erroMedio, TemasCores.erroForte]
-                                      : const [
-                                          TemasCores.graficoBarraTopo,
-                                          TemasCores.graficoBarraBase,
-                                        ],
-                                  begin: Alignment.topCenter,
-                                  end: Alignment.bottomCenter,
-                                ),
-                                borderRadius: const BorderRadius.only(
-                                  topLeft: Radius.circular(4),
-                                  topRight: Radius.circular(4),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              ocupacao.posto.nome,
-                              style: TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w500,
-                                color: parado ? TemasCores.erroForte : TemasCores.textoApoio,
-                              ),
-                              textAlign: TextAlign.center,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ],
-                        ),
-                      ),
+                // Cada barra era um `Expanded`: com vários postos num ecrã
+                // estreito, cada coluna ficava tão fina que o nome do posto
+                // não cabia nem como uma palavra só e quebrava a meio
+                // ("Lixage" / "m") — o gráfico parecia torto. Com largura
+                // mínima por coluna, ganha scroll horizontal em vez disso.
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    const larguraColuna = 64.0;
+                    final double larguraNecessaria =
+                        _ocupacaoPostos.length * larguraColuna;
+                    final barras = Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: _construirBarras(valorMaximo, larguraColuna),
                     );
-                  }).toList(),
+                    if (larguraNecessaria <= constraints.maxWidth) {
+                      return barras;
+                    }
+                    return SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: SizedBox(width: larguraNecessaria, child: barras),
+                    );
+                  },
                 ),
               ),
           ],
         ),
       ),
     );
+  }
+
+  List<Widget> _construirBarras(int valorMaximo, double larguraColuna) {
+    const double alturaGrafico = 250.0;
+    return _ocupacaoPostos.map((ocupacao) {
+      final int quantidade = ocupacao.ordens;
+      final bool parado = ocupacao.posto.parado;
+
+      final double percentagemAltura = valorMaximo == 0
+          ? 0.05
+          : (quantidade / valorMaximo);
+
+      return SizedBox(
+        width: larguraColuna,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              // Altura fixa para o número: sem isto, cada valor ficava colado
+              // ao topo da sua própria barra — barras mais baixas deixavam o
+              // número mais em baixo do que as altas, e a linha de números
+              // parecia desalinhada em vez de correr toda à mesma altura.
+              SizedBox(
+                height: 16,
+                child: Align(
+                  alignment: Alignment.bottomCenter,
+                  child: AnimatedOpacity(
+                    duration: const Duration(milliseconds: 300),
+                    opacity: quantidade > 0 ? 1.0 : 0.4,
+                    child: Text(
+                      '$quantidade',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 6),
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 500),
+                curve: Curves.easeOutBack,
+                width: 24,
+                height: (alturaGrafico - 65) * percentagemAltura,
+                decoration: BoxDecoration(
+                  // Um posto parado com ordens em cima é o pior
+                  // caso do chão de fábrica: a barra diz-se logo,
+                  // sem obrigar a cruzar com o cartão de
+                  // disponibilidade.
+                  gradient: LinearGradient(
+                    colors: parado
+                        ? const [TemasCores.erroMedio, TemasCores.erroForte]
+                        : const [
+                            TemasCores.graficoBarraTopo,
+                            TemasCores.graficoBarraBase,
+                          ],
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                  ),
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(4),
+                    topRight: Radius.circular(4),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 6),
+              // Idem para o rótulo: altura fixa (2 linhas), para um nome de
+              // posto com 1 linha só não deixar a barra mais alta que as
+              // vizinhas com nomes de 2 linhas.
+              SizedBox(
+                height: 28,
+                child: Text(
+                  ocupacao.posto.nome,
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w500,
+                    color: parado ? TemasCores.erroForte : TemasCores.textoApoio,
+                  ),
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }).toList();
   }
 
   /// Pareto dos motivos de paragem: onde atacar primeiro.
@@ -702,21 +788,35 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
     // Ordena pelo critério escolhido. A lista chega inteira do repositório para
     // a curva acumulada poder ser calculada sobre o total real das paragens, e
     // não sobre o total das cinco que cabem no ecrã.
-    final List<ParagemAgregada> ordenadas =
-        EncomendasRepository.ordenarPareto(_paretoParagens, criterio: _criterioPareto);
+    final List<ParagemAgregada> ordenadas = EncomendasRepository.ordenarPareto(
+      _paretoParagens,
+      criterio: _criterioPareto,
+    );
     final List<ParagemAgregada> topo = ordenadas.take(5).toList();
 
-    int valorDe(ParagemAgregada p) => _criterioPareto == CriterioPareto.tempoPerdido
+    int valorDe(ParagemAgregada p) =>
+        _criterioPareto == CriterioPareto.tempoPerdido
         ? p.minutosTotais
         : p.ocorrencias;
 
-    final int valorMaximo = topo.fold(0, (max, p) => valorDe(p) > max ? valorDe(p) : max);
+    final int valorMaximo = topo.fold(
+      0,
+      (max, p) => valorDe(p) > max ? valorDe(p) : max,
+    );
     final int totalGeral = ordenadas.fold(0, (soma, p) => soma + valorDe(p));
 
     // MTTR: tempo médio de reparação de todas as paragens do período.
-    final int totalOcorrencias = ordenadas.fold(0, (soma, p) => soma + p.ocorrencias);
-    final int totalMinutos = ordenadas.fold(0, (soma, p) => soma + p.minutosTotais);
-    final int mttr = totalOcorrencias == 0 ? 0 : (totalMinutos / totalOcorrencias).round();
+    final int totalOcorrencias = ordenadas.fold(
+      0,
+      (soma, p) => soma + p.ocorrencias,
+    );
+    final int totalMinutos = ordenadas.fold(
+      0,
+      (soma, p) => soma + p.minutosTotais,
+    );
+    final int mttr = totalOcorrencias == 0
+        ? 0
+        : (totalMinutos / totalOcorrencias).round();
 
     return Card(
       color: TemasCores.superficie,
@@ -738,18 +838,29 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
               children: [
                 const Text(
                   'Análise de Paragens (Pareto)',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: TemasCores.textoPrimario),
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: TemasCores.textoPrimario,
+                  ),
                 ),
                 SegmentedButton<CriterioPareto>(
                   segments: CriterioPareto.values
-                      .map((c) => ButtonSegment<CriterioPareto>(
-                            value: c,
-                            label: Text(c.etiqueta, style: const TextStyle(fontSize: 11)),
-                          ))
+                      .map(
+                        (c) => ButtonSegment<CriterioPareto>(
+                          value: c,
+                          label: Text(
+                            c.etiqueta,
+                            style: const TextStyle(fontSize: 11),
+                          ),
+                        ),
+                      )
                       .toList(),
                   selected: {_criterioPareto},
                   showSelectedIcon: false,
-                  style: const ButtonStyle(visualDensity: VisualDensity.compact),
+                  style: const ButtonStyle(
+                    visualDensity: VisualDensity.compact,
+                  ),
                   onSelectionChanged: (selecao) =>
                       setState(() => _criterioPareto = selecao.first),
                 ),
@@ -759,7 +870,10 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
             Text(
               'Top 5 por motivo oficial, nos últimos $_diasPareto dias · '
               'MTTR ${_formatarDuracao(mttr)}',
-              style: const TextStyle(fontSize: 13, color: TemasCores.textoTerciario),
+              style: const TextStyle(
+                fontSize: 13,
+                color: TemasCores.textoTerciario,
+              ),
             ),
             const SizedBox(height: 20),
             if (topo.isEmpty)
@@ -768,7 +882,10 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
                 child: Center(
                   child: Text(
                     'Sem paragens com motivo registado no período.',
-                    style: TextStyle(fontSize: 12, color: TemasCores.textoTerciario),
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: TemasCores.textoTerciario,
+                    ),
                   ),
                 ),
               )
@@ -785,8 +902,9 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
                     paragem: topo[i],
                     valor: valorDe(topo[i]),
                     valorMaximo: valorMaximo,
-                    percentagemAcumulada:
-                        totalGeral == 0 ? 0 : (acumulado / totalGeral) * 100,
+                    percentagemAcumulada: totalGeral == 0
+                        ? 0
+                        : (acumulado / totalGeral) * 100,
                   );
                 });
               }(),
@@ -818,14 +936,20 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
                 child: Text(
                   '$posicao.',
                   style: const TextStyle(
-                      fontSize: 12, fontWeight: FontWeight.bold, color: TemasCores.textoTerciario),
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: TemasCores.textoTerciario,
+                  ),
                 ),
               ),
               Expanded(
                 child: Text(
                   paragem.rotulo,
                   style: const TextStyle(
-                      fontSize: 13, fontWeight: FontWeight.w600, color: TemasCores.textoPrimario),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: TemasCores.textoPrimario,
+                  ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -834,7 +958,10 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
               Text(
                 porTempo ? _formatarDuracao(valor) : '$valor×',
                 style: const TextStyle(
-                    fontSize: 13, fontWeight: FontWeight.bold, color: TemasCores.textoSecundario),
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  color: TemasCores.textoSecundario,
+                ),
               ),
             ],
           ),
@@ -850,7 +977,9 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
                     value: fracao,
                     minHeight: 8,
                     backgroundColor: TemasCores.superficieTenue,
-                    valueColor: const AlwaysStoppedAnimation<Color>(TemasCores.graficoBarraBase),
+                    valueColor: const AlwaysStoppedAnimation<Color>(
+                      TemasCores.graficoBarraBase,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 4),
@@ -861,7 +990,10 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
                         '${paragem.categoria} · ${paragem.ocorrencias}× '
                         '· ${_formatarDuracao(paragem.minutosTotais)} no total '
                         '· ${_formatarDuracao(paragem.minutosMedios)} em média',
-                        style: const TextStyle(fontSize: 11, color: TemasCores.textoTerciario),
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: TemasCores.textoTerciario,
+                        ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -914,20 +1046,34 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text(
-                  'Alertas de Incidência',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: TemasCores.textoPrimario),
+                const Flexible(
+                  child: Text(
+                    'Alertas de Incidência',
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: TemasCores.textoPrimario,
+                    ),
+                  ),
                 ),
                 if (_alertasIncidencias.isNotEmpty)
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
                       color: TemasCores.erroFundo,
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
                       '${_alertasIncidencias.length} Paragens',
-                      style: const TextStyle(fontSize: 11, color: TemasCores.erroForte, fontWeight: FontWeight.bold),
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: TemasCores.erroForte,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
               ],
@@ -947,7 +1093,8 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
                 itemCount: _alertasIncidencias.length,
-                itemBuilder: (context, index) => _buildCartaoAlerta(_alertasIncidencias[index]),
+                itemBuilder: (context, index) =>
+                    _buildCartaoAlerta(_alertasIncidencias[index]),
               ),
           ],
         ),
@@ -979,7 +1126,11 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
         ),
         child: Row(
           children: [
-            const Icon(Icons.timer_outlined, size: 16, color: TemasCores.erroForte),
+            const Icon(
+              Icons.timer_outlined,
+              size: 16,
+              color: TemasCores.erroForte,
+            ),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
@@ -1009,7 +1160,10 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
             SizedBox(height: 12),
             Text(
               'Chão de Fábrica a 100%!',
-              style: TextStyle(fontWeight: FontWeight.bold, color: TemasCores.sucesso),
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: TemasCores.sucesso,
+              ),
             ),
             Text(
               'Sem paragens ou bloqueios reportados.',
@@ -1025,10 +1179,16 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
   ///
   /// A incidência liga-se a estes dados através de `historico_producao`, pelo que
   /// as junções vêm encadeadas e podem faltar em qualquer nível.
-  ({String encRef, String posto, String operador}) _dadosAlerta(Map<String, dynamic> inc) {
+  ({String encRef, String posto, String operador}) _dadosAlerta(
+    Map<String, dynamic> inc,
+  ) {
     final hist = inc['historico_producao'];
     if (hist == null) {
-      return (encRef: 'N/A', posto: 'Não especificado', operador: 'Desconhecido');
+      return (
+        encRef: 'N/A',
+        posto: 'Não especificado',
+        operador: 'Desconhecido',
+      );
     }
 
     final encData = hist['encomendas'];
@@ -1040,8 +1200,12 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
       encRef: encData != null
           ? (encData['codigo_rastreio'] ?? 'N/A')
           : (encId != null ? '#$encId' : 'N/A'),
-      posto: faseData != null ? (faseData['posto_trabalho'] ?? 'Não especificado') : 'Não especificado',
-      operador: userData != null ? (userData['nome_utilizador'] ?? 'Desconhecido') : 'Desconhecido',
+      posto: faseData != null
+          ? (faseData['posto_trabalho'] ?? 'Não especificado')
+          : 'Não especificado',
+      operador: userData != null
+          ? (userData['nome_utilizador'] ?? 'Desconhecido')
+          : 'Desconhecido',
     );
   }
 
@@ -1060,7 +1224,11 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.error_outline_rounded, color: TemasCores.erroForte, size: 20),
+          const Icon(
+            Icons.error_outline_rounded,
+            color: TemasCores.erroForte,
+            size: 20,
+          ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -1069,19 +1237,33 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(
-                      'Enc. ${dados.encRef}',
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                    Flexible(
+                      child: Text(
+                        'Enc. ${dados.encRef}',
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                        ),
+                      ),
                     ),
+                    const SizedBox(width: 6),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
                       decoration: BoxDecoration(
                         color: TemasCores.erroFundoForte,
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: const Text(
                         'ATENÇÃO',
-                        style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: TemasCores.erro),
+                        style: TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold,
+                          color: TemasCores.erro,
+                        ),
                       ),
                     ),
                   ],
@@ -1090,25 +1272,44 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
                 Text(
                   'Posto: ${dados.posto}',
                   style: const TextStyle(
-                      fontSize: 12, fontWeight: FontWeight.w500, color: TemasCores.textoSecundario),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: TemasCores.textoSecundario,
+                  ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   inc['motivo'] ?? 'Sem motivo indicado.',
-                  style: const TextStyle(fontSize: 12, color: TemasCores.textoApoio),
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: TemasCores.textoApoio,
+                  ),
                 ),
                 const SizedBox(height: 6),
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(
-                      '⏱️ Ativo: ${_calcularTempoDowntime(inc['created_at'] ?? DateTime.now().toIso8601String())}',
-                      style: const TextStyle(
-                          fontSize: 11, color: TemasCores.erroMedio, fontWeight: FontWeight.bold),
+                    Flexible(
+                      child: Text(
+                        '⏱️ Ativo: ${_calcularTempoDowntime(inc['created_at'] ?? DateTime.now().toIso8601String())}',
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: TemasCores.erroMedio,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ),
-                    Text(
-                      'Op: ${dados.operador}',
-                      style: const TextStyle(fontSize: 11, color: TemasCores.textoDesativado),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Op: ${dados.operador}',
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.end,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: TemasCores.textoDesativado,
+                        ),
+                      ),
                     ),
                   ],
                 ),

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/breakpoints.dart';
 import '../../../core/formatos.dart';
 import '../../../core/temas_cores.dart';
 import '../../../models/encomenda_model.dart';
@@ -59,8 +60,8 @@ class CartaoOrdemProducao extends StatelessWidget {
     final String faseNome = concluida
         ? 'Produção Concluída'
         : (enc.nomeFaseAtual != null
-            ? 'Fase ${enc.ordemFaseAtual}: ${enc.nomeFaseAtual}'
-            : 'Aguardando Início');
+              ? 'Fase ${enc.ordemFaseAtual}: ${enc.nomeFaseAtual}'
+              : 'Aguardando Início');
     final String postoTrabalho = enc.postoFaseAtual ?? 'Linha Geral';
     final String dataEntrega = enc.dataEntregaIso ?? '';
 
@@ -69,92 +70,157 @@ class CartaoOrdemProducao extends StatelessWidget {
 
     // Incidência ativa: o modelo aplica a regra (sem line clearance validado)
     final Map<String, dynamic>? incidenciaAtiva = enc.incidenciaAtiva;
-    final bool manutencaoConcluida = incidenciaAtiva?['manutencao_concluida'] == true;
+    final bool manutencaoConcluida =
+        incidenciaAtiva?['manutencao_concluida'] == true;
+
+    final infoEsquerda = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _LinhaEtiquetas(
+          idFormatado: idFormatado,
+          codigoRastreio: codigoRastreio,
+          estado: estado,
+          atrasada: atrasada,
+          prioridade: prioridade,
+        ),
+        const SizedBox(height: 8),
+        Text(
+          nomeCliente,
+          style: const TextStyle(
+            color: TemasCores.textoApoioForte,
+            fontSize: 13,
+          ),
+        ),
+        Text(
+          nomeProduto,
+          style: const TextStyle(
+            color: TemasCores.textoTerciario,
+            fontSize: 12,
+          ),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            const Text(
+              'Fase Atual: ',
+              style: TextStyle(fontSize: 13, color: TemasCores.textoApoio),
+            ),
+            Flexible(
+              child: Text(
+                faseNome,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                  color: TemasCores.textoPrimario,
+                ),
+              ),
+            ),
+            if (!concluida) ...[
+              const SizedBox(width: 8),
+              Chip(
+                label: Text(
+                  postoTrabalho,
+                  style: const TextStyle(fontSize: 10),
+                ),
+                visualDensity: VisualDensity.compact,
+              ),
+            ],
+          ],
+        ),
+      ],
+    );
+
+    // Até 5 botões cabem nesta zona (WIP Hold, Avançar Fase, Histórico,
+    // Editar, Cancelar) — lado a lado com a referência da ordem, um ecrã
+    // estreito não tinha onde os pôr: a coluna de botões reclamava a largura
+    // toda antes do `Expanded` da esquerda sequer entrar em conta, e a
+    // referência ("ORD-2026-109") acabava espremida a uma letra por linha.
+    Widget construirDataEAcoes({required bool amplo}) {
+      return Column(
+        crossAxisAlignment: amplo
+            ? CrossAxisAlignment.end
+            : CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.calendar_today_outlined,
+                size: 14,
+                color: TemasCores.textoTerciario,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                dataEntrega,
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: TemasCores.textoApoio,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _BotoesAcao(
+            alinhamento: amplo ? WrapAlignment.end : WrapAlignment.start,
+            estado: estado,
+            incidenciaAtiva: incidenciaAtiva,
+            manutencaoConcluida: manutencaoConcluida,
+            aoAvancarFase: aoAvancarFase,
+            aoWipHold: aoWipHold,
+            aoRegistoTecnico: aoRegistoTecnico,
+            aoLineClearance: aoLineClearance,
+            aoHistorico: aoHistorico,
+            aoEditar: aoEditar,
+            aoCancelar: () => aoCancelar(idFormatado),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            '$progressoPercentagem% concluído',
+            style: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              color: TemasCores.textoApoio,
+            ),
+          ),
+        ],
+      );
+    }
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
         color: TemasCores.superficie,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: emHold ? TemasCores.erroClaro : TemasCores.borda, width: emHold ? 2 : 1),
+        border: Border.all(
+          color: emHold ? TemasCores.erroClaro : TemasCores.borda,
+          width: emHold ? 2 : 1,
+        ),
       ),
       child: Column(
         children: [
           Padding(
             padding: const EdgeInsets.all(20),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Column(
+            child: context.ehAmplo
+                ? Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _LinhaEtiquetas(
-                        idFormatado: idFormatado,
-                        codigoRastreio: codigoRastreio,
-                        estado: estado,
-                        atrasada: atrasada,
-                        prioridade: prioridade,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(nomeCliente, style: const TextStyle(color: TemasCores.textoApoioForte, fontSize: 13)),
-                      Text(nomeProduto, style: const TextStyle(color: TemasCores.textoTerciario, fontSize: 12)),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          const Text('Fase Atual: ', style: TextStyle(fontSize: 13, color: TemasCores.textoApoio)),
-                          Text(faseNome,
-                              style: const TextStyle(
-                                  fontWeight: FontWeight.bold, fontSize: 13, color: TemasCores.textoPrimario)),
-                          if (!concluida) ...[
-                            const SizedBox(width: 8),
-                            Chip(
-                              label: Text(postoTrabalho, style: const TextStyle(fontSize: 10)),
-                              visualDensity: VisualDensity.compact,
-                            ),
-                          ]
-                        ],
-                      ),
+                      Expanded(child: infoEsquerda),
+                      const SizedBox(width: 16),
+                      construirDataEAcoes(amplo: true),
+                    ],
+                  )
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      infoEsquerda,
+                      const SizedBox(height: 16),
+                      construirDataEAcoes(amplo: false),
                     ],
                   ),
-                ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.calendar_today_outlined, size: 14, color: TemasCores.textoTerciario),
-                        const SizedBox(width: 6),
-                        Text(
-                          dataEntrega,
-                          style: const TextStyle(
-                              fontSize: 12, color: TemasCores.textoApoio, fontWeight: FontWeight.w500),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    _BotoesAcao(
-                      estado: estado,
-                      incidenciaAtiva: incidenciaAtiva,
-                      manutencaoConcluida: manutencaoConcluida,
-                      aoAvancarFase: aoAvancarFase,
-                      aoWipHold: aoWipHold,
-                      aoRegistoTecnico: aoRegistoTecnico,
-                      aoLineClearance: aoLineClearance,
-                      aoHistorico: aoHistorico,
-                      aoEditar: aoEditar,
-                      aoCancelar: () => aoCancelar(idFormatado),
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      '$progressoPercentagem% concluído',
-                      style: const TextStyle(
-                          fontSize: 11, fontWeight: FontWeight.bold, color: TemasCores.textoApoio),
-                    )
-                  ],
-                ),
-              ],
-            ),
           ),
 
           // MOTIVO DO CANCELAMENTO (rasto de auditoria)
@@ -170,14 +236,21 @@ class CartaoOrdemProducao extends StatelessWidget {
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.block_rounded, color: TemasCores.textoApoioForte, size: 18),
+                  const Icon(
+                    Icons.block_rounded,
+                    color: TemasCores.textoApoioForte,
+                    size: 18,
+                  ),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
                       'ORDEM CANCELADA em ${Formatos.dataHora(enc.dataCancelamento?.toIso8601String())} — '
                       '${enc.motivoCancelamento ?? 'sem motivo registado'}',
                       style: const TextStyle(
-                          fontSize: 11, fontWeight: FontWeight.bold, color: TemasCores.textoApoioIntenso),
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: TemasCores.textoApoioIntenso,
+                      ),
                     ),
                   ),
                 ],
@@ -192,15 +265,25 @@ class CartaoOrdemProducao extends StatelessWidget {
               padding: const EdgeInsets.all(12),
               margin: const EdgeInsets.only(left: 20, right: 20, bottom: 16),
               decoration: BoxDecoration(
-                color: manutencaoConcluida ? TemasCores.sucessoFundo : TemasCores.avisoFundo,
+                color: manutencaoConcluida
+                    ? TemasCores.sucessoFundo
+                    : TemasCores.avisoFundo,
                 borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: manutencaoConcluida ? TemasCores.sucessoClaro : TemasCores.avisoBorda),
+                border: Border.all(
+                  color: manutencaoConcluida
+                      ? TemasCores.sucessoClaro
+                      : TemasCores.avisoBorda,
+                ),
               ),
               child: Row(
                 children: [
                   Icon(
-                    manutencaoConcluida ? Icons.build_circle_rounded : Icons.warning_rounded,
-                    color: manutencaoConcluida ? TemasCores.sucessoTextoForte : TemasCores.avisoTextoForte,
+                    manutencaoConcluida
+                        ? Icons.build_circle_rounded
+                        : Icons.warning_rounded,
+                    color: manutencaoConcluida
+                        ? TemasCores.sucessoTextoForte
+                        : TemasCores.avisoTextoForte,
                     size: 18,
                   ),
                   const SizedBox(width: 10),
@@ -215,16 +298,22 @@ class CartaoOrdemProducao extends StatelessWidget {
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
                             fontSize: 11,
-                            color: manutencaoConcluida ? TemasCores.sucessoTextoIntenso : TemasCores.avisoTextoForte,
+                            color: manutencaoConcluida
+                                ? TemasCores.sucessoTextoIntenso
+                                : TemasCores.avisoTextoForte,
                           ),
                         ),
                         if (incidenciaAtiva['descricao_operador'] != null &&
-                            incidenciaAtiva['descricao_operador'].toString().isNotEmpty)
+                            incidenciaAtiva['descricao_operador']
+                                .toString()
+                                .isNotEmpty)
                           Text(
                             'Nota Operador: ${incidenciaAtiva['descricao_operador']}',
                             style: TextStyle(
                               fontSize: 11,
-                              color: manutencaoConcluida ? TemasCores.sucessoTextoForte : TemasCores.avisoTexto,
+                              color: manutencaoConcluida
+                                  ? TemasCores.sucessoTextoForte
+                                  : TemasCores.avisoTexto,
                             ),
                           ),
                       ],
@@ -236,13 +325,18 @@ class CartaoOrdemProducao extends StatelessWidget {
           ],
 
           ClipRRect(
-            borderRadius: const BorderRadius.only(bottomLeft: Radius.circular(8), bottomRight: Radius.circular(8)),
+            borderRadius: const BorderRadius.only(
+              bottomLeft: Radius.circular(8),
+              bottomRight: Radius.circular(8),
+            ),
             child: LinearProgressIndicator(
               value: progresso,
               minHeight: 6,
               backgroundColor: TemasCores.superficieSuave,
               valueColor: AlwaysStoppedAnimation<Color>(
-                emHold ? TemasCores.erro : (concluida ? TemasCores.sucesso : TemasCores.marcaEscura),
+                emHold
+                    ? TemasCores.erro
+                    : (concluida ? TemasCores.sucesso : TemasCores.marcaEscura),
               ),
             ),
           ),
@@ -263,25 +357,25 @@ bool _estaAtrasada(DateTime? dataEntrega) {
 ({Color fundo, Color borda, Color texto}) _coresEstado(EstadoOrdem estado) {
   return switch (estado) {
     EstadoOrdem.cancelada => (
-        fundo: TemasCores.superficieInerte,
-        borda: TemasCores.bordaNeutra,
-        texto: TemasCores.inativoTexto
-      ),
+      fundo: TemasCores.superficieInerte,
+      borda: TemasCores.bordaNeutra,
+      texto: TemasCores.inativoTexto,
+    ),
     EstadoOrdem.emHold => (
-        fundo: TemasCores.erroFundo,
-        borda: TemasCores.erroClaro,
-        texto: TemasCores.erroTextoForte
-      ),
+      fundo: TemasCores.erroFundo,
+      borda: TemasCores.erroClaro,
+      texto: TemasCores.erroTextoForte,
+    ),
     EstadoOrdem.concluida => (
-        fundo: TemasCores.sucessoFundo,
-        borda: TemasCores.sucessoClaro,
-        texto: TemasCores.sucessoTextoForte
-      ),
+      fundo: TemasCores.sucessoFundo,
+      borda: TemasCores.sucessoClaro,
+      texto: TemasCores.sucessoTextoForte,
+    ),
     EstadoOrdem.emProducao => (
-        fundo: TemasCores.infoFundo,
-        borda: TemasCores.infoClaro,
-        texto: TemasCores.infoTextoForte
-      ),
+      fundo: TemasCores.infoFundo,
+      borda: TemasCores.infoClaro,
+      texto: TemasCores.infoTextoForte,
+    ),
   };
 }
 
@@ -328,10 +422,18 @@ class _LinhaEtiquetas extends StatelessWidget {
       children: [
         Text(
           idFormatado,
-          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: TemasCores.textoPrimario),
+          style: const TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 14,
+            color: TemasCores.textoPrimario,
+          ),
         ),
-        _etiqueta(codigoRastreio,
-            fundo: TemasCores.superficieSuave, texto: TemasCores.textoApoioForte, paddingHorizontal: 6),
+        _etiqueta(
+          codigoRastreio,
+          fundo: TemasCores.superficieSuave,
+          texto: TemasCores.textoApoioForte,
+          paddingHorizontal: 6,
+        ),
         EtiquetaEstado.compacta(
           rotulo: estado.etiqueta,
           fundo: cores.fundo,
@@ -339,10 +441,17 @@ class _LinhaEtiquetas extends StatelessWidget {
           borda: cores.borda,
         ),
         if (atrasada)
-          _etiqueta('Atrasada', fundo: TemasCores.erroFundo, texto: TemasCores.erroTexto),
+          _etiqueta(
+            'Atrasada',
+            fundo: TemasCores.erroFundo,
+            texto: TemasCores.erroTexto,
+          ),
         if (prioridade != 'Normal')
-          _etiqueta(prioridade.toUpperCase(),
-              fundo: TemasCores.alertaFundo, texto: TemasCores.alertaTextoForte),
+          _etiqueta(
+            prioridade.toUpperCase(),
+            fundo: TemasCores.alertaFundo,
+            texto: TemasCores.alertaTextoForte,
+          ),
       ],
     );
   }
@@ -356,6 +465,7 @@ class _LinhaEtiquetas extends StatelessWidget {
 /// **concluída** mostra apenas Histórico, Editar e Cancelar.
 class _BotoesAcao extends StatelessWidget {
   const _BotoesAcao({
+    required this.alinhamento,
     required this.estado,
     required this.incidenciaAtiva,
     required this.manutencaoConcluida,
@@ -368,6 +478,7 @@ class _BotoesAcao extends StatelessWidget {
     required this.aoCancelar,
   });
 
+  final WrapAlignment alinhamento;
   final EstadoOrdem estado;
   final Map<String, dynamic>? incidenciaAtiva;
   final bool manutencaoConcluida;
@@ -392,7 +503,13 @@ class _BotoesAcao extends StatelessWidget {
       padding: paddingBotao,
     );
 
-    return Row(
+    // `Wrap` em vez de `Row`: até 5 botões (WIP Hold, Avançar Fase,
+    // Histórico, Editar, Cancelar) não cabem numa linha só em ecrã estreito —
+    // passam para a linha seguinte em vez de forçar o cartão a alargar.
+    return Wrap(
+      alignment: alinhamento,
+      spacing: 8,
+      runSpacing: 8,
       children: [
         if (!cancelada && emHold) ...[
           if (!manutencaoConcluida)
@@ -404,7 +521,10 @@ class _BotoesAcao extends StatelessWidget {
                 padding: paddingBotao,
               ),
               icon: const Icon(Icons.build_rounded, size: 14),
-              label: const Text('Registo Técnico', style: TextStyle(fontSize: 12)),
+              label: const Text(
+                'Registo Técnico',
+                style: TextStyle(fontSize: 12),
+              ),
             )
           else ...[
             // Com a manutenção fechada, o registo continua acessível: é o que o
@@ -415,10 +535,11 @@ class _BotoesAcao extends StatelessWidget {
               onPressed: () => aoRegistoTecnico(incidenciaAtiva),
               style: contornoNeutro,
               icon: const Icon(Icons.fact_check_outlined, size: 14),
-              label: const Text('Ver Registo Técnico',
-                  style: TextStyle(fontSize: 12)),
+              label: const Text(
+                'Ver Registo Técnico',
+                style: TextStyle(fontSize: 12),
+              ),
             ),
-            const SizedBox(width: 8),
             ElevatedButton.icon(
               onPressed: () => aoLineClearance(incidenciaAtiva),
               style: ElevatedButton.styleFrom(
@@ -427,10 +548,12 @@ class _BotoesAcao extends StatelessWidget {
                 padding: paddingBotao,
               ),
               icon: const Icon(Icons.verified_user_rounded, size: 14),
-              label: const Text('Line Clearance', style: TextStyle(fontSize: 12)),
+              label: const Text(
+                'Line Clearance',
+                style: TextStyle(fontSize: 12),
+              ),
             ),
           ],
-          const SizedBox(width: 8),
         ] else if (!cancelada && !concluida) ...[
           OutlinedButton.icon(
             onPressed: aoWipHold,
@@ -442,7 +565,6 @@ class _BotoesAcao extends StatelessWidget {
             icon: const Icon(Icons.pause, size: 14),
             label: const Text('WIP Hold', style: TextStyle(fontSize: 12)),
           ),
-          const SizedBox(width: 8),
           ElevatedButton.icon(
             onPressed: aoAvancarFase,
             style: ElevatedButton.styleFrom(
@@ -453,30 +575,48 @@ class _BotoesAcao extends StatelessWidget {
             icon: const Icon(Icons.skip_next_rounded, size: 14),
             label: const Text('Avançar Fase', style: TextStyle(fontSize: 12)),
           ),
-          const SizedBox(width: 8),
         ],
 
         OutlinedButton.icon(
           onPressed: aoHistorico,
           style: contornoNeutro,
-          icon: const Icon(Icons.history_rounded, size: 14, color: TemasCores.acentoAzulAcinzentado),
-          label: const Text('Histórico', style: TextStyle(color: TemasCores.textoPrimario, fontSize: 12)),
+          icon: const Icon(
+            Icons.history_rounded,
+            size: 14,
+            color: TemasCores.acentoAzulAcinzentado,
+          ),
+          label: const Text(
+            'Histórico',
+            style: TextStyle(color: TemasCores.textoPrimario, fontSize: 12),
+          ),
         ),
-        const SizedBox(width: 8),
 
         if (!cancelada) ...[
           OutlinedButton.icon(
             onPressed: aoEditar,
             style: contornoNeutro,
-            icon: const Icon(Icons.edit_outlined, size: 14, color: TemasCores.textoPrimario),
-            label: const Text('Editar', style: TextStyle(color: TemasCores.textoPrimario, fontSize: 12)),
+            icon: const Icon(
+              Icons.edit_outlined,
+              size: 14,
+              color: TemasCores.textoPrimario,
+            ),
+            label: const Text(
+              'Editar',
+              style: TextStyle(color: TemasCores.textoPrimario, fontSize: 12),
+            ),
           ),
-          const SizedBox(width: 8),
           OutlinedButton.icon(
             onPressed: aoCancelar,
             style: contornoNeutro,
-            icon: const Icon(Icons.cancel_outlined, size: 14, color: TemasCores.textoPrimario),
-            label: const Text('Cancelar', style: TextStyle(color: TemasCores.textoPrimario, fontSize: 12)),
+            icon: const Icon(
+              Icons.cancel_outlined,
+              size: 14,
+              color: TemasCores.textoPrimario,
+            ),
+            label: const Text(
+              'Cancelar',
+              style: TextStyle(color: TemasCores.textoPrimario, fontSize: 12),
+            ),
           ),
         ],
       ],

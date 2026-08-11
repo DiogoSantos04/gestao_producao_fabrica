@@ -40,7 +40,7 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
     'Posto de Secagem',
     'Posto de Montagem',
     'Posto de Controlo de Qualidade',
-    'Posto de Embalamento'
+    'Posto de Embalamento',
   ];
 
   @override
@@ -86,7 +86,7 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
   Future<void> _carregarFases(int tipoProdutoId) async {
     try {
       setState(() => _isLoadingFases = true);
-      
+
       final data = await _fluxosRepo.obterFases(tipoProdutoId);
       if (!mounted) return;
 
@@ -163,7 +163,9 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
       });
       _carregarTipologias();
     } catch (e) {
-      _mostrarErro('Erro ao eliminar tipologia. Verifique se existem encomendas associadas a este produto.');
+      _mostrarErro(
+        'Erro ao eliminar tipologia. Verifique se existem encomendas associadas a este produto.',
+      );
     }
   }
 
@@ -243,7 +245,7 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
     return Scaffold(
       backgroundColor: TemasCores.fundoEcraFrio,
       body: Padding(
-        padding: const EdgeInsets.all(24.0),
+        padding: paddingEcra(context),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -259,7 +261,9 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
                       children: [
                         Expanded(
                           flex: 1,
-                          child: _buildPainelEsquerdoTipologias(alturaLimitada: true),
+                          child: _buildPainelEsquerdoTipologias(
+                            alturaLimitada: true,
+                          ),
                         ),
                         const VerticalDivider(width: 32, thickness: 1),
                         Expanded(flex: 2, child: _buildPainelDireitoFluxo()),
@@ -319,65 +323,82 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
             _envolverLista(
               alturaLimitada,
               _isLoadingTipologias
-                ? const Center(child: CircularProgressIndicator())
-                : ListView.builder(
-                    controller: alturaLimitada ? _scrollTipologias : null,
-                    padding: alturaLimitada
-                        ? const EdgeInsets.only(right: 8)
-                        : EdgeInsets.zero,
-                    shrinkWrap: !alturaLimitada,
-                    physics: alturaLimitada
-                        ? const AlwaysScrollableScrollPhysics()
-                        : const NeverScrollableScrollPhysics(),
-                    itemCount: _tipologias.length,
-                    itemBuilder: (context, index) {
-                      final tipo = _tipologias[index];
-                      final bool eSelecionado =
-                          _tipoProdutoSelecionado?['id'] == tipo['id'];
+                  ? const Center(child: CircularProgressIndicator())
+                  : ListView.builder(
+                      controller: alturaLimitada ? _scrollTipologias : null,
+                      padding: alturaLimitada
+                          ? const EdgeInsets.only(right: 8)
+                          : EdgeInsets.zero,
+                      shrinkWrap: !alturaLimitada,
+                      physics: alturaLimitada
+                          ? const AlwaysScrollableScrollPhysics()
+                          : const NeverScrollableScrollPhysics(),
+                      itemCount: _tipologias.length,
+                      itemBuilder: (context, index) {
+                        final tipo = _tipologias[index];
+                        final bool eSelecionado =
+                            _tipoProdutoSelecionado?['id'] == tipo['id'];
 
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                            color: eSelecionado ? TemasCores.adminAcento : TemasCores.borda,
-                            width: eSelecionado ? 2 : 1,
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 8),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: eSelecionado
+                                  ? TemasCores.adminAcento
+                                  : TemasCores.borda,
+                              width: eSelecionado ? 2 : 1,
+                            ),
+                            color: eSelecionado
+                                ? TemasCores.adminAcentoFundo
+                                : Colors.transparent,
                           ),
-                          color: eSelecionado ? TemasCores.adminAcentoFundo : Colors.transparent,
-                        ),
-                        // `ListTile` pintava o fundo e o efeito de toque no
-                        // `Material` mais próximo — que era o do `Card` lá
-                        // fora, por trás deste `Container` colorido, tornando-os
-                        // invisíveis. Precisa do seu próprio `Material`.
-                        child: Material(
-                          type: MaterialType.transparency,
-                          borderRadius: BorderRadius.circular(9),
-                          clipBehavior: Clip.antiAlias,
-                          child: ListTile(
-                            title: Text(
-                              tipo['nome_tipo_produto'] ?? '',
-                              style: TextStyle(
-                                fontWeight: eSelecionado ? FontWeight.bold : FontWeight.normal,
-                                color: eSelecionado ? TemasCores.adminAcentoForte : TemasCores.textoPrimario,
+                          // `ListTile` pintava o fundo e o efeito de toque no
+                          // `Material` mais próximo — que era o do `Card` lá
+                          // fora, por trás deste `Container` colorido, tornando-os
+                          // invisíveis. Precisa do seu próprio `Material`.
+                          child: Material(
+                            type: MaterialType.transparency,
+                            borderRadius: BorderRadius.circular(9),
+                            clipBehavior: Clip.antiAlias,
+                            child: ListTile(
+                              title: Text(
+                                tipo['nome_tipo_produto'] ?? '',
+                                style: TextStyle(
+                                  fontWeight: eSelecionado
+                                      ? FontWeight.bold
+                                      : FontWeight.normal,
+                                  color: eSelecionado
+                                      ? TemasCores.adminAcentoForte
+                                      : TemasCores.textoPrimario,
+                                ),
                               ),
-                            ),
-                            trailing: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(Icons.arrow_forward_ios_rounded, size: 14, color: TemasCores.textoTerciario),
-                                if (eSelecionado)
-                                  IconButton(
-                                    icon: const Icon(Icons.delete_outline, color: TemasCores.erro, size: 18),
-                                    onPressed: () => _eliminarTipologia(tipo['id']),
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(
+                                    Icons.arrow_forward_ios_rounded,
+                                    size: 14,
+                                    color: TemasCores.textoTerciario,
                                   ),
-                              ],
+                                  if (eSelecionado)
+                                    IconButton(
+                                      icon: const Icon(
+                                        Icons.delete_outline,
+                                        color: TemasCores.erro,
+                                        size: 18,
+                                      ),
+                                      onPressed: () =>
+                                          _eliminarTipologia(tipo['id']),
+                                    ),
+                                ],
+                              ),
+                              onTap: () => _selecionarTipologia(tipo),
                             ),
-                            onTap: () => _selecionarTipologia(tipo),
                           ),
-                        ),
-                      );
-                    },
-                  ),
+                        );
+                      },
+                    ),
             ),
             const SizedBox(height: 16),
             ElevatedButton.icon(
@@ -387,7 +408,9 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
                 backgroundColor: TemasCores.adminAcento,
                 foregroundColor: TemasCores.textoInverso,
                 elevation: 0,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
               ),
               icon: const Icon(Icons.add),
               label: const Text('Nova Tipologia'),
@@ -473,7 +496,9 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
           style: OutlinedButton.styleFrom(
             foregroundColor: TemasCores.infoTexto,
             side: const BorderSide(color: TemasCores.infoClaro),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
           ),
           icon: const Icon(Icons.copy, size: 16),
           label: const Text('Duplicar Fluxo'),
@@ -483,7 +508,9 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
           style: ElevatedButton.styleFrom(
             backgroundColor: TemasCores.adminAcento,
             foregroundColor: TemasCores.textoInverso,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
           ),
           icon: const Icon(Icons.add, size: 18),
           label: const Text('Adicionar Fase'),
@@ -503,7 +530,10 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
 
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [Flexible(child: titulo), botoes],
+      children: [
+        Flexible(child: titulo),
+        botoes,
+      ],
     );
   }
 
@@ -532,7 +562,10 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: 40),
         child: Center(
-          child: Text('Nenhuma fase definida para este fluxo.', style: TextStyle(color: TemasCores.textoTerciario)),
+          child: Text(
+            'Nenhuma fase definida para este fluxo.',
+            style: TextStyle(color: TemasCores.textoTerciario),
+          ),
         ),
       );
     }
@@ -553,138 +586,176 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
     final checklistItems = fase.checklist;
 
     return Card(
-                              key: ValueKey(fase.id),
-                              margin: const EdgeInsets.only(bottom: 12),
-                              elevation: 0,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                                side: const BorderSide(color: TemasCores.borda),
+      key: ValueKey(fase.id),
+      margin: const EdgeInsets.only(bottom: 12),
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: const BorderSide(color: TemasCores.borda),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            const Icon(Icons.drag_indicator, color: TemasCores.textoTerciario),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // O nome da fase não tinha `Flexible` — com o `Spacer` e
+                  // os dois `Chip` a seguir, um nome comprido estourava a
+                  // linha em ecrã estreito. `Wrap` deixa tudo cair para a
+                  // linha seguinte em vez de forçar o cartão a alargar.
+                  Wrap(
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 8,
+                    runSpacing: 4,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: TemasCores.infoFundo,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          'Fase ${index + 1}',
+                          style: const TextStyle(
+                            color: TemasCores.infoTexto,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ),
+                      Text(
+                        fase.nomeFasePadrao,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
+                      ),
+                      if (fase.postoTrabalho != null &&
+                          fase.postoTrabalho!.isNotEmpty)
+                        Chip(
+                          avatar: const Icon(
+                            Icons.precision_manufacturing,
+                            size: 12,
+                          ),
+                          label: Text(
+                            fase.postoTrabalho!,
+                            style: const TextStyle(fontSize: 10),
+                          ),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      Chip(
+                        avatar: const Icon(Icons.timer_outlined, size: 12),
+                        label: Text(
+                          '${fase.tempoEstimado} min',
+                          style: const TextStyle(fontSize: 10),
+                        ),
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    ],
+                  ),
+                  // Sem nome público, o cliente vê o nome
+                  // técnico — não vale a pena repeti-lo.
+                  if (fase.nomeParaCliente != fase.nomeFasePadrao) ...[
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.visibility_outlined,
+                          size: 12,
+                          color: TemasCores.textoTerciario,
+                        ),
+                        const SizedBox(width: 4),
+                        Flexible(
+                          child: Text(
+                            'O cliente vê: ${fase.nomeParaCliente}',
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontStyle: FontStyle.italic,
+                              color: TemasCores.textoTerciario,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                  const SizedBox(height: 6),
+                  Text(
+                    fase.descricao ?? 'Sem descrição.',
+                    style: const TextStyle(
+                      color: TemasCores.textoApoio,
+                      fontSize: 13,
+                    ),
+                  ),
+                  if (checklistItems.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      children: checklistItems.map((item) {
+                        return Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: TemasCores.sucessoFundo,
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(color: TemasCores.sucessoBorda),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.check_box_outlined,
+                                size: 11,
+                                color: TemasCores.sucessoTexto,
                               ),
-                              child: Padding(
-                                padding: const EdgeInsets.all(16),
-                                child: Row(
-                                  children: [
-                                    const Icon(Icons.drag_indicator, color: TemasCores.textoTerciario),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Row(
-                                            children: [
-                                              Container(
-                                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                                decoration: BoxDecoration(
-                                                  color: TemasCores.infoFundo,
-                                                  borderRadius: BorderRadius.circular(4),
-                                                ),
-                                                child: Text(
-                                                  'Fase ${index + 1}',
-                                                  style: const TextStyle(
-                                                    color: TemasCores.infoTexto,
-                                                    fontWeight: FontWeight.bold,
-                                                    fontSize: 11,
-                                                  ),
-                                                ),
-                                              ),
-                                              const SizedBox(width: 8),
-                                              Text(
-                                                fase.nomeFasePadrao,
-                                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                                              ),
-                                              const Spacer(),
-                                              if (fase.postoTrabalho != null &&
-                                                  fase.postoTrabalho!.isNotEmpty)
-                                                Chip(
-                                                  avatar: const Icon(Icons.precision_manufacturing, size: 12),
-                                                  label: Text(
-                                                    fase.postoTrabalho!,
-                                                    style: const TextStyle(fontSize: 10),
-                                                  ),
-                                                  visualDensity: VisualDensity.compact,
-                                                ),
-                                              const SizedBox(width: 6),
-                                              Chip(
-                                                avatar: const Icon(Icons.timer_outlined, size: 12),
-                                                label: Text(
-                                                  '${fase.tempoEstimado} min',
-                                                  style: const TextStyle(fontSize: 10),
-                                                ),
-                                                visualDensity: VisualDensity.compact,
-                                              ),
-                                            ],
-                                          ),
-                                          // Sem nome público, o cliente vê o nome
-                                          // técnico — não vale a pena repeti-lo.
-                                          if (fase.nomeParaCliente != fase.nomeFasePadrao) ...[
-                                            const SizedBox(height: 4),
-                                            Row(
-                                              children: [
-                                                const Icon(Icons.visibility_outlined,
-                                                    size: 12, color: TemasCores.textoTerciario),
-                                                const SizedBox(width: 4),
-                                                Flexible(
-                                                  child: Text(
-                                                    'O cliente vê: ${fase.nomeParaCliente}',
-                                                    overflow: TextOverflow.ellipsis,
-                                                    style: const TextStyle(
-                                                        fontSize: 11,
-                                                        fontStyle: FontStyle.italic,
-                                                        color: TemasCores.textoTerciario),
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ],
-                                          const SizedBox(height: 6),
-                                          Text(
-                                            fase.descricao ?? 'Sem descrição.',
-                                            style: const TextStyle(color: TemasCores.textoApoio, fontSize: 13),
-                                          ),
-                                          if (checklistItems.isNotEmpty) ...[
-                                            const SizedBox(height: 8),
-                                            Wrap(
-                                              spacing: 6,
-                                              runSpacing: 4,
-                                              children: checklistItems.map((item) {
-                                                return Container(
-                                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                                  decoration: BoxDecoration(
-                                                    color: TemasCores.sucessoFundo,
-                                                    borderRadius: BorderRadius.circular(4),
-                                                    border: Border.all(color: TemasCores.sucessoBorda),
-                                                  ),
-                                                  child: Row(
-                                                    mainAxisSize: MainAxisSize.min,
-                                                    children: [
-                                                      const Icon(Icons.check_box_outlined, size: 11, color: TemasCores.sucessoTexto),
-                                                      const SizedBox(width: 4),
-                                                      Text(
-                                                        item,
-                                                        style: const TextStyle(fontSize: 10, color: TemasCores.sucessoTextoForte),
-                                                      ),
-                                                    ],
-                                                  ),
-                                                );
-                                              }).toList(),
-                                            )
-                                          ]
-                                        ],
-                                      ),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    IconButton(
-                                      icon: const Icon(Icons.edit_outlined, color: TemasCores.textoTerciario, size: 20),
-                                      onPressed: () => _abrirDialogFase(faseExistente: fase),
-                                    ),
-                                    IconButton(
-                                      icon: const Icon(Icons.delete_outline, color: TemasCores.erro, size: 20),
-                                      onPressed: () => _eliminarFase(fase.id),
-                                    ),
-                                  ],
+                              const SizedBox(width: 4),
+                              Text(
+                                item,
+                                style: const TextStyle(
+                                  fontSize: 10,
+                                  color: TemasCores.sucessoTextoForte,
                                 ),
                               ),
-                            );
+                            ],
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            IconButton(
+              icon: const Icon(
+                Icons.edit_outlined,
+                color: TemasCores.textoTerciario,
+                size: 20,
+              ),
+              onPressed: () => _abrirDialogFase(faseExistente: fase),
+            ),
+            IconButton(
+              icon: const Icon(
+                Icons.delete_outline,
+                color: TemasCores.erro,
+                size: 20,
+              ),
+              onPressed: () => _eliminarFase(fase.id),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildBreadcrumbsFases() {
@@ -698,20 +769,31 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
           return Row(
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
                 decoration: BoxDecoration(
                   color: TemasCores.marcaEscura,
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: Text(
                   'Fase ${index + 1}: ${f.nomeFasePadrao}',
-                  style: const TextStyle(color: TemasCores.textoInverso, fontSize: 11, fontWeight: FontWeight.bold),
+                  style: const TextStyle(
+                    color: TemasCores.textoInverso,
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
               if (!eUltimo)
                 const Padding(
                   padding: EdgeInsets.symmetric(horizontal: 8),
-                  child: Icon(Icons.chevron_right, color: TemasCores.textoTerciario, size: 16),
+                  child: Icon(
+                    Icons.chevron_right,
+                    color: TemasCores.textoTerciario,
+                    size: 16,
+                  ),
                 ),
             ],
           );
@@ -730,10 +812,15 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
           title: const Text('Nova Tipologia de Produto'),
           content: TextField(
             controller: controller,
-            decoration: const InputDecoration(labelText: 'Nome da Tipologia (Ex: Cadeiras, Sofás)'),
+            decoration: const InputDecoration(
+              labelText: 'Nome da Tipologia (Ex: Cadeiras, Sofás)',
+            ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancelar'),
+            ),
             ElevatedButton(
               onPressed: () {
                 if (controller.text.isNotEmpty) {
@@ -766,7 +853,10 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
             children: [
               Text(
                 'Irá ser criada uma nova tipologia clonando todas as fases, postos e tempos do fluxo "$nomeAtual".',
-                style: const TextStyle(fontSize: 13, color: TemasCores.textoPrimario),
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: TemasCores.textoPrimario,
+                ),
               ),
               const SizedBox(height: 16),
               TextField(
@@ -807,20 +897,31 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
   }
 
   void _abrirDialogFase({FaseModel? faseExistente}) {
-    final nomeController = TextEditingController(text: faseExistente?.nomeFasePadrao ?? '');
-    final nomePublicoController = TextEditingController(text: faseExistente?.nomePublico ?? '');
-    final descController = TextEditingController(text: faseExistente?.descricao ?? '');
+    final nomeController = TextEditingController(
+      text: faseExistente?.nomeFasePadrao ?? '',
+    );
+    final nomePublicoController = TextEditingController(
+      text: faseExistente?.nomePublico ?? '',
+    );
+    final descController = TextEditingController(
+      text: faseExistente?.descricao ?? '',
+    );
 
-    String postoSelecionado = faseExistente?.postoTrabalho ?? _postosTrabalhoDisponiveis.first;
+    String postoSelecionado =
+        faseExistente?.postoTrabalho ?? _postosTrabalhoDisponiveis.first;
     if (!_postosTrabalhoDisponiveis.contains(postoSelecionado)) {
       postoSelecionado = _postosTrabalhoDisponiveis.first;
     }
 
     final tempoController = TextEditingController(
-      text: faseExistente != null ? faseExistente.tempoEstimado.toString() : '15',
+      text: faseExistente != null
+          ? faseExistente.tempoEstimado.toString()
+          : '15',
     );
 
-    List<String> checklistLocal = List<String>.from(faseExistente?.checklist ?? const []);
+    List<String> checklistLocal = List<String>.from(
+      faseExistente?.checklist ?? const [],
+    );
     final taskController = TextEditingController();
 
     showDialog(
@@ -829,7 +930,11 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
-              title: Text(faseExistente == null ? 'Adicionar Fase de Produção' : 'Editar Fase de Produção'),
+              title: Text(
+                faseExistente == null
+                    ? 'Adicionar Fase de Produção'
+                    : 'Editar Fase de Produção',
+              ),
               content: SingleChildScrollView(
                 child: SizedBox(
                   width: larguraDialogo(context, 450),
@@ -847,17 +952,20 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
                         controller: nomePublicoController,
                         decoration: const InputDecoration(
                           labelText: 'Nome visível ao cliente (opcional)',
-                          helperText: 'Em branco, o cliente vê o nome técnico da fase',
+                          helperText:
+                              'Em branco, o cliente vê o nome técnico da fase',
                           helperMaxLines: 2,
                         ),
                       ),
                       const SizedBox(height: 8),
                       TextField(
                         controller: descController,
-                        decoration: const InputDecoration(labelText: 'Descrição sumária da atividade'),
+                        decoration: const InputDecoration(
+                          labelText: 'Descrição sumária da atividade',
+                        ),
                       ),
                       const SizedBox(height: 12),
-                      
+
                       DropdownButtonFormField<String>(
                         initialValue: postoSelecionado,
                         isExpanded: true,
@@ -869,7 +977,12 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
                         items: _postosTrabalhoDisponiveis.map((posto) {
                           return DropdownMenuItem<String>(
                             value: posto,
-                            child: Text(posto, style: const TextStyle(fontSize: 13), maxLines: 1, overflow: TextOverflow.ellipsis),
+                            child: Text(
+                              posto,
+                              style: const TextStyle(fontSize: 13),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           );
                         }).toList(),
                         onChanged: (novoPosto) {
@@ -878,7 +991,7 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
                           }
                         },
                       ),
-                      
+
                       const SizedBox(height: 12),
                       TextField(
                         controller: tempoController,
@@ -895,7 +1008,11 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
                         alignment: Alignment.centerLeft,
                         child: Text(
                           '📋 Checklist SOP (Passos obrigatórios do Operador):',
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: TemasCores.acentoAzulAcinzentado),
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                            color: TemasCores.acentoAzulAcinzentado,
+                          ),
                         ),
                       ),
                       const SizedBox(height: 8),
@@ -905,17 +1022,23 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
                             child: TextField(
                               controller: taskController,
                               decoration: const InputDecoration(
-                                labelText: 'Adicionar passo (Ex: Confirmar dimensões)',
+                                labelText:
+                                    'Adicionar passo (Ex: Confirmar dimensões)',
                                 isDense: true,
                               ),
                             ),
                           ),
                           IconButton(
-                            icon: const Icon(Icons.add_circle, color: TemasCores.adminAcento),
+                            icon: const Icon(
+                              Icons.add_circle,
+                              color: TemasCores.adminAcento,
+                            ),
                             onPressed: () {
                               if (taskController.text.isNotEmpty) {
                                 setDialogState(() {
-                                  checklistLocal.add(taskController.text.trim());
+                                  checklistLocal.add(
+                                    taskController.text.trim(),
+                                  );
                                   taskController.clear();
                                 });
                               }
@@ -931,10 +1054,17 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
                           itemCount: checklistLocal.length,
                           itemBuilder: (context, idx) {
                             return ListTile(
-                              title: Text(checklistLocal[idx], style: const TextStyle(fontSize: 12)),
+                              title: Text(
+                                checklistLocal[idx],
+                                style: const TextStyle(fontSize: 12),
+                              ),
                               dense: true,
                               trailing: IconButton(
-                                icon: const Icon(Icons.remove_circle_outline, color: TemasCores.erro, size: 16),
+                                icon: const Icon(
+                                  Icons.remove_circle_outline,
+                                  color: TemasCores.erro,
+                                  size: 16,
+                                ),
                                 onPressed: () {
                                   setDialogState(() {
                                     checklistLocal.removeAt(idx);
@@ -950,14 +1080,17 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
                 ),
               ),
               actions: [
-                TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancelar'),
+                ),
                 ElevatedButton(
                   onPressed: () {
                     if (nomeController.text.trim().isEmpty) {
                       _mostrarErro('O nome da fase é obrigatório.');
                       return;
                     }
-                    
+
                     _salvarFase(
                       id: faseExistente?.id,
                       nome: nomeController.text.trim(),

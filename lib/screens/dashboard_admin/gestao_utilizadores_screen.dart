@@ -240,7 +240,7 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
+              padding: paddingEcra(context),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -317,14 +317,20 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
   }
 
   Widget _buildHeader() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    // `Wrap` em vez de `Row`: o botão "Adicionar Novo Utilizador" não encolhe,
+    // e num `Row` isso empurrava o título para uma largura residual tão
+    // estreita que cada palavra quebrava para a sua própria linha. Com
+    // `Wrap`, quando não cabem lado a lado, o bloco de ações desce inteiro
+    // para a linha seguinte.
+    return Wrap(
+      alignment: WrapAlignment.spaceBetween,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      spacing: 16,
+      runSpacing: 12,
       children: [
-        const Flexible(
-          child: Text(
-            'Gestão de Utilizadores',
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: TemasCores.textoPrimario),
-          ),
+        const Text(
+          'Gestão de Utilizadores',
+          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: TemasCores.textoPrimario),
         ),
         Row(
           mainAxisSize: MainAxisSize.min,
@@ -488,12 +494,18 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                titulo,
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: ativa ? TemasCores.textoPrimario : TemasCores.textoTerciario,
-                  fontSize: 13,
+              // Sem `Flexible`, um título mais comprido ("Estado da Conta")
+              // estourava a coluna assim que a tabela ficasse com o mínimo de
+              // largura (scroll horizontal em ecrã estreito).
+              Flexible(
+                child: Text(
+                  titulo,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: ativa ? TemasCores.textoPrimario : TemasCores.textoTerciario,
+                    fontSize: 13,
+                  ),
                 ),
               ),
               if (ativa)

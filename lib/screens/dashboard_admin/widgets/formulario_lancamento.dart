@@ -163,22 +163,24 @@ class _Cabecalho extends StatelessWidget {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Lançar Nova Encomenda',
-              style: TextStyle(
-                  fontSize: 18, fontWeight: FontWeight.bold, color: TemasCores.textoPrimario),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              vinculadoAPedido
-                  ? 'Agendando pedido vindo da Aplicação B2B'
-                  : 'Preencha os dados para iniciar uma nova ordem de produção',
-              style: const TextStyle(fontSize: 12, color: TemasCores.textoTerciario),
-            ),
-          ],
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Lançar Nova Encomenda',
+                style: TextStyle(
+                    fontSize: 18, fontWeight: FontWeight.bold, color: TemasCores.textoPrimario),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                vinculadoAPedido
+                    ? 'Agendando pedido vindo da Aplicação B2B'
+                    : 'Preencha os dados para iniciar uma nova ordem de produção',
+                style: const TextStyle(fontSize: 12, color: TemasCores.textoTerciario),
+              ),
+            ],
+          ),
         ),
         if (vinculadoAPedido)
           TextButton.icon(
