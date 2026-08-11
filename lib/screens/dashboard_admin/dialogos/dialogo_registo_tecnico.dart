@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/breakpoints.dart';
 import '../../../core/mensagens.dart';
 import '../../../core/temas_cores.dart';
 import '../../../models/incidencia_model.dart';
@@ -151,7 +152,7 @@ class _DialogoRegistoTecnicoState extends State<DialogoRegistoTecnico> {
         ],
       ),
       content: SizedBox(
-        width: 520,
+        width: larguraDialogo(context, 520),
         child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -355,6 +356,7 @@ class _DialogoRegistoTecnicoState extends State<DialogoRegistoTecnico> {
         else
           DropdownButtonFormField<String>(
             initialValue: _tecnicoId,
+            isExpanded: true,
             decoration: const InputDecoration(
               labelText: 'Técnico Responsável *',
               border: OutlineInputBorder(),
@@ -366,7 +368,7 @@ class _DialogoRegistoTecnicoState extends State<DialogoRegistoTecnico> {
               return DropdownMenuItem<String>(
                 value: id,
                 child: Text(nome.toString(),
-                    style: const TextStyle(fontSize: 12)),
+                    style: const TextStyle(fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis),
               );
             }).toList(),
             onChanged:

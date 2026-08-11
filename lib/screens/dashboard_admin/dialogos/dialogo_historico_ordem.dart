@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/breakpoints.dart';
 import '../../../core/formatos.dart';
 import '../../../core/temas_cores.dart';
 import '../../../models/checklist_model.dart';
@@ -57,7 +58,7 @@ class DialogoHistoricoOrdem extends StatelessWidget {
         ],
       ),
       content: SizedBox(
-        width: 550,
+        width: larguraDialogo(context, 550),
         height: 450,
         child: FutureBuilder(
           future: repositorio.obterTimeline(encomenda.id),

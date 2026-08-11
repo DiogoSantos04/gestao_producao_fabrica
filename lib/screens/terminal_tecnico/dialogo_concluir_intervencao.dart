@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../core/breakpoints.dart';
 import '../../core/mensagens.dart';
 import '../../core/temas_cores.dart';
 import '../../models/incidencia_model.dart';
@@ -91,7 +92,7 @@ class _DialogoConcluirIntervencaoState
         ],
       ),
       content: SizedBox(
-        width: 520,
+        width: larguraDialogo(context, 520),
         child: SingleChildScrollView(
           child: Form(
             key: _formKey,

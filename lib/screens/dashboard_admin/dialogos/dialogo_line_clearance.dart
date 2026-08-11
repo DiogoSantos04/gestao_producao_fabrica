@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/breakpoints.dart';
 import '../../../core/mensagens.dart';
 import '../../../core/temas_cores.dart';
 import '../../../repositories/encomendas_repository.dart';
@@ -131,11 +132,11 @@ class _DialogoLineClearanceState extends State<DialogoLineClearance> {
         children: [
           Icon(Icons.verified_user_rounded, color: TemasCores.sucessoTexto),
           SizedBox(width: 8),
-          Text('Aprovar Line Clearance (FAI)'),
+          Flexible(child: Text('Aprovar Line Clearance (FAI)', overflow: TextOverflow.ellipsis)),
         ],
       ),
       content: SizedBox(
-        width: 450,
+        width: larguraDialogo(context, 450),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,

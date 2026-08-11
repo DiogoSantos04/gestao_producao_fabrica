@@ -190,8 +190,13 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
         ],
         border: Border.all(color: TemasCores.borda),
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
+      // Os 5 KPIs não têm para onde encolher em ecrã estreito — em `Row` com
+      // `spaceAround` estouravam; `Wrap` deixa-os cair para a linha seguinte.
+      child: Wrap(
+        alignment: WrapAlignment.spaceAround,
+        runAlignment: WrapAlignment.center,
+        spacing: 24,
+        runSpacing: 16,
         children: [
           _construirItemKPI('Total de Postos', '$totalPostos', Icons.factory_outlined, TemasCores.acentoAzul),
           _construirItemKPI('Em Produção', '$postosEmProducao', Icons.play_circle_outline, TemasCores.sucesso),
@@ -341,6 +346,7 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
                                                 fontWeight: FontWeight.bold,
                                                 fontSize: 16,
                                               ),
+                                              maxLines: 1,
                                               overflow: TextOverflow.ellipsis,
                                             ),
                                           ),
@@ -439,11 +445,13 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
                                                   Text(
                                                     'Cliente: $nomeCliente',
                                                     style: const TextStyle(fontSize: 11, color: TemasCores.textoPrimario),
+                                                    maxLines: 1,
                                                     overflow: TextOverflow.ellipsis,
                                                   ),
                                                   Text(
                                                     'Produto: $nomeProduto',
                                                     style: const TextStyle(fontSize: 11, color: TemasCores.textoPrimario),
+                                                    maxLines: 1,
                                                     overflow: TextOverflow.ellipsis,
                                                   ),
 
@@ -468,6 +476,7 @@ class _PostosTrabalhoScreenState extends State<PostosTrabalhoScreen> {
                                                                 fontWeight: FontWeight.bold,
                                                                 color: TemasCores.erroVivo,
                                                               ),
+                                                              maxLines: 1,
                                                               overflow: TextOverflow.ellipsis,
                                                             ),
                                                           ),

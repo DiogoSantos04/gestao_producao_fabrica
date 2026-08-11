@@ -48,18 +48,24 @@ class _PainelPedidosAprovadosState extends State<PainelPedidosAprovados> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Row(
-                  children: [
-                    Icon(Icons.move_to_inbox_rounded, color: TemasCores.infoTextoForte, size: 20),
-                    SizedBox(width: 8),
-                    Text(
-                      'Pedidos Aprovados (App)',
-                      style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.bold,
-                          color: TemasCores.infoTextoIntenso),
-                    ),
-                  ],
+                const Flexible(
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.move_to_inbox_rounded, color: TemasCores.infoTextoForte, size: 20),
+                      SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          'Pedidos Aprovados (App)',
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.bold,
+                              color: TemasCores.infoTextoIntenso),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../../core/breakpoints.dart';
 import '../../../core/temas_cores.dart';
 import '../../../models/cliente_model.dart';
 
@@ -165,7 +166,7 @@ class _DialogoClienteState extends State<DialogoCliente> {
       title: Text(_eEdicao ? 'Editar Dados do Cliente' : 'Criar Conta de Cliente'),
       content: SingleChildScrollView(
         child: SizedBox(
-          width: 480,
+          width: larguraDialogo(context, 480),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,

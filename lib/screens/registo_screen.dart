@@ -57,7 +57,7 @@ class _RegistoScreenState extends State<RegistoScreen> {
             children: [
               Icon(Icons.hourglass_top, color: Colors.orange),
               SizedBox(width: 8),
-              Text('Pedido Enviado'),
+              Flexible(child: Text('Pedido Enviado', overflow: TextOverflow.ellipsis)),
             ],
           ),
           content: const Text(

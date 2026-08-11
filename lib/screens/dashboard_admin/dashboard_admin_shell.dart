@@ -200,7 +200,7 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
                 children: [
                   Icon(Icons.lock_reset_outlined, color: TemasCores.adminAcento),
                   SizedBox(width: 10),
-                  Text('Alterar Palavra-passe'),
+                  Flexible(child: Text('Alterar Palavra-passe', overflow: TextOverflow.ellipsis)),
                 ],
               ),
               content: Form(
@@ -505,7 +505,12 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
                 children: [
                   const Icon(Icons.settings_suggest_rounded, color: TemasCores.adminAcento, size: 20),
                   const SizedBox(width: 10),
-                  Text(_indiceAtual == 9 ? 'O Meu Perfil' : _menuItens[_indiceAtual]['titulo']),
+                  Flexible(
+                    child: Text(
+                      _indiceAtual == 9 ? 'O Meu Perfil' : _menuItens[_indiceAtual]['titulo'],
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
                 ],
               ),
             )

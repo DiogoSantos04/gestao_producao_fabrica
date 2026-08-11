@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show RealtimeChannel;
+import '../../core/breakpoints.dart';
 import '../../core/mensagens.dart';
 import '../../core/paginacao.dart';
 import '../../core/realtime.dart';
@@ -370,7 +371,7 @@ class _ClientesScreenState extends State<ClientesScreen> {
               children: [
                 SingleChildScrollView(
                   controller: _scrollController,
-                  padding: const EdgeInsets.all(24),
+                  padding: paddingEcra(context),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -391,11 +392,15 @@ class _ClientesScreenState extends State<ClientesScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              Wrap(
+                                alignment: WrapAlignment.spaceBetween,
+                                crossAxisAlignment: WrapCrossAlignment.center,
+                                spacing: 16,
+                                runSpacing: 12,
                                 children: [
                                   const Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
                                     children: [
                                       Text(
                                         'Base de Dados de Clientes',
@@ -481,39 +486,60 @@ class _ClientesScreenState extends State<ClientesScreen> {
                                   ),
                                 )
                               else
-                                Column(
-                                  children: [
-                                    if (_erroCarregamento != null)
-                                      EstadoErro.compacto(
-                                        titulo: 'A carteira pode estar desatualizada — falhou a última atualização.',
-                                        detalhe: _erroCarregamento,
-                                        aoRepetir: _carregarClientes,
-                                      ),
-                                    const CabecalhoTabelaClientes(),
-                                    const Divider(height: 1, thickness: 1),
-                                    ListView.separated(
-                                      shrinkWrap: true,
-                                      physics: const NeverScrollableScrollPhysics(),
-                                      itemCount: _clientes.length,
-                                      separatorBuilder: (context, index) => const Divider(height: 1, thickness: 1),
-                                      itemBuilder: (context, index) {
-                                        final cliente = _clientes[index];
-                                        return LinhaCliente(
-                                          cliente: cliente,
-                                          aoAbrirDetalhe: () =>
-                                              setState(() => _clienteDetalhesSelecionado = cliente),
-                                          aoEditar: () => _abrirDialogCliente(clienteExistente: cliente),
-                                        );
-                                      },
-                                    ),
-                                    if (_temMais)
-                                      RodapePaginacao(
-                                        aCarregar: _aCarregarMais,
-                                        erro: _erroPaginacao,
-                                        aoCarregarMais: _carregarMais,
-                                        tituloErro: 'Não foi possível carregar mais clientes.',
-                                      ),
-                                  ],
+                                Builder(
+                                  builder: (context) {
+                                    // As 5 colunas (Expanded de largura relativa) não
+                                    // têm para onde encolher em ecrã estreito — em vez
+                                    // de espremer o texto até ilegível, a tabela
+                                    // mantém uma largura mínima e fica dentro de
+                                    // scroll horizontal.
+                                    final tabela = Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const CabecalhoTabelaClientes(),
+                                        const Divider(height: 1, thickness: 1),
+                                        ListView.separated(
+                                          shrinkWrap: true,
+                                          physics: const NeverScrollableScrollPhysics(),
+                                          itemCount: _clientes.length,
+                                          separatorBuilder: (context, index) => const Divider(height: 1, thickness: 1),
+                                          itemBuilder: (context, index) {
+                                            final cliente = _clientes[index];
+                                            return LinhaCliente(
+                                              cliente: cliente,
+                                              aoAbrirDetalhe: () =>
+                                                  setState(() => _clienteDetalhesSelecionado = cliente),
+                                              aoEditar: () => _abrirDialogCliente(clienteExistente: cliente),
+                                            );
+                                          },
+                                        ),
+                                      ],
+                                    );
+
+                                    return Column(
+                                      children: [
+                                        if (_erroCarregamento != null)
+                                          EstadoErro.compacto(
+                                            titulo: 'A carteira pode estar desatualizada — falhou a última atualização.',
+                                            detalhe: _erroCarregamento,
+                                            aoRepetir: _carregarClientes,
+                                          ),
+                                        context.ehCompacto
+                                            ? SingleChildScrollView(
+                                                scrollDirection: Axis.horizontal,
+                                                child: SizedBox(width: 700, child: tabela),
+                                              )
+                                            : tabela,
+                                        if (_temMais)
+                                          RodapePaginacao(
+                                            aCarregar: _aCarregarMais,
+                                            erro: _erroPaginacao,
+                                            aoCarregarMais: _carregarMais,
+                                            tituloErro: 'Não foi possível carregar mais clientes.',
+                                          ),
+                                      ],
+                                    );
+                                  },
                                 ),
                             ],
                           ),
@@ -537,7 +563,7 @@ class _ClientesScreenState extends State<ClientesScreen> {
                     top: 0,
                     bottom: 0,
                     right: 0,
-                    width: 520,
+                    width: larguraDialogo(context, 520),
                     child: PainelDetalheCliente(
                       cliente: _clienteDetalhesSelecionado!,
                       aoFechar: () => setState(() => _clienteDetalhesSelecionado = null),

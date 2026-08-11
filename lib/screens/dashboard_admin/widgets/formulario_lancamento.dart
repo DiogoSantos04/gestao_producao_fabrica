@@ -247,11 +247,12 @@ class _CampoCliente extends StatelessWidget {
         const SizedBox(height: 8),
         DropdownButtonFormField<String>(
           initialValue: selecionado,
+          isExpanded: true,
           decoration: _decoracaoCampo(hintText: 'Selecione um cliente'),
           items: clientes
               .map((c) => DropdownMenuItem<String>(
                     value: c.id.toString(),
-                    child: Text(c.nomeCliente),
+                    child: Text(c.nomeCliente, maxLines: 1, overflow: TextOverflow.ellipsis),
                   ))
               .toList(),
           onChanged: aoMudar,
@@ -282,11 +283,12 @@ class _CampoTipoProduto extends StatelessWidget {
         const SizedBox(height: 8),
         DropdownButtonFormField<String>(
           initialValue: selecionado,
+          isExpanded: true,
           decoration: _decoracaoCampo(hintText: 'Selecione o tipo de produto'),
           items: tiposProduto
               .map((p) => DropdownMenuItem<String>(
                     value: p['id'].toString(),
-                    child: Text(p['nome_tipo_produto'] ?? ''),
+                    child: Text(p['nome_tipo_produto'] ?? '', maxLines: 1, overflow: TextOverflow.ellipsis),
                   ))
               .toList(),
           onChanged: aoMudar,
@@ -388,6 +390,7 @@ class _CampoPrioridade extends StatelessWidget {
         const SizedBox(height: 8),
         DropdownButtonFormField<String>(
           initialValue: selecionada,
+          isExpanded: true,
           decoration: _decoracaoCampo(),
           items: niveisPrioridade.map((prio) {
             final estilo = _estilo(prio);
@@ -397,12 +400,16 @@ class _CampoPrioridade extends StatelessWidget {
                 children: [
                   Icon(estilo.icone, size: 16, color: estilo.cor),
                   const SizedBox(width: 8),
-                  Text(
-                    prio,
-                    style: TextStyle(
-                      fontWeight: prio != 'Normal' ? FontWeight.bold : FontWeight.normal,
-                      color: estilo.cor,
-                      fontSize: 13,
+                  Flexible(
+                    child: Text(
+                      prio,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontWeight: prio != 'Normal' ? FontWeight.bold : FontWeight.normal,
+                        color: estilo.cor,
+                        fontSize: 13,
+                      ),
                     ),
                   ),
                 ],

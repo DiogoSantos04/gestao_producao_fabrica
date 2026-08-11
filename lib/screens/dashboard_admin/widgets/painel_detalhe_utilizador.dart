@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/breakpoints.dart';
 import '../../../core/temas_cores.dart';
 import '../../../models/utilizador_model.dart';
 import '../../../repositories/utilizadores_repository.dart';
@@ -66,7 +67,7 @@ class PainelDetalheUtilizador extends StatelessWidget {
       child: Material(
         color: TemasCores.superficie,
         child: SizedBox(
-          width: 420,
+          width: larguraDialogo(context, 420),
           height: double.infinity,
           child: SafeArea(
             child: Padding(

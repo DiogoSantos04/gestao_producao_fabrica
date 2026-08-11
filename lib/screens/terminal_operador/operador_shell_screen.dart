@@ -300,7 +300,7 @@ class _OperadorShellScreenState extends State<OperadorShellScreen> {
             children: [
               Icon(Icons.lock_reset_outlined, color: TemasCores.operadorAcento),
               SizedBox(width: 10),
-              Text('Alterar Palavra-passe'),
+              Flexible(child: Text('Alterar Palavra-passe', overflow: TextOverflow.ellipsis)),
             ],
           ),
           content: Form(
@@ -437,10 +437,13 @@ class _OperadorShellScreenState extends State<OperadorShellScreen> {
                     size: 20,
                   ),
                   const SizedBox(width: 10),
-                  Text(
-                    _indiceSelecionado == _indicePerfil
-                        ? 'O Meu Perfil'
-                        : _menu[_indiceSelecionado].titulo,
+                  Flexible(
+                    child: Text(
+                      _indiceSelecionado == _indicePerfil
+                          ? 'O Meu Perfil'
+                          : _menu[_indiceSelecionado].titulo,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                 ],
               ),

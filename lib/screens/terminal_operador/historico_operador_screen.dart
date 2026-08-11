@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../core/breakpoints.dart';
 import '../../core/ecra_recarregavel.dart';
 import '../../core/formatos.dart';
 import '../../core/paginacao.dart';
@@ -176,7 +177,7 @@ class _HistoricoOperadorScreenState extends State<HistoricoOperadorScreen>
     return Scaffold(
       backgroundColor: TemasCores.fundoEcraFrio,
       body: Padding(
-        padding: const EdgeInsets.all(40.0),
+        padding: paddingEcra(context),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -202,26 +203,28 @@ class _HistoricoOperadorScreenState extends State<HistoricoOperadorScreen>
                   ),
                 ),
                 const SizedBox(width: 16),
-                const Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Histórico de Produção',
-                      style: TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold,
-                        color: TemasCores.textoPrimarioFrio,
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Histórico de Produção',
+                        style: TextStyle(
+                          fontSize: 28,
+                          fontWeight: FontWeight.bold,
+                          color: TemasCores.textoPrimarioFrio,
+                        ),
                       ),
-                    ),
-                    SizedBox(height: 4),
-                    Text(
-                      'Consulte as suas tarefas concluídas ou bloqueios registados',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: TemasCores.textoSecundarioFrio,
+                      SizedBox(height: 4),
+                      Text(
+                        'Consulte as suas tarefas concluídas ou bloqueios registados',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: TemasCores.textoSecundarioFrio,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -241,57 +244,78 @@ class _HistoricoOperadorScreenState extends State<HistoricoOperadorScreen>
         : '${_dia!.day.toString().padLeft(2, '0')}/'
             '${_dia!.month.toString().padLeft(2, '0')}/${_dia!.year}';
 
-    return Row(
-      children: [
-        Expanded(
-          child: Card(
-            elevation: 0,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-              side: const BorderSide(color: TemasCores.borda),
+    final campoPesquisa = Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: const BorderSide(color: TemasCores.borda),
+      ),
+      color: TemasCores.superficie,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16.0),
+        child: TextField(
+          controller: _pesquisaController,
+          decoration: const InputDecoration(
+            hintText: 'Pesquisar por ID...',
+            hintStyle: TextStyle(
+              color: TemasCores.textoDesativado,
+              fontSize: 14,
             ),
-            color: TemasCores.superficie,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0),
-              child: TextField(
-                controller: _pesquisaController,
-                decoration: const InputDecoration(
-                  hintText: 'Pesquisar por ID...',
-                  hintStyle: TextStyle(
-                    color: TemasCores.textoDesativado,
-                    fontSize: 14,
-                  ),
-                  border: InputBorder.none,
-                  icon: Icon(Icons.search, color: TemasCores.textoTerciario),
-                ),
-              ),
-            ),
+            border: InputBorder.none,
+            icon: Icon(Icons.search, color: TemasCores.textoTerciario),
           ),
         ),
+      ),
+    );
+
+    // O estado deixou de ser um cabeçalho ordenável: vem de uma relação
+    // um-para-muitos (as paragens da ordem) e não é ordenável no servidor.
+    // Como filtro é exato, e com paginação isso é o que interessa.
+    final alternadorBloqueados = _Alternador(
+      ativo: _apenasBloqueados,
+      icone: Icons.warning_amber_rounded,
+      rotulo: 'Apenas bloqueados',
+      aoTocar: () => _aplicar(() => _apenasBloqueados = !_apenasBloqueados),
+    );
+    final alternadorData = _Alternador(
+      ativo: _dia != null,
+      icone: Icons.calendar_today_outlined,
+      rotulo: rotuloData,
+      aoTocar: _selecionarData,
+      aoLimpar: _dia == null ? null : () => _aplicar(() => _dia = null),
+    );
+
+    // Os dois alternadores têm largura própria (não encolhem); em ecrã
+    // estreito não cabem ao lado da pesquisa sem estourar — passam a Wrap
+    // por baixo do campo em vez de ao lado.
+    if (context.ehCompacto) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          campoPesquisa,
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: [alternadorBloqueados, alternadorData],
+          ),
+        ],
+      );
+    }
+
+    return Row(
+      children: [
+        Expanded(child: campoPesquisa),
         const SizedBox(width: 16),
-        // O estado deixou de ser um cabeçalho ordenável: vem de uma relação
-        // um-para-muitos (as paragens da ordem) e não é ordenável no servidor.
-        // Como filtro é exato, e com paginação isso é o que interessa.
-        _Alternador(
-          ativo: _apenasBloqueados,
-          icone: Icons.warning_amber_rounded,
-          rotulo: 'Apenas bloqueados',
-          aoTocar: () => _aplicar(() => _apenasBloqueados = !_apenasBloqueados),
-        ),
+        alternadorBloqueados,
         const SizedBox(width: 16),
-        _Alternador(
-          ativo: _dia != null,
-          icone: Icons.calendar_today_outlined,
-          rotulo: rotuloData,
-          aoTocar: _selecionarData,
-          aoLimpar: _dia == null ? null : () => _aplicar(() => _dia = null),
-        ),
+        alternadorData,
       ],
     );
   }
 
   Widget _construirTabela() {
-    return Card(
+    final tabela = Card(
       elevation: 0,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
@@ -307,6 +331,24 @@ class _HistoricoOperadorScreenState extends State<HistoricoOperadorScreen>
           ],
         ),
       ),
+    );
+
+    // As 5 colunas (Expanded de largura relativa) não têm para onde encolher
+    // em telemóvel — em vez de espremer o texto até ficar ilegível, a tabela
+    // mantém uma largura mínima e fica dentro de scroll horizontal.
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const larguraMinima = 700.0;
+        if (constraints.maxWidth >= larguraMinima) return tabela;
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: SizedBox(
+            width: larguraMinima,
+            height: constraints.maxHeight,
+            child: tabela,
+          ),
+        );
+      },
     );
   }
 
@@ -325,7 +367,7 @@ class _HistoricoOperadorScreenState extends State<HistoricoOperadorScreen>
           _cabecalhoOrdenavel('Data/Hora', OrdenacaoHistorico.data, 2),
           const _CabecalhoSimples(
             titulo: 'Estado',
-            flex: 1,
+            flex: 2,
             alinhamento: TextAlign.center,
           ),
         ],
@@ -660,7 +702,7 @@ class _LinhaHistorico extends StatelessWidget {
             ),
           ),
           Expanded(
-            flex: 1,
+            flex: 2,
             child: Center(
               child: Container(
                 padding:
@@ -671,8 +713,14 @@ class _LinhaHistorico extends StatelessWidget {
                       : TemasCores.sucessoFundoForte,
                   borderRadius: BorderRadius.circular(20),
                 ),
+                // "Bloqueado"/"Concluído" com flex:1 (proporção antiga)
+                // partiam a meio ("Concluíd" / "o") — a pílula não tinha
+                // largura para a palavra inteira numa linha só.
                 child: Text(
                   registo.bloqueado ? 'Bloqueado' : 'Concluído',
+                  maxLines: 1,
+                  softWrap: false,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: registo.bloqueado
                         ? TemasCores.erroTextoIntenso

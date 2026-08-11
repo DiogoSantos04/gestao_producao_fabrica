@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/breakpoints.dart';
 import '../../../core/mensagens.dart';
 import '../../../core/temas_cores.dart';
 import '../../../models/encomenda_model.dart';
@@ -88,11 +89,11 @@ class _DialogoWipHoldState extends State<DialogoWipHold> {
         children: [
           Icon(Icons.pause_circle_filled_rounded, color: TemasCores.erroTexto),
           SizedBox(width: 8),
-          Text('Suspender Ordem (WIP Hold)'),
+          Flexible(child: Text('Suspender Ordem (WIP Hold)', overflow: TextOverflow.ellipsis)),
         ],
       ),
       content: SizedBox(
-        width: 450,
+        width: larguraDialogo(context, 450),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -106,6 +107,7 @@ class _DialogoWipHoldState extends State<DialogoWipHold> {
             // em runtime com dois itens de igual valor.
             DropdownButtonFormField<int>(
               initialValue: _reasonCodeId,
+              isExpanded: true,
               decoration: const InputDecoration(
                 labelText: 'Reason Code *',
                 border: OutlineInputBorder(),
@@ -114,7 +116,7 @@ class _DialogoWipHoldState extends State<DialogoWipHold> {
               items: widget.reasonCodes.map((r) {
                 return DropdownMenuItem<int>(
                   value: r.id,
-                  child: Text(r.rotulo, style: const TextStyle(fontSize: 12)),
+                  child: Text(r.rotulo, style: const TextStyle(fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis),
                 );
               }).toList(),
               onChanged:

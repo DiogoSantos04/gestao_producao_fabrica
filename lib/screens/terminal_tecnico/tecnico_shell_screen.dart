@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../core/breakpoints.dart';
 import '../../core/ecra_recarregavel.dart';
 import '../../core/iniciais.dart';
 import '../../core/temas_cores.dart';
@@ -221,7 +222,9 @@ class _TecnicoShellScreenState extends State<TecnicoShellScreen> {
               color: TemasCores.avisoTexto,
             ),
             const SizedBox(width: 10),
-            Text(_menu[_indice].titulo),
+            Flexible(
+              child: Text(_menu[_indice].titulo, overflow: TextOverflow.ellipsis),
+            ),
           ],
         ),
         actions: [
@@ -241,15 +244,20 @@ class _TecnicoShellScreenState extends State<TecnicoShellScreen> {
                     ),
                   ),
                 ),
-                const SizedBox(width: 8),
-                Text(
-                  identidade.nome,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: TemasCores.textoPrimario,
+                // Em ecrã compacto o nome fica de fora: avatar + logout já
+                // disputam espaço com o título, que é o que o técnico precisa
+                // de ver primeiro (em que separador está).
+                if (!context.ehCompacto) ...[
+                  const SizedBox(width: 8),
+                  Text(
+                    identidade.nome,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: TemasCores.textoPrimario,
+                    ),
                   ),
-                ),
+                ],
               ],
             ),
           ),

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../core/breakpoints.dart';
 import '../../core/mensagens.dart';
 import '../../core/temas_cores.dart';
 import '../../models/checklist_model.dart';
@@ -160,9 +161,12 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
                   size: 28,
                 ),
                 SizedBox(width: 10),
-                Text(
-                  'Checklist de Qualidade',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                Flexible(
+                  child: Text(
+                    'Checklist de Qualidade',
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
                 ),
               ],
             ),
@@ -513,7 +517,7 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
     }
 
     return Padding(
-      padding: const EdgeInsets.all(40.0),
+      padding: paddingEcra(context),
       child: SingleChildScrollView(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -540,26 +544,28 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
                   ),
                 ),
                 const SizedBox(width: 16),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      widget.codigoRastreio,
-                      style: const TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold,
-                        color: TemasCores.textoPrimarioFrio,
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.codigoRastreio,
+                        style: const TextStyle(
+                          fontSize: 28,
+                          fontWeight: FontWeight.bold,
+                          color: TemasCores.textoPrimarioFrio,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Produto: ${tarefa.encomenda.nomeProduto ?? 'Artigo'}',
-                      style: const TextStyle(
-                        fontSize: 14,
-                        color: TemasCores.textoSecundarioFrio,
+                      const SizedBox(height: 4),
+                      Text(
+                        'Produto: ${tarefa.encomenda.nomeProduto ?? 'Artigo'}',
+                        style: const TextStyle(
+                          fontSize: 14,
+                          color: TemasCores.textoSecundarioFrio,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -571,14 +577,26 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
             else if (tarefa.encomenda.faseAtualId != null)
               _construirCardAndon(),
             const SizedBox(height: 24),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(flex: 3, child: _construirColunaEsquerda(tarefa)),
-                const SizedBox(width: 32),
-                Expanded(flex: 2, child: _construirCardFases(tarefa)),
-              ],
-            ),
+            // Abaixo do breakpoint médio a coluna de fases não cabe ao lado do
+            // resto sem espremer os dois: passa a empilhar, fases por último.
+            if (context.ehAmplo)
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(flex: 3, child: _construirColunaEsquerda(tarefa)),
+                  const SizedBox(width: 32),
+                  Expanded(flex: 2, child: _construirCardFases(tarefa)),
+                ],
+              )
+            else
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _construirColunaEsquerda(tarefa),
+                  const SizedBox(height: 24),
+                  _construirCardFases(tarefa),
+                ],
+              ),
           ],
         ),
       ),

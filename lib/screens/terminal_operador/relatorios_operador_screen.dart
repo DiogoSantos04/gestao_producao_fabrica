@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../core/breakpoints.dart';
 import '../../core/ecra_recarregavel.dart';
 import '../../core/temas_cores.dart';
 import '../../repositories/operador_repository.dart';
@@ -88,7 +89,7 @@ class _RelatoriosOperadorScreenState extends State<RelatoriosOperadorScreen>
     return Scaffold(
       backgroundColor: TemasCores.fundoEcraFrio,
       body: Padding(
-        padding: const EdgeInsets.all(40.0),
+        padding: paddingEcra(context),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [

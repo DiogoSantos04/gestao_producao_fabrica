@@ -89,13 +89,14 @@ class _DialogoEditarOrdemState extends State<DialogoEditarOrdem> {
           const SizedBox(height: 16),
           DropdownButtonFormField<int?>(
             initialValue: _faseId,
+            isExpanded: true,
             decoration:
                 const InputDecoration(labelText: 'Fase Atual de Produção'),
             items: [
               ...widget.fases.map((f) {
                 return DropdownMenuItem<int?>(
                   value: f.id,
-                  child: Text('Fase ${f.ordem}: ${f.nomeFasePadrao}'),
+                  child: Text('Fase ${f.ordem}: ${f.nomeFasePadrao}', maxLines: 1, overflow: TextOverflow.ellipsis),
                 );
               }),
               const DropdownMenuItem<int?>(

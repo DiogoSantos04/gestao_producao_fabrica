@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/breakpoints.dart';
 import '../../../core/temas_cores.dart';
 
 /// Pede confirmação e motivo para cancelar uma ordem.
@@ -43,7 +44,7 @@ class _DialogoCancelarOrdemState extends State<DialogoCancelarOrdem> {
     return AlertDialog(
       title: const Text('Cancelar Ordem de Produção'),
       content: SizedBox(
-        width: 420,
+        width: larguraDialogo(context, 420),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,

@@ -257,49 +257,54 @@ class SolicitarEncomendaScreenState extends State<SolicitarEncomendaScreen> {
     required IconData icone,
     required String titulo,
     required String subtitulo,
+    required bool esticar,
     Widget? acao,
   }) {
-    return SizedBox(
-      height: 62,
-      child: Row(
-        children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              color: TemasCores.clienteAcento.withValues(alpha: 0.10),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(icone, size: 23, color: TemasCores.clienteAcento),
+    final conteudo = Row(
+      children: [
+        Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            color: TemasCores.clienteAcento.withValues(alpha: 0.10),
+            borderRadius: BorderRadius.circular(12),
           ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  titulo,
-                  style: const TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: TemasCores.textoPrimarioFrio,
-                  ),
+          child: Icon(icone, size: 23, color: TemasCores.clienteAcento),
+        ),
+        const SizedBox(width: 14),
+        Expanded(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                titulo,
+                style: const TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: TemasCores.textoPrimarioFrio,
                 ),
-                const SizedBox(height: 3),
-                Text(
-                  subtitulo,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 13, color: TemasCores.textoSecundarioFrio),
-                ),
-              ],
-            ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                subtitulo,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 13, color: TemasCores.textoSecundarioFrio),
+              ),
+            ],
           ),
-          ?acao,
-        ],
-      ),
+        ),
+        ?acao,
+      ],
     );
+
+    // A altura fixa só serve para alinhar os dois cartões lado a lado no
+    // layout de duas colunas. Em coluna única (`esticar: false`) o título de
+    // 24px pode quebrar em duas linhas em ecrã estreito, e uma altura fixa
+    // cortava-o — ver overflow reportado em 400px de largura.
+    return esticar ? SizedBox(height: 62, child: conteudo) : conteudo;
   }
 
   /// Envolve o conteúdo de uma coluna no cartão. Com `esticar`, o cartão ocupa
@@ -326,6 +331,7 @@ class SolicitarEncomendaScreenState extends State<SolicitarEncomendaScreen> {
           icone: Icons.add_shopping_cart_outlined,
           titulo: 'Solicitar Nova Encomenda',
           subtitulo: 'Preencha os dados e submeta a solicitação.',
+          esticar: esticar,
         ),
         const SizedBox(height: 16),
         _construirCartaoColuna(esticar: esticar, conteudo: _construirFormulario()),
@@ -346,6 +352,7 @@ class SolicitarEncomendaScreenState extends State<SolicitarEncomendaScreen> {
           icone: Icons.receipt_long_outlined,
           titulo: 'Os Meus Pedidos',
           subtitulo: 'Estado das solicitações que enviou para a nossa equipa.',
+          esticar: esticar,
           acao: IconButton(
             icon: const Icon(Icons.refresh),
             color: TemasCores.clienteAcento,
@@ -535,6 +542,10 @@ class SolicitarEncomendaScreenState extends State<SolicitarEncomendaScreen> {
             // `value` até a migração das deprecações ser feita em todo o repo.
             // ignore: deprecated_member_use
             value: _tipoProdutoSelecionadoId,
+            // Sem isto, o item selecionado não encolhe para dar espaço à seta
+            // — em ecrã estreito, um nome de artigo um pouco mais comprido
+            // empurrava a seta para fora do campo (overflow à direita).
+            isExpanded: true,
             decoration: InputDecoration(
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
               contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -542,7 +553,10 @@ class SolicitarEncomendaScreenState extends State<SolicitarEncomendaScreen> {
             ),
             hint: const Text('Selecione um artigo'),
             items: _tiposProduto
-                .map((prod) => DropdownMenuItem<int>(value: prod.id, child: Text(prod.nome)))
+                .map((prod) => DropdownMenuItem<int>(
+                      value: prod.id,
+                      child: Text(prod.nome, maxLines: 1, overflow: TextOverflow.ellipsis),
+                    ))
                 .toList(),
             onChanged: (val) => setState(() => _tipoProdutoSelecionadoId = val),
             validator: (v) => v == null ? 'Selecione um artigo.' : null,

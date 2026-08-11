@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../core/breakpoints.dart';
 import '../../core/ecra_recarregavel.dart';
 import '../../core/realtime.dart';
 import '../../core/temas_cores.dart';
@@ -106,7 +107,7 @@ class _FilaTrabalhoScreenState extends State<FilaTrabalhoScreen>
     return Scaffold(
       backgroundColor: TemasCores.fundoEcraFrio,
       body: Padding(
-        padding: const EdgeInsets.all(40.0),
+        padding: paddingEcra(context),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -122,94 +123,112 @@ class _FilaTrabalhoScreenState extends State<FilaTrabalhoScreen>
   Widget _construirCabecalho() {
     final posto = _fila?.posto;
 
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    final titulo = Row(
       children: [
-        Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    TemasCores.operadorAcentoClaro,
-                    TemasCores.operadorAcentoForte,
-                  ],
-                ),
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: const Icon(
-                Icons.assignment_outlined,
-                color: TemasCores.textoInverso,
-                size: 26,
-              ),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                TemasCores.operadorAcentoClaro,
+                TemasCores.operadorAcentoForte,
+              ],
             ),
-            const SizedBox(width: 16),
-            const Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Ordens de Produção',
-                  style: TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                    color: TemasCores.textoPrimarioFrio,
-                  ),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: const Icon(
+            Icons.assignment_outlined,
+            color: TemasCores.textoInverso,
+            size: 26,
+          ),
+        ),
+        const SizedBox(width: 16),
+        const Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Ordens de Produção',
+                style: TextStyle(
+                  fontSize: 28,
+                  fontWeight: FontWeight.bold,
+                  color: TemasCores.textoPrimarioFrio,
                 ),
-                SizedBox(height: 4),
-                Text(
-                  'Cartões atribuídos à sua fila de trabalho',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: TemasCores.textoSecundarioFrio,
+              ),
+              SizedBox(height: 4),
+              Text(
+                'Cartões atribuídos à sua fila de trabalho',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: TemasCores.textoSecundarioFrio,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+
+    final acoes = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (posto != null)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              color: TemasCores.operadorAcentoFundo,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: TemasCores.operadorAcentoBorda),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.precision_manufacturing_outlined,
+                  size: 18,
+                  color: TemasCores.operadorAcentoForte,
+                ),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    'Posto: ${posto.nome}',
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: TemasCores.operadorAcentoTextoForte,
+                      fontSize: 13,
+                    ),
                   ),
                 ),
               ],
             ),
-          ],
-        ),
-        Row(
-          children: [
-            if (posto != null)
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                decoration: BoxDecoration(
-                  color: TemasCores.operadorAcentoFundo,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: TemasCores.operadorAcentoBorda),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(
-                      Icons.precision_manufacturing_outlined,
-                      size: 18,
-                      color: TemasCores.operadorAcentoForte,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Posto: ${posto.nome}',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: TemasCores.operadorAcentoTextoForte,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            const SizedBox(width: 12),
-            IconButton(
-              onPressed: _aCarregar ? null : () => _carregar(),
-              icon: const Icon(Icons.refresh_rounded),
-              tooltip: 'Recarregar a fila',
-              color: TemasCores.operadorAcento,
-            ),
-          ],
+          ),
+        const SizedBox(width: 12),
+        IconButton(
+          onPressed: _aCarregar ? null : () => _carregar(),
+          icon: const Icon(Icons.refresh_rounded),
+          tooltip: 'Recarregar a fila',
+          color: TemasCores.operadorAcento,
         ),
       ],
+    );
+
+    // Título (28px) + chip de posto + botão não cabem lado a lado num
+    // telemóvel — era o único ecrã do terminal do operador sem nenhuma
+    // adaptação de cabeçalho, apesar de ser o ecrã inicial do perfil.
+    if (context.ehCompacto) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [titulo, const SizedBox(height: 16), acoes],
+      );
+    }
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [Flexible(child: titulo), acoes],
     );
   }
 
@@ -304,7 +323,7 @@ class _FilaTrabalhoScreenState extends State<FilaTrabalhoScreen>
         crossAxisCount: colunas,
         crossAxisSpacing: 24,
         mainAxisSpacing: 24,
-        mainAxisExtent: 250,
+        mainAxisExtent: 260,
       ),
       itemCount: ordens.length,
       itemBuilder: (context, index) => _CartaoOrdem(
@@ -363,6 +382,8 @@ class _CartaoOrdem extends StatelessWidget {
           children: [
             Text(
               ordem.encomenda.codigoRastreio ?? 'Sem Referência',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: const TextStyle(
                 fontWeight: FontWeight.bold,
                 fontSize: 18,
@@ -376,6 +397,8 @@ class _CartaoOrdem extends StatelessWidget {
             ),
             Text(
               ordem.encomenda.nomeProduto ?? 'Sem Produto',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: const TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w500,

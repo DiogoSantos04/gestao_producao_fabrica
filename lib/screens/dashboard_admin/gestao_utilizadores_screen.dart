@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show RealtimeChannel;
+import '../../core/breakpoints.dart';
 import '../../core/temas_cores.dart';
 import '../../core/mensagens.dart';
 import 'dialogos/dialogo_adicionar_funcionario.dart';
@@ -375,6 +376,7 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
           flex: 2,
           child: DropdownButtonFormField<String>(
             initialValue: _filtroCargo,
+            isExpanded: true,
             decoration: InputDecoration(
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(8),
@@ -425,14 +427,13 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
       );
     }
 
-    return Column(
+    // As colunas (Expanded de largura relativa) não têm para onde encolher em
+    // ecrã estreito — em vez de espremer o texto e os botões de ação até
+    // ilegível, a tabela mantém uma largura mínima e fica dentro de scroll
+    // horizontal.
+    final tabela = Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        if (_erroCarregamento != null)
-          EstadoErro.compacto(
-            titulo: 'A lista pode estar desatualizada — falhou a última atualização.',
-            detalhe: _erroCarregamento,
-            aoRepetir: _carregarUtilizadores,
-          ),
         _buildTableHeader(),
         const Divider(height: 1, thickness: 1),
         ListView.separated(
@@ -453,6 +454,23 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
             );
           },
         ),
+      ],
+    );
+
+    return Column(
+      children: [
+        if (_erroCarregamento != null)
+          EstadoErro.compacto(
+            titulo: 'A lista pode estar desatualizada — falhou a última atualização.',
+            detalhe: _erroCarregamento,
+            aoRepetir: _carregarUtilizadores,
+          ),
+        context.ehCompacto
+            ? SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: SizedBox(width: 700, child: tabela),
+              )
+            : tabela,
       ],
     );
   }

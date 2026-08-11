@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart'
     show PostgresChangeEvent, PostgresChangePayload, RealtimeChannel;
+import '../../core/breakpoints.dart';
 import '../../core/mensagens.dart';
 import '../../core/paginacao.dart';
 import '../../core/realtime.dart';
@@ -588,7 +589,7 @@ class _PainelControloScreenState extends State<PainelControloScreen> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : Padding(
-              padding: const EdgeInsets.all(24),
+              padding: paddingEcra(context),
               child: Card(
                 color: TemasCores.superficie,
                 elevation: 1,

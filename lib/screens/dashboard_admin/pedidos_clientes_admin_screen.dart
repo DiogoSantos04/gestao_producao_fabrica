@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import '../../core/breakpoints.dart';
 import '../../core/mensagens.dart';
 import '../../core/temas_cores.dart';
 import '../../models/pedido_model.dart';
@@ -69,6 +70,31 @@ class _PedidosClientesAdminScreenState extends State<PedidosClientesAdminScreen>
     final bool isPendente = p.estado.aguardaDecisao;
     final bool isAprovado = p.estado == EstadoPedido.aprovado;
 
+    final icone = _buildIconeEstado(isPendente: isPendente, isAprovado: isAprovado);
+    final resumo = _buildResumoPedido(p);
+    final acao = isPendente ? _buildAcoesPendente(p) : _buildBadgeEstado(p, isAprovado: isAprovado);
+
+    // Em pendente, a ação são dois botões de texto (não encolhem) — ao lado
+    // do resumo, num telemóvel espremiam a coluna de texto até negativo. Em
+    // ecrã compacto passam para baixo, em vez de ao lado.
+    final Widget corpo = context.ehCompacto
+        ? Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(children: [icone, const SizedBox(width: 16), Expanded(child: resumo)]),
+              const SizedBox(height: 12),
+              Align(alignment: Alignment.centerRight, child: acao),
+            ],
+          )
+        : Row(
+            children: [
+              icone,
+              const SizedBox(width: 16),
+              Expanded(child: resumo),
+              acao,
+            ],
+          );
+
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
       elevation: 0,
@@ -79,17 +105,7 @@ class _PedidosClientesAdminScreenState extends State<PedidosClientesAdminScreen>
       color: TemasCores.superficie,
       child: Padding(
         padding: const EdgeInsets.all(20),
-        child: Row(
-          children: [
-            _buildIconeEstado(isPendente: isPendente, isAprovado: isAprovado),
-            const SizedBox(width: 16),
-            Expanded(child: _buildResumoPedido(p)),
-            if (isPendente)
-              _buildAcoesPendente(p)
-            else
-              _buildBadgeEstado(p, isAprovado: isAprovado),
-          ],
-        ),
+        child: corpo,
       ),
     );
   }
@@ -132,15 +148,17 @@ class _PedidosClientesAdminScreenState extends State<PedidosClientesAdminScreen>
   }
 
   Widget _buildAcoesPendente(PedidoModel p) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
+    return Wrap(
+      spacing: 12,
+      runSpacing: 8,
+      alignment: WrapAlignment.end,
+      crossAxisAlignment: WrapCrossAlignment.center,
       children: [
         OutlinedButton(
           onPressed: () => _rejeitarPedido(p.id),
           style: OutlinedButton.styleFrom(foregroundColor: TemasCores.erro),
           child: const Text('Rejeitar'),
         ),
-        const SizedBox(width: 12),
         ElevatedButton.icon(
           onPressed: () => _aprovarELancarEncomenda(p),
           style: ElevatedButton.styleFrom(
@@ -221,30 +239,32 @@ class _PedidosClientesAdminScreenState extends State<PedidosClientesAdminScreen>
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : Padding(
-              padding: const EdgeInsets.all(40.0),
+              padding: paddingEcra(context),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Pedidos de Encomenda de Clientes',
-                            style: TextStyle(
-                              fontSize: 28,
-                              fontWeight: FontWeight.bold,
-                              color: TemasCores.textoPrimarioFrio,
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Pedidos de Encomenda de Clientes',
+                              style: TextStyle(
+                                fontSize: 28,
+                                fontWeight: FontWeight.bold,
+                                color: TemasCores.textoPrimarioFrio,
+                              ),
                             ),
-                          ),
-                          SizedBox(height: 4),
-                          Text(
-                            'Analise e aprove as solicitações submetidas pelos clientes comerciais.',
-                            style: TextStyle(fontSize: 14, color: TemasCores.textoSecundarioFrio),
-                          ),
-                        ],
+                            SizedBox(height: 4),
+                            Text(
+                              'Analise e aprove as solicitações submetidas pelos clientes comerciais.',
+                              style: TextStyle(fontSize: 14, color: TemasCores.textoSecundarioFrio),
+                            ),
+                          ],
+                        ),
                       ),
                       IconButton(
                         icon: const Icon(Icons.refresh),

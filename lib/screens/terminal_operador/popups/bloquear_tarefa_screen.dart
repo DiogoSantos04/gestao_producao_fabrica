@@ -162,9 +162,12 @@ class _BloquearTarefaPopupState extends State<BloquearTarefaPopup> {
             ),
           ),
           const SizedBox(width: 12),
-          const Text(
-            'Registar Bloqueio',
-            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+          const Flexible(
+            child: Text(
+              'Registar Bloqueio',
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+            ),
           ),
         ],
       ),
@@ -366,6 +369,7 @@ class _BloquearTarefaPopupState extends State<BloquearTarefaPopup> {
           child: Text(
             r.rotulo,
             style: const TextStyle(fontSize: 14),
+            maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
         );

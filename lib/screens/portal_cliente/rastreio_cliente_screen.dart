@@ -354,9 +354,12 @@ class _RastreioClienteScreenState extends State<RastreioClienteScreen> {
               children: [
                 const Icon(Icons.event, size: 16, color: TemasCores.textoSecundarioFrio),
                 const SizedBox(width: 6),
-                Text(
-                  'Data Prevista de Entrega: ${_formatarData(enc.dataEntrega)}',
-                  style: const TextStyle(color: TemasCores.textoSecundarioFrio, fontSize: 14, fontWeight: FontWeight.w500),
+                Expanded(
+                  child: Text(
+                    'Data Prevista de Entrega: ${_formatarData(enc.dataEntrega)}',
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: TemasCores.textoSecundarioFrio, fontSize: 14, fontWeight: FontWeight.w500),
+                  ),
                 ),
               ],
             ),

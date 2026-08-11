@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/breakpoints.dart';
 import '../../core/mensagens.dart';
 import '../../core/temas_cores.dart';
 import '../../models/fase_model.dart';
@@ -448,48 +449,61 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
 
   /// Cabeçalho do painel: nome da tipologia e ações de duplicar/adicionar.
   Widget _buildCabecalhoFluxo() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    final titulo = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Fluxo Produtivo: ${_tipoProdutoSelecionado!['nome_tipo_produto']}',
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-            const Text(
-              'Defina o circuito sequencial de produção das peças',
-              style: TextStyle(fontSize: 12, color: TemasCores.textoTerciario),
-            ),
-          ],
+        Text(
+          'Fluxo Produtivo: ${_tipoProdutoSelecionado!['nome_tipo_produto']}',
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
         ),
-        Row(
-          children: [
-            OutlinedButton.icon(
-              onPressed: _abrirDialogDuplicarFluxo,
-              style: OutlinedButton.styleFrom(
-                foregroundColor: TemasCores.infoTexto,
-                side: const BorderSide(color: TemasCores.infoClaro),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-              ),
-              icon: const Icon(Icons.copy, size: 16),
-              label: const Text('Duplicar Fluxo'),
-            ),
-            const SizedBox(width: 8),
-            ElevatedButton.icon(
-              onPressed: () => _abrirDialogFase(),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: TemasCores.adminAcento,
-                foregroundColor: TemasCores.textoInverso,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              ),
-              icon: const Icon(Icons.add, size: 18),
-              label: const Text('Adicionar Fase'),
-            ),
-          ],
+        const Text(
+          'Defina o circuito sequencial de produção das peças',
+          style: TextStyle(fontSize: 12, color: TemasCores.textoTerciario),
         ),
       ],
+    );
+
+    final botoes = Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        OutlinedButton.icon(
+          onPressed: _abrirDialogDuplicarFluxo,
+          style: OutlinedButton.styleFrom(
+            foregroundColor: TemasCores.infoTexto,
+            side: const BorderSide(color: TemasCores.infoClaro),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          ),
+          icon: const Icon(Icons.copy, size: 16),
+          label: const Text('Duplicar Fluxo'),
+        ),
+        ElevatedButton.icon(
+          onPressed: () => _abrirDialogFase(),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: TemasCores.adminAcento,
+            foregroundColor: TemasCores.textoInverso,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+          icon: const Icon(Icons.add, size: 18),
+          label: const Text('Adicionar Fase'),
+        ),
+      ],
+    );
+
+    // Título comprido + dois botões não cabem lado a lado em ecrã estreito —
+    // este cabeçalho não tinha nenhuma adaptação própria, nem sequer no
+    // layout "estreito" do ecrã (secção 5 do plano de responsividade).
+    if (context.ehCompacto) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [titulo, const SizedBox(height: 12), botoes],
+      );
+    }
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [Flexible(child: titulo), botoes],
     );
   }
 
@@ -609,12 +623,15 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
                                                 const Icon(Icons.visibility_outlined,
                                                     size: 12, color: TemasCores.textoTerciario),
                                                 const SizedBox(width: 4),
-                                                Text(
-                                                  'O cliente vê: ${fase.nomeParaCliente}',
-                                                  style: const TextStyle(
-                                                      fontSize: 11,
-                                                      fontStyle: FontStyle.italic,
-                                                      color: TemasCores.textoTerciario),
+                                                Flexible(
+                                                  child: Text(
+                                                    'O cliente vê: ${fase.nomeParaCliente}',
+                                                    overflow: TextOverflow.ellipsis,
+                                                    style: const TextStyle(
+                                                        fontSize: 11,
+                                                        fontStyle: FontStyle.italic,
+                                                        color: TemasCores.textoTerciario),
+                                                  ),
                                                 ),
                                               ],
                                             ),
@@ -815,7 +832,7 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
               title: Text(faseExistente == null ? 'Adicionar Fase de Produção' : 'Editar Fase de Produção'),
               content: SingleChildScrollView(
                 child: SizedBox(
-                  width: 450,
+                  width: larguraDialogo(context, 450),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -843,6 +860,7 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
                       
                       DropdownButtonFormField<String>(
                         initialValue: postoSelecionado,
+                        isExpanded: true,
                         decoration: const InputDecoration(
                           labelText: 'Posto de Trabalho Associado *',
                           border: OutlineInputBorder(),
@@ -851,7 +869,7 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
                         items: _postosTrabalhoDisponiveis.map((posto) {
                           return DropdownMenuItem<String>(
                             value: posto,
-                            child: Text(posto, style: const TextStyle(fontSize: 13)),
+                            child: Text(posto, style: const TextStyle(fontSize: 13), maxLines: 1, overflow: TextOverflow.ellipsis),
                           );
                         }).toList(),
                         onChanged: (novoPosto) {

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/breakpoints.dart';
 import '../../../core/mensagens.dart';
 import '../../../core/temas_cores.dart';
 import '../../../repositories/utilizadores_repository.dart';
@@ -73,7 +74,7 @@ class _DialogoAdicionarFuncionarioState extends State<DialogoAdicionarFuncionari
     return AlertDialog(
       title: const Text('Adicionar Novo Funcionário'),
       content: SizedBox(
-        width: 400,
+        width: larguraDialogo(context, 400),
         child: Form(
           key: _formKey,
           child: Column(

@@ -199,7 +199,7 @@ class _ClienteShellScreenState extends State<ClienteShellScreen> {
                 children: [
                   Icon(Icons.lock_reset_outlined, color: TemasCores.clienteAcento),
                   SizedBox(width: 10),
-                  Text('Alterar Palavra-passe'),
+                  Flexible(child: Text('Alterar Palavra-passe', overflow: TextOverflow.ellipsis)),
                 ],
               ),
               content: Form(
@@ -511,7 +511,12 @@ class _ClienteShellScreenState extends State<ClienteShellScreen> {
                 children: [
                   const Icon(Icons.local_shipping_outlined, color: TemasCores.clienteAcento, size: 20),
                   const SizedBox(width: 10),
-                  Text(_indiceAtual == 3 ? 'O Meu Perfil' : _menuItens[_indiceAtual]['titulo']),
+                  Flexible(
+                    child: Text(
+                      _indiceAtual == 3 ? 'O Meu Perfil' : _menuItens[_indiceAtual]['titulo'],
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
                 ],
               ),
             )

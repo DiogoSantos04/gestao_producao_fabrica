@@ -690,6 +690,7 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
               const SizedBox(height: 8),
               DropdownButtonFormField<int?>(
                 initialValue: _clienteSelecionadoId,
+                isExpanded: true,
                 decoration: InputDecoration(
                   fillColor: TemasCores.superficieSuave,
                   filled: true,
@@ -704,7 +705,7 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
                   ..._clientesLista.map((c) {
                     return DropdownMenuItem<int?>(
                       value: c.id,
-                      child: Text(c.nomeCliente, style: const TextStyle(fontSize: 13)),
+                      child: Text(c.nomeCliente, style: const TextStyle(fontSize: 13), maxLines: 1, overflow: TextOverflow.ellipsis),
                     );
                   }),
                 ],
@@ -717,6 +718,7 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
               const SizedBox(height: 8),
               DropdownButtonFormField<int?>(
                 initialValue: _tipoProdutoSelecionadoId,
+                isExpanded: true,
                 decoration: InputDecoration(
                   fillColor: TemasCores.superficieSuave,
                   filled: true,
@@ -731,7 +733,7 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
                   ..._tiposProdutoLista.map((p) {
                     return DropdownMenuItem<int?>(
                       value: p['id'] as int,
-                      child: Text(p['nome_tipo_produto'] ?? '', style: const TextStyle(fontSize: 13)),
+                      child: Text(p['nome_tipo_produto'] ?? '', style: const TextStyle(fontSize: 13), maxLines: 1, overflow: TextOverflow.ellipsis),
                     );
                   }),
                 ],

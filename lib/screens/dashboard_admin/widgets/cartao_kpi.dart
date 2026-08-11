@@ -236,12 +236,17 @@ class CartaoKpi extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisAlignment: estilo.alinhamentoColuna,
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Text(titulo, style: estilo.estiloTitulo),
+              Text(titulo, maxLines: 1, overflow: TextOverflow.ellipsis, style: estilo.estiloTitulo),
               SizedBox(height: estilo.espacoTituloValor),
-              Text(valor, style: estilo.estiloValor),
+              Text(valor, maxLines: 1, overflow: TextOverflow.ellipsis, style: estilo.estiloValor),
               SizedBox(height: estilo.espacoValorSubtitulo),
-              Text(subtitulo, style: estilo.estiloSubtitulo),
+              // Este é o campo de comprimento variável (ex: "12 de 20 concluídas
+              // recebidas") — numa grelha com `childAspectRatio` a célula tem
+              // altura fixa, e sem limite de linhas uma frase longa estourava
+              // por baixo do cartão.
+              Text(subtitulo, maxLines: 2, overflow: TextOverflow.ellipsis, style: estilo.estiloSubtitulo),
             ],
           ),
         ),

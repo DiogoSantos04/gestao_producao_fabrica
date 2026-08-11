@@ -102,6 +102,7 @@ class _DialogoEditarUtilizadorState extends State<DialogoEditarUtilizador> {
           const SizedBox(height: 16),
           DropdownButtonFormField<String>(
             initialValue: _perfilSelecionado,
+            isExpanded: true,
             decoration: const InputDecoration(labelText: 'Cargo / Perfil'),
             items: const [
               DropdownMenuItem(value: 'Administrador', child: Text('Administrador')),
@@ -118,6 +119,7 @@ class _DialogoEditarUtilizadorState extends State<DialogoEditarUtilizador> {
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
             initialValue: _estadoSelecionado,
+            isExpanded: true,
             decoration: const InputDecoration(labelText: 'Estado da Conta'),
             items: const [
               DropdownMenuItem(value: 'Ativo', child: Text('Ativo')),

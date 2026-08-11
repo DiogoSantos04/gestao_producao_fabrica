@@ -97,8 +97,14 @@ class EtiquetaEstado extends StatelessWidget {
         borderRadius: BorderRadius.circular(raio),
         border: borda == null ? null : Border.all(color: borda!),
       ),
+      // Sem isto, quando o pai aperta a pílula (ex: coluna estreita de uma
+      // tabela) o rótulo quebra a meio da palavra em vez de manter uma linha
+      // só — a pílula é para ser lida de imediato, nunca em duas linhas.
       child: Text(
         rotulo,
+        maxLines: 1,
+        softWrap: false,
+        overflow: TextOverflow.ellipsis,
         style: TextStyle(
           fontSize: tamanhoLetra,
           fontWeight: FontWeight.bold,

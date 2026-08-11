@@ -225,6 +225,9 @@ class _ColunaAcessoPortal extends StatelessWidget {
           ),
           child: Text(
             ativo ? 'Ativo' : 'Inativo',
+            maxLines: 1,
+            softWrap: false,
+            overflow: TextOverflow.ellipsis,
             style: TextStyle(
               color: ativo ? TemasCores.textoInverso : TemasCores.textoSecundario,
               fontSize: 11,
