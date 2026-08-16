@@ -5,6 +5,7 @@ import '../../core/ecra_recarregavel.dart';
 import '../../core/temas_cores.dart';
 import '../../repositories/operador_repository.dart';
 import '../../services/pdf_service.dart';
+import '../../services/relatorio_turno.dart';
 import '../../widgets/estado_erro.dart';
 
 class RelatoriosOperadorScreen extends StatefulWidget {
@@ -22,6 +23,12 @@ class _RelatoriosOperadorScreenState extends State<RelatoriosOperadorScreen>
   List<ResumoDeTurno> _turnos = [];
   bool _aCarregar = true;
   String? _erro;
+
+  /// Nome do operador para o cabeçalho do PDF, lido de `utilizadores`.
+  String? _nomeOperador;
+
+  /// Dia cujo PDF está a ser preparado, para travar cliques repetidos.
+  DateTime? _aGerar;
 
   @override
   void initState() {
@@ -42,10 +49,16 @@ class _RelatoriosOperadorScreenState extends State<RelatoriosOperadorScreen>
     }
 
     try {
-      final turnos = await _repo.obterTurnos();
+      // O nome vem na mesma ida à rede: é precisa para o PDF e falhar só na
+      // altura do download deixava o operador sem relatório sem saber porquê.
+      final resultados = await Future.wait([
+        _repo.obterTurnos(),
+        _repo.obterNomeUtilizadorAtual(),
+      ]);
       if (!mounted) return;
       setState(() {
-        _turnos = turnos;
+        _turnos = resultados[0] as List<ResumoDeTurno>;
+        _nomeOperador = resultados[1] as String?;
         _erro = null;
         _aCarregar = false;
       });
@@ -73,11 +86,6 @@ class _RelatoriosOperadorScreenState extends State<RelatoriosOperadorScreen>
 
   int get _paragensDoMes =>
       _turnosDoMes.fold(0, (soma, t) => soma + t.fasesComParagem);
-
-  static String _dataCurta(DateTime d) {
-    String d2(int n) => n.toString().padLeft(2, '0');
-    return '${d2(d.day)}/${d2(d.month)}/${d.year}';
-  }
 
   static String _nomeFicheiro(DateTime d) {
     String d2(int n) => n.toString().padLeft(2, '0');
@@ -276,7 +284,7 @@ class _RelatoriosOperadorScreenState extends State<RelatoriosOperadorScreen>
                 ),
                 itemBuilder: (context, index) {
                   final turno = _turnos[index];
-                  final data = _dataCurta(turno.dia);
+                  final data = dataCurta(turno.dia);
 
                   return ListTile(
                     contentPadding: const EdgeInsets.symmetric(
@@ -314,14 +322,27 @@ class _RelatoriosOperadorScreenState extends State<RelatoriosOperadorScreen>
                         ),
                       ),
                     ),
-                    trailing: IconButton(
-                      icon: const Icon(
-                        Icons.download_outlined,
-                        color: TemasCores.operadorAcentoClaro,
-                      ),
-                      tooltip: 'Descarregar PDF do Turno',
-                      onPressed: () => _descarregar(turno),
-                    ),
+                    // O PDF passou a ir à rede buscar o detalhe do dia, pelo
+                    // que já não é instantâneo: sem indicação, um toque sem
+                    // resposta convida ao segundo toque.
+                    trailing: _aGerar == turno.dia
+                        ? const SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: TemasCores.operadorAcento,
+                            ),
+                          )
+                        : IconButton(
+                            icon: const Icon(
+                              Icons.download_outlined,
+                              color: TemasCores.operadorAcentoClaro,
+                            ),
+                            tooltip: 'Descarregar PDF do Turno',
+                            onPressed:
+                                _aGerar != null ? null : () => _descarregar(turno),
+                          ),
                   );
                 },
               ),
@@ -330,15 +351,30 @@ class _RelatoriosOperadorScreenState extends State<RelatoriosOperadorScreen>
   }
 
   Future<void> _descarregar(ResumoDeTurno turno) async {
-    final email = _repo.utilizadorAtualEmail;
-    final nome = email?.split('@').first ?? 'Operador';
+    if (_aGerar != null) return;
+    setState(() => _aGerar = turno.dia);
 
-    await PdfService.descarregarRelatorioTurno(
-      nomeOperador: nome,
-      dataTurno: _dataCurta(turno.dia),
-      totalFases: turno.fasesConcluidas,
-      totalIncidencias: turno.fasesComParagem,
-    );
+    try {
+      final registos = await _repo.obterRegistosDoDia(turno.dia);
+
+      await PdfService.descarregarRelatorioTurno(
+        construirRelatorioTurno(
+          nomeOperador: _nomeOperador ?? 'Operador',
+          dia: turno.dia,
+          registos: registos,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Não foi possível gerar o relatório: ${descreverErro(e)}'),
+          backgroundColor: TemasCores.erroForte,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _aGerar = null);
+    }
   }
 }
 

@@ -10,6 +10,7 @@ import '../../core/temas_cores.dart';
 import '../../repositories/operador_repository.dart';
 import '../../services/auth_service.dart';
 import '../../services/pdf_service.dart';
+import '../../services/relatorio_turno.dart';
 import '../../widgets/dialogo_suporte.dart';
 import '../login_screen.dart';
 import 'fila_trabalho_screen.dart';
@@ -242,15 +243,23 @@ class _OperadorShellScreenState extends State<OperadorShellScreen> {
     // geração do PDF falhasse: o segundo desmontava o próprio terminal.
     var falhou = false;
     try {
-      final resumo = await _repo.obterResumoDaSessao(_inicioSessao);
       final agora = DateTime.now();
-      String d2(int n) => n.toString().padLeft(2, '0');
+
+      // Os registos do dia, cortados no início da sessão: o relatório de fecho
+      // é do turno que agora acaba, e não de tudo o que o operador fez hoje —
+      // uma segunda sessão no mesmo dia repetiria o trabalho da primeira.
+      final doDia = await _repo.obterRegistosDoDia(agora);
+      final daSessao = doDia.where((r) {
+        final momento = r.registo.momento?.toLocal();
+        return momento != null && !momento.isBefore(_inicioSessao);
+      }).toList();
 
       await PdfService.descarregarRelatorioTurno(
-        nomeOperador: _nomeUtilizador,
-        dataTurno: '${d2(agora.day)}/${d2(agora.month)}/${agora.year}',
-        totalFases: resumo.fasesConcluidas,
-        totalIncidencias: resumo.fasesComParagem,
+        construirRelatorioTurno(
+          nomeOperador: _nomeUtilizador,
+          dia: agora,
+          registos: daSessao,
+        ),
       );
     } catch (_) {
       falhou = true;

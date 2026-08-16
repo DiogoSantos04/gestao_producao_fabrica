@@ -131,6 +131,75 @@ class RegistoDeTurno {
   }
 }
 
+/// Indicadores de ritmo de um dia de trabalho, apurados a partir dos registos.
+///
+/// `historico_producao` grava um único instante por fase — `data_conclusao` é
+/// igual a `created_at` em todas as linhas —, pelo que não existe duração de
+/// fase para somar. O que se pode medir é o **intervalo entre conclusões
+/// consecutivas** do mesmo operador no mesmo dia, que aproxima o tempo de
+/// ciclo sem o afirmar como tal.
+class MetricasDoDia {
+  /// Intervalos acima deste valor são pausas (almoço, fim de turno partido) e
+  /// não ritmo de trabalho. Entram em [intervalosIgnorados], não na média.
+  static const Duration limiarPausa = Duration(hours: 2);
+
+  /// Primeira e última conclusão do dia, em hora local.
+  final DateTime? primeira;
+  final DateTime? ultima;
+
+  /// Média dos intervalos entre conclusões, excluídos os que passam de
+  /// [limiarPausa]. `null` quando não sobra nenhum intervalo para medir.
+  final Duration? intervaloMedio;
+
+  /// Quantos intervalos foram postos de lado por serem pausas. Vai para o PDF:
+  /// uma média que esconde o que descartou não é auditável.
+  final int intervalosIgnorados;
+
+  /// Ordens distintas tocadas no dia.
+  final int ordensDistintas;
+
+  const MetricasDoDia({
+    this.primeira,
+    this.ultima,
+    this.intervaloMedio,
+    this.intervalosIgnorados = 0,
+    this.ordensDistintas = 0,
+  });
+
+  factory MetricasDoDia.apurar(List<RegistoDeTurno> registos) {
+    final momentos = registos
+        .map((r) => r.registo.momento?.toLocal())
+        .whereType<DateTime>()
+        .toList()
+      ..sort();
+
+    if (momentos.isEmpty) return const MetricasDoDia();
+
+    var soma = Duration.zero;
+    var contados = 0;
+    var ignorados = 0;
+    for (var i = 1; i < momentos.length; i++) {
+      final intervalo = momentos[i].difference(momentos[i - 1]);
+      if (intervalo > limiarPausa) {
+        ignorados++;
+        continue;
+      }
+      soma += intervalo;
+      contados++;
+    }
+
+    return MetricasDoDia(
+      primeira: momentos.first,
+      ultima: momentos.last,
+      intervaloMedio:
+          contados == 0 ? null : Duration(seconds: soma.inSeconds ~/ contados),
+      intervalosIgnorados: ignorados,
+      ordensDistintas:
+          registos.map((r) => r.registo.encomendaId).whereType<int>().toSet().length,
+    );
+  }
+}
+
 /// Um dia de trabalho do operador, agregado para o relatório de turno.
 class ResumoDeTurno {
   /// Dia do turno em hora local, à meia-noite.
@@ -598,43 +667,73 @@ class OperadorRepository extends BaseRepository {
     });
   }
 
-  /// O que o operador fez desde [inicioSessao], para o relatório de fecho de turno.
+  /// Todos os registos de um dia, com produto, fase e paragens.
   ///
-  /// [inicioSessao] é hora local e é convertido para UTC antes de ir para o
-  /// servidor: `data_conclusao` é `timestamptz` e enviar a hora local sem
-  /// offset fazia o servidor lê-la como UTC, deslocando o início do turno.
-  Future<ResumoDeTurno> obterResumoDaSessao(DateTime inicioSessao) {
-    return guarda('apurar as métricas do turno', () async {
+  /// Serve o PDF do relatório, que precisa da lista detalhada e não do agregado
+  /// de [obterTurnos]. Sem paginação de propósito: um dia de um operador são
+  /// dezenas de linhas, e um PDF truncado a meio do dia não é um relatório.
+  Future<List<RegistoDeTurno>> obterRegistosDoDia(DateTime dia) {
+    return guarda('carregar os registos do dia', () async {
       final utilizador = utilizadorAtualId;
-      final dia = DateTime(
-        inicioSessao.year,
-        inicioSessao.month,
-        inicioSessao.day,
-      );
+      if (utilizador == null) return const <RegistoDeTurno>[];
 
-      if (utilizador == null) {
-        return ResumoDeTurno(dia: dia, fasesConcluidas: 0, fasesComParagem: 0);
-      }
+      // Mesma conversão de fronteira que [obterHistorico]: `data_conclusao` é
+      // `timestamptz` e o dia que o operador vê é o dia local.
+      final inicio = DateTime(dia.year, dia.month, dia.day).toUtc();
+      final fim = inicio.add(const Duration(days: 1));
 
-      final historico = comoLista(
-        await client
-            .from('historico_producao')
-            .select('id, created_at, data_conclusao, encomenda_id')
-            .eq('utilizador_id', utilizador)
-            .gte('data_conclusao', inicioSessao.toUtc().toIso8601String()),
-      ).map(HistoricoModel.fromJson).toList();
+      final dados = await client
+          .from('historico_producao')
+          .select(_selectHistorico)
+          .eq('utilizador_id', utilizador)
+          .gte('data_conclusao', inicio.toIso8601String())
+          .lt('data_conclusao', fim.toIso8601String())
+          .order('data_conclusao', ascending: true)
+          .order('id', ascending: true);
 
+      final linhas = comoLista(dados);
+      final historico = linhas.map(HistoricoModel.fromJson).toList();
       final porRegisto = await _associarParagensDasOrdens(historico);
 
-      return ResumoDeTurno(
-        dia: dia,
-        fasesConcluidas: historico.length,
-        // Contam-se as fases **deste** operador que tiveram paragem, não as
-        // chaves todas do mapa: a associação corre sobre o histórico completo
-        // das ordens e inclui fases concluídas por outras pessoas.
-        fasesComParagem:
-            historico.where((h) => porRegisto.containsKey(h.id)).length,
-      );
+      final registos = <RegistoDeTurno>[];
+      for (var i = 0; i < historico.length; i++) {
+        final h = historico[i];
+        final enc = linhas[i]['encomendas'];
+        final encMapa = enc is Map ? Map<String, dynamic>.from(enc) : null;
+        final produto = encMapa?['tipos_produto'];
+
+        registos.add(RegistoDeTurno(
+          registo: h,
+          codigoRastreio: encMapa?['codigo_rastreio'] as String?,
+          nomeProduto:
+              produto is Map ? produto['nome_tipo_produto'] as String? : null,
+          paragens: porRegisto[h.id] ?? const [],
+        ));
+      }
+
+      return registos;
+    });
+  }
+
+  /// Nome do operador com sessão iniciada, tal como consta em `utilizadores`.
+  ///
+  /// O relatório usava `email.split('@')` como nome, o que punha a parte local
+  /// do endereço no cabeçalho de um documento que sai da app. A política de RLS
+  /// de `utilizadores` deixa cada um ler a sua própria linha, pelo que esta
+  /// leitura não precisa de função elevada.
+  Future<String?> obterNomeUtilizadorAtual() {
+    return guarda('obter o seu nome de utilizador', () async {
+      final id = utilizadorAtualId;
+      if (id == null) return null;
+
+      final dados = await client
+          .from('utilizadores')
+          .select('nome_utilizador')
+          .eq('utilizador_id', id)
+          .maybeSingle();
+
+      final nome = (dados?['nome_utilizador'] as String?)?.trim();
+      return (nome == null || nome.isEmpty) ? null : nome;
     });
   }
 

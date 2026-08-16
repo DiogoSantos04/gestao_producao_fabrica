@@ -370,4 +370,76 @@ void main() {
       expect(OrdenacaoHistorico.fase.alvo, ('nome_fase_padrao', 'fases_padrao'));
     });
   });
+
+  group('MetricasDoDia.apurar', () {
+    /// Registo de turno concluído à hora local [hora] do dia 1 de junho.
+    RegistoDeTurno registo(int id, int encomenda, String hora) {
+      final local = DateTime(2026, 6, 1).add(Duration(
+        hours: int.parse(hora.split(':')[0]),
+        minutes: int.parse(hora.split(':')[1]),
+      ));
+      return RegistoDeTurno(
+        registo: _historico(id, encomenda, local.toUtc().toIso8601String()),
+      );
+    }
+
+    test('sem registos não afirma nada', () {
+      final m = MetricasDoDia.apurar(const []);
+      expect(m.primeira, isNull);
+      expect(m.ultima, isNull);
+      expect(m.intervaloMedio, isNull);
+      expect(m.ordensDistintas, 0);
+    });
+
+    test('um só registo não tem intervalo para medir', () {
+      final m = MetricasDoDia.apurar([registo(1, 10, '09:00')]);
+      expect(m.intervaloMedio, isNull);
+      expect(m.primeira, m.ultima);
+      expect(m.ordensDistintas, 1);
+    });
+
+    test('média dos intervalos entre conclusões consecutivas', () {
+      final m = MetricasDoDia.apurar([
+        registo(1, 10, '09:00'),
+        registo(2, 10, '09:20'),
+        registo(3, 11, '09:50'),
+      ]);
+      // Intervalos de 20 e 30 minutos.
+      expect(m.intervaloMedio, const Duration(minutes: 25));
+      expect(m.intervalosIgnorados, 0);
+      expect(m.ordensDistintas, 2);
+    });
+
+    test('a pausa de almoço não entra na média e é declarada', () {
+      final m = MetricasDoDia.apurar([
+        registo(1, 10, '09:00'),
+        registo(2, 10, '09:30'),
+        registo(3, 10, '14:00'), // 4h30 depois: pausa, não ritmo de trabalho
+        registo(4, 10, '14:30'),
+      ]);
+      expect(m.intervaloMedio, const Duration(minutes: 30));
+      expect(m.intervalosIgnorados, 1);
+    });
+
+    test('só pausas deixam a média por apurar em vez de a inventar', () {
+      final m = MetricasDoDia.apurar([
+        registo(1, 10, '08:00'),
+        registo(2, 10, '18:00'),
+      ]);
+      expect(m.intervaloMedio, isNull);
+      expect(m.intervalosIgnorados, 1);
+    });
+
+    test('a ordem de chegada dos registos não altera o apuramento', () {
+      final m = MetricasDoDia.apurar([
+        registo(3, 11, '09:50'),
+        registo(1, 10, '09:00'),
+        registo(2, 10, '09:20'),
+      ]);
+      expect(m.primeira!.hour, 9);
+      expect(m.primeira!.minute, 0);
+      expect(m.ultima!.minute, 50);
+      expect(m.intervaloMedio, const Duration(minutes: 25));
+    });
+  });
 }

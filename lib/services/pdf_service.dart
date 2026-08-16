@@ -35,6 +35,46 @@ class ParametrosRelatorioProducao {
   });
 }
 
+/// Parâmetros do relatório de turno de um operador.
+///
+/// Recebe texto já formatado, e não modelos do domínio: o serviço de PDF não
+/// conhece repositórios, pela mesma razão que [ParametrosRelatorioProducao]
+/// recebe as linhas prontas.
+class ParametrosRelatorioTurno {
+  final String nomeOperador;
+  final String dataTurno;
+  final int totalFases;
+  final int totalIncidencias;
+  final int ordensDistintas;
+
+  /// Horas da primeira e da última conclusão do dia, ou `null` sem atividade.
+  final String? primeiraConclusao;
+  final String? ultimaConclusao;
+
+  /// Intervalo médio entre conclusões, já legível. `null` quando não houve
+  /// intervalos mensuráveis (uma só fase no dia, ou só pausas).
+  final String? intervaloMedio;
+
+  /// Intervalos descartados por serem pausas — declarados no rodapé da tabela.
+  final int intervalosIgnorados;
+
+  /// Uma linha por fase concluída: hora, código, produto, fase, paragem.
+  final List<List<String>> linhas;
+
+  const ParametrosRelatorioTurno({
+    required this.nomeOperador,
+    required this.dataTurno,
+    required this.totalFases,
+    required this.totalIncidencias,
+    required this.ordensDistintas,
+    required this.linhas,
+    this.primeiraConclusao,
+    this.ultimaConclusao,
+    this.intervaloMedio,
+    this.intervalosIgnorados = 0,
+  });
+}
+
 class PdfService {
   /// Desenha o relatório de produção e devolve os bytes do PDF.
   ///
@@ -199,105 +239,184 @@ class PdfService {
   }
 
   /// 1. Gera e abre a janela de download/impressão do relatório de turno real
-  static Future<void> descarregarRelatorioTurno({
-    required String nomeOperador,
-    required String dataTurno,
-    required int totalFases,
-    required int totalIncidencias,
-  }) async {
+  static Future<void> descarregarRelatorioTurno(
+    ParametrosRelatorioTurno p,
+  ) async {
     final pdf = pw.Document();
 
     pdf.addPage(
-      pw.Page(
+      pw.MultiPage(
         pageFormat: PdfPageFormat.a4,
-        build: (pw.Context context) {
-          return pw.Padding(
-            padding: const pw.EdgeInsets.all(32),
-            child: pw.Column(
-              crossAxisAlignment: pw.CrossAxisAlignment.start,
-              children: [
-                // Cabeçalho do Relatório
-                pw.Row(
-                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                  children: [
-                    pw.Text(
-                      'SISTEMA INDUSTRIAL - RELATÓRIO DE TURNO',
-                      style: const pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, color: PdfColors.grey700),
-                    ),
-                    pw.Text(
-                      dataTurno,
-                      style: const pw.TextStyle(fontSize: 12, color: PdfColors.grey600),
-                    ),
-                  ],
-                ),
-                pw.Divider(thickness: 2, color: PdfColors.blue800),
-                pw.SizedBox(height: 24),
-
-                // Dados do Operador
-                pw.Text('Resumo Operacional', style: const pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold, color: PdfColors.blue900)),
-                pw.SizedBox(height: 16),
-                pw.Text('Operador responsável: $nomeOperador', style: const pw.TextStyle(fontSize: 14)),
-                pw.Text('Data de processamento: $dataTurno', style: const pw.TextStyle(fontSize: 14)),
-                pw.SizedBox(height: 32),
-
-                // Tabela de Métricas Reais
-                pw.Table(
-                  border: pw.TableBorder.all(color: PdfColors.grey300, width: 1),
-                  children: [
-                    pw.TableRow(
-                      decoration: const pw.BoxDecoration(color: PdfColors.grey200),
-                      children: [
-                        pw.Padding(
-                          padding: const pw.EdgeInsets.all(8),
-                          child: pw.Text('Métrica Analisada', style: const pw.TextStyle(fontWeight: pw.FontWeight.bold)),
-                        ),
-                        pw.Padding(
-                          padding: const pw.EdgeInsets.all(8),
-                          child: pw.Text('Quantidade Real', style: const pw.TextStyle(fontWeight: pw.FontWeight.bold)),
-                        ),
-                      ],
-                    ),
-                    pw.TableRow(
-                      children: [
-                        pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('Fases de Produção Concluídas')),
-                        pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('$totalFases etapas')),
-                      ],
-                    ),
-                    pw.TableRow(
-                      children: [
-                        pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('Incidências / Bloqueios Registados')),
-                        pw.Padding(
-                          padding: const pw.EdgeInsets.all(8),
-                          child: pw.Text(
-                            '$totalIncidencias alertas',
-                            style: pw.TextStyle(color: totalIncidencias > 0 ? PdfColors.red800 : PdfColors.black),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-                pw.Spacer(),
-
-                // Rodapé de Validação
-                pw.Divider(color: PdfColors.grey300),
-                pw.Row(
-                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                  children: [
-                    pw.Text('Relatório gerado automaticamente pelo Sistema Industrial 2026', style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey500)),
-                    pw.Text('Página 1 de 1', style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey500)),
-                  ],
-                ),
-              ],
-            ),
-          );
-        },
+        margin: const pw.EdgeInsets.all(32),
+        footer: (context) => _rodapeTurno(context),
+        build: (context) => [
+          _cabecalhoTurno(p),
+          pw.SizedBox(height: 24),
+          _identificacaoTurno(p),
+          pw.SizedBox(height: 20),
+          _indicadoresTurno(p),
+          pw.SizedBox(height: 24),
+          _detalheTurno(p),
+        ],
       ),
     );
 
     await Printing.layoutPdf(
       onLayout: (PdfPageFormat format) async => pdf.save(),
-      name: 'Relatorio_Turno_${dataTurno.replaceAll('/', '')}.pdf',
+      name: 'Relatorio_Turno_${p.dataTurno.replaceAll('/', '')}.pdf',
+    );
+  }
+
+  static pw.Widget _cabecalhoTurno(ParametrosRelatorioTurno p) {
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        pw.Row(
+          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+          children: [
+            pw.Text(
+              'SISTEMA INDUSTRIAL - RELATÓRIO DE TURNO',
+              style: const pw.TextStyle(
+                  fontSize: 12, fontWeight: pw.FontWeight.bold, color: PdfColors.grey700),
+            ),
+            pw.Text(
+              p.dataTurno,
+              style: const pw.TextStyle(fontSize: 12, color: PdfColors.grey600),
+            ),
+          ],
+        ),
+        pw.Divider(thickness: 2, color: PdfColors.blue800),
+      ],
+    );
+  }
+
+  static pw.Widget _identificacaoTurno(ParametrosRelatorioTurno p) {
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        pw.Text('Resumo Operacional',
+            style: const pw.TextStyle(
+                fontSize: 20, fontWeight: pw.FontWeight.bold, color: PdfColors.blue900)),
+        pw.SizedBox(height: 12),
+        pw.Text('Operador responsável: ${p.nomeOperador}',
+            style: const pw.TextStyle(fontSize: 14)),
+        pw.Text('Data de processamento: ${p.dataTurno}',
+            style: const pw.TextStyle(fontSize: 14)),
+        if (p.primeiraConclusao != null && p.ultimaConclusao != null)
+          pw.Text(
+            'Atividade registada entre as ${p.primeiraConclusao} e as ${p.ultimaConclusao}',
+            style: const pw.TextStyle(fontSize: 14),
+          ),
+      ],
+    );
+  }
+
+  static pw.Widget _indicadoresTurno(ParametrosRelatorioTurno p) {
+    return pw.Table(
+      border: pw.TableBorder.all(color: PdfColors.grey300, width: 1),
+      children: [
+        pw.TableRow(
+          decoration: const pw.BoxDecoration(color: PdfColors.grey200),
+          children: [
+            _celulaTurno('Métrica Analisada', negrito: true),
+            _celulaTurno('Valor Apurado', negrito: true),
+          ],
+        ),
+        pw.TableRow(children: [
+          _celulaTurno('Fases de Produção Concluídas'),
+          _celulaTurno('${p.totalFases} etapas'),
+        ]),
+        pw.TableRow(children: [
+          _celulaTurno('Incidências / Bloqueios Registados'),
+          _celulaTurno(
+            '${p.totalIncidencias} alertas',
+            cor: p.totalIncidencias > 0 ? PdfColors.red800 : PdfColors.black,
+          ),
+        ]),
+        pw.TableRow(children: [
+          _celulaTurno('Ordens de Fabrico Distintas'),
+          _celulaTurno('${p.ordensDistintas} ordens'),
+        ]),
+        pw.TableRow(children: [
+          _celulaTurno('Intervalo Médio entre Conclusões'),
+          _celulaTurno(p.intervaloMedio ?? 'Sem intervalos medíveis'),
+        ]),
+      ],
+    );
+  }
+
+  static pw.Widget _celulaTurno(String texto, {bool negrito = false, PdfColor? cor}) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.all(8),
+      child: pw.Text(
+        texto,
+        style: pw.TextStyle(
+          fontWeight: negrito ? pw.FontWeight.bold : pw.FontWeight.normal,
+          color: cor,
+        ),
+      ),
+    );
+  }
+
+  static pw.Widget _detalheTurno(ParametrosRelatorioTurno p) {
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        pw.Text('Detalhe das Fases Concluídas',
+            style: const pw.TextStyle(
+                fontSize: 14, fontWeight: pw.FontWeight.bold, color: PdfColors.blueGrey800)),
+        pw.SizedBox(height: 8),
+        if (p.linhas.isEmpty)
+          pw.Text('Sem fases concluídas neste dia.',
+              style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey600))
+        else
+          pw.TableHelper.fromTextArray(
+            headers: const ['Hora', 'Codigo', 'Produto', 'Fase', 'Paragem'],
+            data: p.linhas,
+            headerStyle: const pw.TextStyle(
+                fontWeight: pw.FontWeight.bold, color: PdfColors.white, fontSize: 10),
+            headerDecoration: const pw.BoxDecoration(color: PdfColors.blueGrey800),
+            cellStyle: const pw.TextStyle(fontSize: 9),
+            cellHeight: 22,
+            columnWidths: const {
+              0: pw.FlexColumnWidth(1.1),
+              1: pw.FlexColumnWidth(1.8),
+              2: pw.FlexColumnWidth(2.2),
+              3: pw.FlexColumnWidth(2.2),
+              4: pw.FlexColumnWidth(2.7),
+            },
+          ),
+        // A média de intervalos exclui as pausas; dizê-lo aqui é o que a torna
+        // auditável por quem recebe o papel.
+        if (p.intervalosIgnorados > 0)
+          pw.Padding(
+            padding: const pw.EdgeInsets.only(top: 8),
+            child: pw.Text(
+              'Nota: ${p.intervalosIgnorados} intervalo(s) superior(es) a 2 horas foram '
+              'considerados pausas e excluídos do intervalo médio.',
+              style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600),
+            ),
+          ),
+      ],
+    );
+  }
+
+  static pw.Widget _rodapeTurno(pw.Context context) {
+    return pw.Container(
+      margin: const pw.EdgeInsets.only(top: 10),
+      padding: const pw.EdgeInsets.only(top: 10),
+      decoration: const pw.BoxDecoration(
+        border: pw.Border(top: pw.BorderSide(color: PdfColors.grey300)),
+      ),
+      child: pw.Row(
+        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+        children: [
+          pw.Text('Relatório gerado automaticamente pelo Sistema Industrial 2026',
+              style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey500)),
+          pw.Text('Página ${context.pageNumber} de ${context.pagesCount}',
+              style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey500)),
+        ],
+      ),
     );
   }
 
