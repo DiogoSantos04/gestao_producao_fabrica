@@ -31,6 +31,30 @@ double larguraDialogo(BuildContext context, double preferida) {
   return preferida < context.larguraEcra - 32 ? preferida : context.larguraEcra - 32;
 }
 
+/// Dá a [tabela] scroll horizontal quando não há [larguraMinima] disponível.
+///
+/// Uma tabela de colunas fixas não encolhe abaixo de certa largura: as colunas
+/// deixam de caber e a linha estoura para fora. A saída é deslizar na
+/// horizontal, mas só quando é preciso.
+///
+/// A decisão tem de sair da largura **disponível** e não da largura do ecrã.
+/// Os ecrãs do administrador têm uma sidebar fixa de 260 px: num portátil de
+/// 1000 px sobram 692 para a tabela — menos do que os 700 que ela precisa —,
+/// e no entanto `ehCompacto` é falso, porque o *ecrã* é largo. Era esse o
+/// critério usado nas tabelas de clientes e de utilizadores, e a consequência
+/// era o conteúdo cortado à direita sem forma de lá chegar.
+Widget comScrollHorizontalAbaixoDe(double larguraMinima, Widget tabela) {
+  return LayoutBuilder(
+    builder: (context, constraints) {
+      if (constraints.maxWidth >= larguraMinima) return tabela;
+      return SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: SizedBox(width: larguraMinima, child: tabela),
+      );
+    },
+  );
+}
+
 /// Padding horizontal/vertical adaptativo para o corpo dos ecrãs.
 ///
 /// Substitui os `EdgeInsets.all(24)`/`EdgeInsets.all(40)` fixos que comiam

@@ -143,6 +143,11 @@ class _BloquearTarefaPopupState extends State<BloquearTarefaPopup> {
         !_isSaving && !_aCarregarMotivos && _erroMotivos == null && _reasonCodes.isNotEmpty;
 
     return AlertDialog(
+      // O operador regista o bloqueio no terminal do posto, muitas vezes num
+      // tablet em modo horizontal: seletor de motivo, descrição e aviso não
+      // cabem nessa altura, e este é o pior sítio para o conteúdo ficar
+      // inacessível — a linha está parada à espera deste registo.
+      scrollable: true,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       titlePadding: const EdgeInsets.all(24),
       contentPadding: const EdgeInsets.symmetric(horizontal: 24),

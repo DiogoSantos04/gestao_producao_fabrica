@@ -271,8 +271,13 @@ class _PainelPorConfirmarState extends State<PainelPorConfirmar> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Um código de rastreio não parte e o nome do produto pode ser
+                // comprido: sem corte, empurravam o botão para fora do ecrã do
+                // telemóvel, que é onde este painel mais é visto.
                 Text(
                   enc.codigoRastreio,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.bold,
@@ -283,6 +288,8 @@ class _PainelPorConfirmarState extends State<PainelPorConfirmar> {
                   const SizedBox(height: 2),
                   Text(
                     descricao,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       fontSize: 12,
                       color: TemasCores.textoTerciario,

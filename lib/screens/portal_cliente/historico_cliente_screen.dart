@@ -180,6 +180,9 @@ class HistoricoClienteScreenState extends State<HistoricoClienteScreen> implemen
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
+              // Estrelas mais campo de comentário: com o teclado aberto num
+              // telemóvel, o botão de submeter ficava fora do ecrã.
+              scrollable: true,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               title: Row(
                 children: [

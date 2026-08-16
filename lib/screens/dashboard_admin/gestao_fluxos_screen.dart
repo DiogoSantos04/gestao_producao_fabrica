@@ -846,6 +846,9 @@ class _GestaoFluxosScreenState extends State<GestaoFluxosScreen> {
       context: context,
       builder: (context) {
         return AlertDialog(
+          // Parágrafo explicativo mais campo de nome: passa a altura útil de um
+          // telemóvel assim que o teclado abre.
+          scrollable: true,
           title: const Text('Duplicar Fluxo Produtivo'),
           content: Column(
             mainAxisSize: MainAxisSize.min,

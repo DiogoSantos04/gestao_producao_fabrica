@@ -42,6 +42,9 @@ class _DialogoCancelarOrdemState extends State<DialogoCancelarOrdem> {
     final motivo = _motivoController.text.trim();
 
     return AlertDialog(
+      // Sem isto, o diálogo estoura 60 px em baixo num telemóvel deitado — e
+      // também em pé, assim que o teclado abre para escrever o motivo.
+      scrollable: true,
       title: const Text('Cancelar Ordem de Produção'),
       content: SizedBox(
         width: larguraDialogo(context, 420),

@@ -104,16 +104,24 @@ class _ColunaIdentificacao extends StatelessWidget {
         Row(
           children: [
             if (nif.isNotEmpty) ...[
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                decoration: BoxDecoration(
-                  color: TemasCores.borda,
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Text(
-                  'NIF $nif',
-                  style: const TextStyle(
-                      fontSize: 10, fontWeight: FontWeight.bold, color: TemasCores.textoApoioIntenso),
+              // O chip do NIF tem largura natural e não encolhia: entre 600 e
+              // 700 px a tabela já não ganha o scroll horizontal (que só entra
+              // abaixo de `ehCompacto`) e esta linha estourava 35 px à direita.
+              Flexible(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: TemasCores.borda,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    'NIF $nif',
+                    maxLines: 1,
+                    softWrap: false,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        fontSize: 10, fontWeight: FontWeight.bold, color: TemasCores.textoApoioIntenso),
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
@@ -155,10 +163,17 @@ class _ColunaContacto extends StatelessWidget {
           children: [
             const Icon(Icons.phone_outlined, size: 14, color: TemasCores.textoDesativado),
             const SizedBox(width: 6),
-            Text(
-              cliente.contactoFormatado,
-              style: const TextStyle(
-                  color: TemasCores.textoApoioForte, fontSize: 13, fontWeight: FontWeight.w500),
+            // Um número de telefone formatado ocupa perto de 110 px e não parte
+            // em lado nenhum: sem `Expanded`, a coluna estourava 98 px assim
+            // que a tabela descia dos 700.
+            Expanded(
+              child: Text(
+                cliente.contactoFormatado,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                    color: TemasCores.textoApoioForte, fontSize: 13, fontWeight: FontWeight.w500),
+              ),
             ),
           ],
         ),

@@ -314,22 +314,30 @@ class _FilaTrabalhoScreenState extends State<FilaTrabalhoScreen>
   }
 
   Widget _construirGrelha(List<OrdemNaFila> ordens) {
-    final largura = MediaQuery.of(context).size.width;
-    final colunas = largura > 1200 ? 3 : (largura > 800 ? 2 : 1);
+    // A contagem de colunas sai da largura **disponível** e não da do ecrã: a
+    // barra lateral do terminal ocupa 260 px em desktop, pelo que um portátil
+    // de 1250 px dava três colunas num espaço que só tem 890 — cartões a
+    // ~270 px, demasiado estreitos para o que lá está dentro.
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final largura = constraints.maxWidth;
+        final colunas = largura > 1200 ? 3 : (largura > 800 ? 2 : 1);
 
-    return GridView.builder(
-      physics: const AlwaysScrollableScrollPhysics(),
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: colunas,
-        crossAxisSpacing: 24,
-        mainAxisSpacing: 24,
-        mainAxisExtent: 260,
-      ),
-      itemCount: ordens.length,
-      itemBuilder: (context, index) => _CartaoOrdem(
-        ordem: ordens[index],
-        aoAbrir: () => _abrirOrdem(ordens[index]),
-      ),
+        return GridView.builder(
+          physics: const AlwaysScrollableScrollPhysics(),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: colunas,
+            crossAxisSpacing: 24,
+            mainAxisSpacing: 24,
+            mainAxisExtent: 260,
+          ),
+          itemCount: ordens.length,
+          itemBuilder: (context, index) => _CartaoOrdem(
+            ordem: ordens[index],
+            aoAbrir: () => _abrirOrdem(ordens[index]),
+          ),
+        );
+      },
     );
   }
 }

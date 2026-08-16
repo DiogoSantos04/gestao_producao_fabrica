@@ -471,12 +471,7 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
             detalhe: _erroCarregamento,
             aoRepetir: _carregarUtilizadores,
           ),
-        context.ehCompacto
-            ? SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: SizedBox(width: 700, child: tabela),
-              )
-            : tabela,
+        comScrollHorizontalAbaixoDe(700, tabela),
       ],
     );
   }

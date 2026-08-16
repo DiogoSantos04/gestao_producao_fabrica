@@ -128,6 +128,9 @@ class _DialogoLineClearanceState extends State<DialogoLineClearance> {
     final incidencia = widget.incidencia;
 
     return AlertDialog(
+      // O resumo da intervenção tem altura variável: com um diagnóstico longo,
+      // o diálogo passa a altura útil de qualquer telemóvel.
+      scrollable: true,
       title: const Row(
         children: [
           Icon(Icons.verified_user_rounded, color: TemasCores.sucessoTexto),

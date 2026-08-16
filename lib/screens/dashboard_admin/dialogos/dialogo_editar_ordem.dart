@@ -73,6 +73,9 @@ class _DialogoEditarOrdemState extends State<DialogoEditarOrdem> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
+      // Formulário com campos de texto: o teclado do telemóvel come mais de
+      // metade da altura e o conteúdo tem de poder deslizar.
+      scrollable: true,
       title: const Text('Editar Ordem de Produção'),
       content: Column(
         mainAxisSize: MainAxisSize.min,

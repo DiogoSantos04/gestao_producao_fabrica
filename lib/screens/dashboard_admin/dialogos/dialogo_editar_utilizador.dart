@@ -78,6 +78,9 @@ class _DialogoEditarUtilizadorState extends State<DialogoEditarUtilizador> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
+      // Formulário com campos de texto: o teclado do telemóvel come mais de
+      // metade da altura e o conteúdo tem de poder deslizar.
+      scrollable: true,
       title: const Text('Editar Utilizador'),
       content: Column(
         mainAxisSize: MainAxisSize.min,

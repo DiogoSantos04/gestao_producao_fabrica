@@ -398,7 +398,13 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
                   const SizedBox(height: 24),
                   LayoutBuilder(
                     builder: (context, constraints) {
-                      final int colunas = _colunasKpi(larguraEcra);
+                      // `constraints.maxWidth` e não a largura do ecrã: a
+                      // sidebar do painel ocupa 260 px, e a documentação de
+                      // [_colunasKpi] fala de largura *disponível* — era essa
+                      // a intenção, mas o valor que chegava era o do ecrã
+                      // inteiro, o que dava cinco cartões de ~200 px num
+                      // espaço onde só cabiam três legíveis.
+                      final int colunas = _colunasKpi(constraints.maxWidth);
                       return GridView(
                         // Altura fixa, não proporção: o conteúdo (título +
                         // valor + até 2 linhas de subtítulo) tem sempre a

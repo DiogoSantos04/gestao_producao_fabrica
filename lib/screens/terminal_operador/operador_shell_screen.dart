@@ -302,6 +302,9 @@ class _OperadorShellScreenState extends State<OperadorShellScreen> {
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
+          // Dois campos de palavra-passe com o teclado aberto: sem scroll,
+          // o botão de guardar fica fora do ecrã no telemóvel.
+          scrollable: true,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
           ),

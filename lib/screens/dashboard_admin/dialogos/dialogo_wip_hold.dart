@@ -85,6 +85,9 @@ class _DialogoWipHoldState extends State<DialogoWipHold> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
+      // Motivo, campo de descrição e aviso não cabem na altura de um telemóvel
+      // com o teclado aberto.
+      scrollable: true,
       title: const Row(
         children: [
           Icon(Icons.pause_circle_filled_rounded, color: TemasCores.erroTexto),

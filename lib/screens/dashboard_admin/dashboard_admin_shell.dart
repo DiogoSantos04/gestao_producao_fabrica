@@ -195,6 +195,9 @@ class _DashboardAdminShellState extends State<DashboardAdminShell> {
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
+              // Dois campos de palavra-passe com o teclado aberto: sem scroll,
+              // o botão de guardar fica fora do ecrã no telemóvel.
+              scrollable: true,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               title: const Row(
                 children: [

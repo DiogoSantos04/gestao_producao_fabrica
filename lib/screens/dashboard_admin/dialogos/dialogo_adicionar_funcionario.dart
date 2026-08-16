@@ -72,6 +72,9 @@ class _DialogoAdicionarFuncionarioState extends State<DialogoAdicionarFuncionari
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
+      // Três campos de texto e um parágrafo: com o teclado aberto não cabem na
+      // altura útil de um telemóvel.
+      scrollable: true,
       title: const Text('Adicionar Novo Funcionário'),
       content: SizedBox(
         width: larguraDialogo(context, 400),

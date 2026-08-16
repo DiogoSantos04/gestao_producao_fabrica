@@ -524,12 +524,7 @@ class _ClientesScreenState extends State<ClientesScreen> {
                                             detalhe: _erroCarregamento,
                                             aoRepetir: _carregarClientes,
                                           ),
-                                        context.ehCompacto
-                                            ? SingleChildScrollView(
-                                                scrollDirection: Axis.horizontal,
-                                                child: SizedBox(width: 700, child: tabela),
-                                              )
-                                            : tabela,
+                                        comScrollHorizontalAbaixoDe(700, tabela),
                                         if (_temMais)
                                           RodapePaginacao(
                                             aCarregar: _aCarregarMais,
