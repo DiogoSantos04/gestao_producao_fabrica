@@ -9,6 +9,7 @@ import '../../repositories/base_repository.dart';
 import '../../repositories/portal_cliente_repository.dart';
 import '../../widgets/dialogo_suporte.dart';
 import '../../widgets/etiqueta_estado.dart';
+import 'widgets/painel_por_confirmar.dart';
 
 /// Consulta pública do estado de fabrico de uma encomenda.
 ///
@@ -213,6 +214,12 @@ class _RastreioClienteScreenState extends State<RastreioClienteScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                // As entregas por confirmar aparecem antes de tudo o resto: é
+                // o único pedido que o portal faz ao cliente, e enterrá-lo por
+                // baixo da pesquisa era o mesmo que não o fazer. Só com sessão
+                // iniciada — este ecrã também serve o rastreio público, onde
+                // não há cliente identificado.
+                if (_temSessao) const PainelPorConfirmar(),
                 Container(
                   width: 72,
                   height: 72,

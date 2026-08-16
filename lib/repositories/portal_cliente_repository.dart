@@ -122,6 +122,42 @@ class TipoProdutoOpcao {
 /// `clientes.nome_cliente` — ver bug (A). A identidade passa a sair de
 /// [obterClienteAutenticado], que segue a chave estrangeira
 /// `clientes.utilizador_id`, e existe num único sítio.
+/// Uma encomenda concluída à espera de confirmação de receção pelo cliente.
+///
+/// Deliberadamente magra: o painel do portal só precisa de identificar a
+/// encomenda ao cliente para ele reconhecer o que recebeu.
+class EncomendaPorConfirmar {
+  final int id;
+  final String codigoRastreio;
+  final String? nomeProduto;
+  final int? quantidade;
+
+  /// Data de entrega prevista — não é prova de entrega, é só a referência que
+  /// ajuda o cliente a situar de que encomenda se trata.
+  final DateTime? dataEntrega;
+
+  const EncomendaPorConfirmar({
+    required this.id,
+    required this.codigoRastreio,
+    this.nomeProduto,
+    this.quantidade,
+    this.dataEntrega,
+  });
+
+  factory EncomendaPorConfirmar.fromJson(Map<String, dynamic> json) {
+    final produto = json['tipos_produto'];
+
+    return EncomendaPorConfirmar(
+      id: (json['id'] as num).toInt(),
+      codigoRastreio: (json['codigo_rastreio'] as String?) ?? 'Sem código',
+      nomeProduto:
+          produto is Map ? produto['nome_tipo_produto'] as String? : null,
+      quantidade: (json['quantidade'] as num?)?.toInt(),
+      dataEntrega: DateTime.tryParse(json['data_entrega']?.toString() ?? ''),
+    );
+  }
+}
+
 class PortalClienteRepository extends BaseRepository {
   /// Cliente associado à sessão atual, ou `null` se a conta não estiver
   /// associada a nenhum registo da carteira.
@@ -178,6 +214,37 @@ class PortalClienteRepository extends BaseRepository {
         comoLista(dados).map(EncomendaModel.fromJson).toList(),
         tamanho,
       );
+    });
+  }
+
+  /// Encomendas que saíram da fábrica e o cliente ainda não confirmou receber.
+  ///
+  /// O pedido de confirmação viajava só por email, e o email não chega a toda a
+  /// gente — o remetente pode não estar verificado, a mensagem pode cair em
+  /// spam, o cliente pode não a ler. Trazer a lista para dentro do portal torna
+  /// o pedido visível a quem entra, sem depender de nada externo.
+  ///
+  /// O filtro `fase_atual_id is null` é o mesmo critério de conclusão que
+  /// [EstadoOrdem.derivar] usa; as canceladas ficam de fora porque nunca
+  /// chegaram a ser entregues.
+  Future<List<EncomendaPorConfirmar>> obterPorConfirmar(int clienteId) {
+    return guarda('carregar as entregas por confirmar', () async {
+      final dados = await client
+          .from('encomendas')
+          .select('''
+            id,
+            codigo_rastreio,
+            quantidade,
+            data_entrega,
+            tipos_produto ( nome_tipo_produto )
+          ''')
+          .eq('cliente_id', clienteId)
+          .isFilter('fase_atual_id', null)
+          .isFilter('data_confirmacao_rececao', null)
+          .eq('cancelada', false)
+          .order('data_entrega', ascending: false);
+
+      return comoLista(dados).map(EncomendaPorConfirmar.fromJson).toList();
     });
   }
 
