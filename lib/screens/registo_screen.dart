@@ -19,6 +19,8 @@ class _RegistoScreenState extends State<RegistoScreen> {
   final _confirmarController = TextEditingController();
   final _repo = UtilizadoresRepository();
   bool _isLoading = false;
+  bool _passwordVisivel = false;
+  bool _confirmarVisivel = false;
 
   /// Validação de formato do email.
   ///
@@ -138,8 +140,25 @@ class _RegistoScreenState extends State<RegistoScreen> {
                     controller: _passwordController,
                     enabled: !_isLoading,
                     textInputAction: TextInputAction.next,
-                    decoration: const InputDecoration(labelText: 'Palavra-passe', prefixIcon: Icon(Icons.lock)),
-                    obscureText: true,
+                    decoration: InputDecoration(
+                      labelText: 'Palavra-passe',
+                      prefixIcon: const Icon(Icons.lock),
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          _passwordVisivel
+                              ? Icons.visibility_off
+                              : Icons.visibility,
+                        ),
+                        tooltip: _passwordVisivel
+                            ? 'Ocultar palavra-passe'
+                            : 'Mostrar palavra-passe',
+                        onPressed: _isLoading
+                            ? null
+                            : () => setState(
+                                () => _passwordVisivel = !_passwordVisivel),
+                      ),
+                    ),
+                    obscureText: !_passwordVisivel,
                     validator: (val) =>
                         (val ?? '').length < 6 ? 'Mínimo 6 caracteres' : null,
                   ),
@@ -151,11 +170,25 @@ class _RegistoScreenState extends State<RegistoScreen> {
                     onFieldSubmitted: (_) {
                       if (!_isLoading) _solicitarRegisto();
                     },
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: 'Confirmar palavra-passe',
-                      prefixIcon: Icon(Icons.lock_outline),
+                      prefixIcon: const Icon(Icons.lock_outline),
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          _confirmarVisivel
+                              ? Icons.visibility_off
+                              : Icons.visibility,
+                        ),
+                        tooltip: _confirmarVisivel
+                            ? 'Ocultar palavra-passe'
+                            : 'Mostrar palavra-passe',
+                        onPressed: _isLoading
+                            ? null
+                            : () => setState(
+                                () => _confirmarVisivel = !_confirmarVisivel),
+                      ),
                     ),
-                    obscureText: true,
+                    obscureText: !_confirmarVisivel,
                     // Um engano a escrever a password só se descobria no primeiro
                     // login — que falha sem explicação possível, porque a conta
                     // até existe.

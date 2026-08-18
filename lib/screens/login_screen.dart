@@ -23,6 +23,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passwordFocus = FocusNode();
   final AuthService _authService = AuthService();
   bool _isLoading = false;
+  bool _passwordVisivel = false;
 
   @override
   void initState() {
@@ -217,12 +218,26 @@ class _LoginScreenState extends State<LoginScreen> {
                         onSubmitted: (_) {
                           if (!_isLoading) _fazerLogin();
                         },
-                        decoration: const InputDecoration(
+                        decoration: InputDecoration(
                           labelText: 'Palavra-passe',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Icon(Icons.lock),
+                          border: const OutlineInputBorder(),
+                          prefixIcon: const Icon(Icons.lock),
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              _passwordVisivel
+                                  ? Icons.visibility_off
+                                  : Icons.visibility,
+                            ),
+                            tooltip: _passwordVisivel
+                                ? 'Ocultar palavra-passe'
+                                : 'Mostrar palavra-passe',
+                            onPressed: _isLoading
+                                ? null
+                                : () => setState(
+                                    () => _passwordVisivel = !_passwordVisivel),
+                          ),
                         ),
-                        obscureText: true,
+                        obscureText: !_passwordVisivel,
                       ),
                       const SizedBox(height: 24),
                       ElevatedButton(
