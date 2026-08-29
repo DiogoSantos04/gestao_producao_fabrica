@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../core/breakpoints.dart';
 import '../core/temas_cores.dart';
 import '../repositories/utilizadores_repository.dart';
 import '../widgets/estado_erro.dart';
@@ -93,29 +94,93 @@ class _RegistoScreenState extends State<RegistoScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Em telemóvel o cartão tem de ceder margem e escala: com o padding e as
+    // fontes de desktop, o formulário completo não cabia no ecrã e a linha do
+    // rodapé estourava na horizontal.
+    final bool compacto = context.ehCompacto;
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Solicitar Conta')),
-      body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24.0),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 400),
-            child: Form(
-              key: _formKey,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const Text(
+      extendBodyBehindAppBar: true,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        foregroundColor: Colors.white,
+        title: const Text('Solicitar Conta'),
+      ),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFF4527A0), Color(0xFF7E57C2), Color(0xFFEDE7F6)],
+          ),
+        ),
+        child: SafeArea(
+          child: Center(
+          child: SingleChildScrollView(
+            // O corpo passa por baixo da AppBar transparente: sem folga no topo
+            // o cartão ficava tapado pelo botão de voltar em ecrãs baixos.
+            padding: EdgeInsets.fromLTRB(
+              compacto ? 12 : 24,
+              kToolbarHeight + 16,
+              compacto ? 12 : 24,
+              24,
+            ),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: Card(
+                elevation: 12,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Padding(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: compacto ? 20 : 32,
+                    vertical: compacto ? 28 : 40,
+                  ),
+                  child: Form(
+                    key: _formKey,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                  Center(
+                    child: Container(
+                      padding: EdgeInsets.all(compacto ? 14 : 18),
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFEDE7F6),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(Icons.person_add_alt_1_outlined,
+                          size: compacto ? 44 : 56, color: Colors.deepPurple),
+                    ),
+                  ),
+                  SizedBox(height: compacto ? 16 : 20),
+                  Text(
                     'Criar Novo Registo',
                     textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: TemasCores.primariaRoxa),
+                    style: TextStyle(
+                      fontSize: compacto ? 22 : 26,
+                      fontWeight: FontWeight.bold,
+                      color: TemasCores.primariaRoxa,
+                    ),
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 6),
+                  Text(
+                    'O acesso fica pendente de aprovação',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
+                  ),
+                  SizedBox(height: compacto ? 24 : 32),
                   TextFormField(
                     controller: _nomeController,
                     enabled: !_isLoading,
                     textInputAction: TextInputAction.next,
-                    decoration: const InputDecoration(labelText: 'Nome Completo', prefixIcon: Icon(Icons.person)),
+                    decoration: const InputDecoration(
+                      labelText: 'Nome Completo',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.person),
+                    ),
                     validator: (val) =>
                         (val ?? '').trim().isEmpty ? 'Campo obrigatório' : null,
                   ),
@@ -124,7 +189,11 @@ class _RegistoScreenState extends State<RegistoScreen> {
                     controller: _emailController,
                     enabled: !_isLoading,
                     textInputAction: TextInputAction.next,
-                    decoration: const InputDecoration(labelText: 'E-mail', prefixIcon: Icon(Icons.email)),
+                    decoration: const InputDecoration(
+                      labelText: 'E-mail',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.email),
+                    ),
                     keyboardType: TextInputType.emailAddress,
                     validator: (val) {
                       final email = (val ?? '').trim();
@@ -142,6 +211,7 @@ class _RegistoScreenState extends State<RegistoScreen> {
                     textInputAction: TextInputAction.next,
                     decoration: InputDecoration(
                       labelText: 'Palavra-passe',
+                      border: const OutlineInputBorder(),
                       prefixIcon: const Icon(Icons.lock),
                       suffixIcon: IconButton(
                         icon: Icon(
@@ -172,6 +242,7 @@ class _RegistoScreenState extends State<RegistoScreen> {
                     },
                     decoration: InputDecoration(
                       labelText: 'Confirmar palavra-passe',
+                      border: const OutlineInputBorder(),
                       prefixIcon: const Icon(Icons.lock_outline),
                       suffixIcon: IconButton(
                         icon: Icon(
@@ -203,14 +274,39 @@ class _RegistoScreenState extends State<RegistoScreen> {
                       padding: const EdgeInsets.symmetric(vertical: 16),
                       backgroundColor: TemasCores.primariaRoxa,
                       foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                     child: _isLoading
                         ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                        : const Text('Enviar para Aprovação'),
+                        : const Text('Enviar para Aprovação',
+                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                   ),
-                ],
+                  const SizedBox(height: 8),
+                  // `Wrap` e não `Row`: em ecrãs estreitos o texto mais o botão
+                  // não cabem na mesma linha e a `Row` estourava na horizontal.
+                  Wrap(
+                    alignment: WrapAlignment.center,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      const Text('Já tem conta?'),
+                      TextButton(
+                        onPressed: _isLoading
+                            ? null
+                            : () => Navigator.of(context).pop(),
+                        child: const Text('Iniciar sessão',
+                            style: TextStyle(fontWeight: FontWeight.bold)),
+                      ),
+                    ],
+                  ),
+                      ],
+                    ),
+                  ),
+                ),
               ),
             ),
+          ),
           ),
         ),
       ),

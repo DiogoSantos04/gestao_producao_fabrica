@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 
+import '../../core/breakpoints.dart';
 import '../../core/ecra_recarregavel.dart';
 import '../../core/temas_cores.dart';
 import '../../models/incidencia_model.dart';
 import '../../repositories/base_repository.dart';
 import '../../repositories/tecnico_repository.dart';
+import '../../widgets/cabecalho_ecra.dart';
 import '../../widgets/estado_erro.dart';
+import '../../widgets/estado_vazio.dart';
 import 'fila_manutencao_screen.dart' show formatarDuracao;
 
 /// Intervenções já fechadas por este técnico.
@@ -67,26 +70,42 @@ class _HistoricoTecnicoScreenState extends State<HistoricoTecnicoScreen>
       );
     }
 
-    if (_registos.isEmpty) {
-      return const Center(
-        child: Padding(
-          padding: EdgeInsets.all(40),
-          child: Text(
-            'Ainda não fechou nenhuma intervenção.',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: TemasCores.textoTerciario),
-          ),
-        ),
-      );
-    }
+    final int porValidar =
+        _registos.where((r) => !r.lineClearanceValidado).length;
 
     return RefreshIndicator(
       onRefresh: recarregar,
-      child: ListView.separated(
-        padding: const EdgeInsets.all(20),
-        itemCount: _registos.length,
-        separatorBuilder: (_, _) => const SizedBox(height: 10),
-        itemBuilder: (context, i) => _cartao(_registos[i]),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 900),
+          child: ListView(
+            padding: paddingEcra(context),
+            children: [
+              CabecalhoEcra(
+                icone: Icons.history_toggle_off,
+                titulo: 'As Minhas Intervenções',
+                subtitulo: _registos.isEmpty
+                    ? 'Ainda sem intervenções fechadas.'
+                    : '${_registos.length} fechadas · $porValidar a aguardar Line Clearance',
+                acento: TemasCores.tecnicoAcento,
+                aoAtualizar: recarregar,
+              ),
+              const SizedBox(height: 16),
+              if (_registos.isEmpty)
+                const EstadoVazio(
+                  icone: Icons.build_outlined,
+                  titulo: 'Ainda não fechou nenhuma intervenção',
+                  descricao:
+                      'As avarias que aceitar e concluir ficam registadas aqui.',
+                )
+              else
+                for (int i = 0; i < _registos.length; i++) ...[
+                  if (i > 0) const SizedBox(height: 10),
+                  _cartao(_registos[i]),
+                ],
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -96,8 +115,10 @@ class _HistoricoTecnicoScreenState extends State<HistoricoTecnicoScreen>
 
     return Card(
       elevation: 0,
+      color: TemasCores.superficie,
+      margin: EdgeInsets.zero,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(16),
         side: const BorderSide(color: TemasCores.borda),
       ),
       child: Padding(

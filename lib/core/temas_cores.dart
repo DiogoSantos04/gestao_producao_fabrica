@@ -427,6 +427,26 @@ class TemasCores {
   static const Color operadorAcentoBorda = Paleta.violeta100;
   static const Color operadorAcentoTextoForte = Paleta.violeta700;
 
+  // ──────────────────────── Terminal técnico ────────────────────────
+  // O terminal de manutenção era o único perfil fora da identidade violeta
+  // (usava o âmbar dos avisos como cor de marca), e por isso lia-se como uma
+  // aplicação à parte. O âmbar continua a existir — mas como estado de aviso
+  // dentro dos cartões, não como marca do terminal.
+
+  /// Cor de destaque do terminal técnico (ícone da marca, separador ativo).
+  static const Color tecnicoAcento = Paleta.violeta500;
+
+  /// Variante mais escura, para gradientes e estados de pressão/hover.
+  static const Color tecnicoAcentoForte = Paleta.violeta600;
+  static const Color tecnicoAcentoEscuro = Paleta.violeta700;
+
+  /// Variante mais clara, para ícones, gradientes e texto de ênfase.
+  static const Color tecnicoAcentoClaro = Paleta.violeta400;
+
+  /// Tintas para preencher etiquetas, badges e fundos suaves.
+  static const Color tecnicoAcentoFundo = Paleta.violeta50;
+  static const Color tecnicoAcentoFundoForte = Paleta.violeta100;
+
   // ─────────────────────── Dashboard administrador ───────────────────────
   // Mesma identidade visual do portal cliente e do terminal operador
   // (violeta): os três perfis passam a ler-se como a mesma aplicação.

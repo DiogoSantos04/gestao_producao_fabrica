@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
 
+import '../../core/breakpoints.dart';
 import '../../core/ecra_recarregavel.dart';
 import '../../core/mensagens.dart';
 import '../../core/temas_cores.dart';
 import '../../models/incidencia_model.dart';
 import '../../repositories/base_repository.dart';
 import '../../repositories/tecnico_repository.dart';
+import '../../widgets/cabecalho_ecra.dart';
 import '../../widgets/estado_erro.dart';
+import '../../widgets/estado_vazio.dart';
 import 'dialogo_concluir_intervencao.dart';
 
 /// Duração em texto curto ("2h 15m", "8m").
@@ -110,55 +113,50 @@ class _FilaManutencaoScreenState extends State<FilaManutencaoScreen>
       );
     }
 
-    if (_fila.isEmpty) {
-      return _semTrabalho();
-    }
+    final int pendentes = _fila.where((i) => !i.intervencaoEmCurso).length;
+    final int emCurso = _fila.length - pendentes;
 
     return RefreshIndicator(
       onRefresh: recarregar,
-      child: ListView.separated(
-        padding: const EdgeInsets.all(20),
-        itemCount: _fila.length,
-        separatorBuilder: (_, _) => const SizedBox(height: 12),
-        itemBuilder: (context, i) => _cartao(_fila[i]),
+      // A lista ocupava toda a largura: num ecrã largo os cartões esticavam-se
+      // até aos 1600 px e a linha de texto ficava impossível de ler de relance.
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 900),
+          child: ListView(
+            padding: paddingEcra(context),
+            children: [
+              CabecalhoEcra(
+                icone: Icons.warning_amber_rounded,
+                titulo: 'Fila de Avarias',
+                subtitulo: _fila.isEmpty
+                    ? 'Sem paragens por resolver neste momento.'
+                    : '$pendentes por aceitar · $emCurso em intervenção',
+                acento: TemasCores.tecnicoAcento,
+                aoAtualizar: recarregar,
+              ),
+              const SizedBox(height: 16),
+              if (_fila.isEmpty)
+                _semTrabalho()
+              else
+                for (int i = 0; i < _fila.length; i++) ...[
+                  if (i > 0) const SizedBox(height: 12),
+                  _cartao(_fila[i]),
+                ],
+            ],
+          ),
+        ),
       ),
     );
   }
 
   Widget _semTrabalho() {
-    return ListView(
-      padding: const EdgeInsets.all(48),
-      children: [
-        const Icon(
-          Icons.check_circle_outline,
-          size: 56,
-          color: TemasCores.sucessoClaro,
-        ),
-        const SizedBox(height: 16),
-        const Text(
-          'Nenhuma avaria em aberto.',
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-            color: TemasCores.textoPrimario,
-          ),
-        ),
-        const SizedBox(height: 6),
-        const Text(
-          'As paragens registadas pelos operadores aparecem aqui.',
-          textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 13, color: TemasCores.textoTerciario),
-        ),
-        const SizedBox(height: 20),
-        Center(
-          child: OutlinedButton.icon(
-            onPressed: recarregar,
-            icon: const Icon(Icons.refresh, size: 18),
-            label: const Text('Atualizar'),
-          ),
-        ),
-      ],
+    return const EstadoVazio(
+      icone: Icons.check_circle_outline,
+      corIcone: TemasCores.sucessoForte,
+      corFundoIcone: TemasCores.sucessoFundo,
+      titulo: 'Nenhuma avaria em aberto',
+      descricao: 'As paragens registadas pelos operadores aparecem aqui.',
     );
   }
 
@@ -170,9 +168,11 @@ class _FilaManutencaoScreenState extends State<FilaManutencaoScreen>
         : DateTime.now().difference(inc.inicio!);
 
     return Card(
-      elevation: 1,
+      elevation: 0,
+      color: TemasCores.superficie,
+      margin: EdgeInsets.zero,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(16),
         side: BorderSide(
           color: inc.intervencaoEmCurso
               ? TemasCores.avisoBorda
@@ -261,8 +261,12 @@ class _FilaManutencaoScreenState extends State<FilaManutencaoScreen>
           onPressed: () => _aceitar(inc),
           style: ElevatedButton.styleFrom(
             padding: const EdgeInsets.symmetric(vertical: 14),
-            backgroundColor: TemasCores.avisoTexto,
+            backgroundColor: TemasCores.tecnicoAcentoForte,
             foregroundColor: TemasCores.textoInverso,
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
           ),
           icon: const Icon(Icons.play_arrow_rounded, size: 18),
           label: const Text('Aceitar Intervenção'),
@@ -299,6 +303,10 @@ class _FilaManutencaoScreenState extends State<FilaManutencaoScreen>
           padding: const EdgeInsets.symmetric(vertical: 14),
           backgroundColor: TemasCores.sucessoForte,
           foregroundColor: TemasCores.textoInverso,
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
         ),
         icon: const Icon(Icons.check_circle_outline, size: 18),
         label: const Text('Registar e Concluir'),
