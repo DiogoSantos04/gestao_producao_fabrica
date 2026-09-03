@@ -7,7 +7,7 @@ import 'cartao_painel.dart';
 const int _limiteCargaElevadaMinutos = 480;
 
 /// Pré-visualização das fases por que a encomenda vai passar, com o lead time
-/// estimado e o posto gargalo da linha.
+/// estimado e a fase mais demorada da linha.
 class PainelPreviewFluxo extends StatefulWidget {
   const PainelPreviewFluxo({
     super.key,
@@ -54,8 +54,8 @@ class _PainelPreviewFluxoState extends State<PainelPreviewFluxo> {
   int get _tempoTotalMinutos =>
       _tempoUnitarioMinutos * (widget.quantidade > 0 ? widget.quantidade : 1);
 
-  /// Fase com maior tempo de ciclo (posto gargalo da linha).
-  Map<String, dynamic>? get _faseGargalo {
+  /// Fase com maior tempo de ciclo: é ela que dita o ritmo da linha.
+  Map<String, dynamic>? get _faseMaisDemorada {
     if (widget.fases.isEmpty) return null;
     return widget.fases.reduce((a, b) =>
         (b['tempo_estimado'] as num? ?? 0) > (a['tempo_estimado'] as num? ?? 0) ? b : a);
@@ -82,7 +82,7 @@ class _PainelPreviewFluxoState extends State<PainelPreviewFluxo> {
           CartaoLeadTime(
             tempoTotalMinutos: tempoTotal,
             tempoUnitarioMinutos: _tempoUnitarioMinutos,
-            gargalo: _faseGargalo,
+            faseMaisDemorada: _faseMaisDemorada,
             eCargaElevada: tempoTotal > _limiteCargaElevadaMinutos,
           ),
           Expanded(
@@ -122,19 +122,20 @@ String formatarTempo(int minutos) {
   return '${horas}h ${minsRestantes}m';
 }
 
-/// Cartão com a carga total estimada, o posto gargalo e o alerta de carga elevada.
+/// Cartão com a carga total estimada, a fase mais demorada e o alerta de carga
+/// elevada.
 class CartaoLeadTime extends StatelessWidget {
   const CartaoLeadTime({
     super.key,
     required this.tempoTotalMinutos,
     required this.tempoUnitarioMinutos,
-    required this.gargalo,
+    required this.faseMaisDemorada,
     required this.eCargaElevada,
   });
 
   final int tempoTotalMinutos;
   final int tempoUnitarioMinutos;
-  final Map<String, dynamic>? gargalo;
+  final Map<String, dynamic>? faseMaisDemorada;
   final bool eCargaElevada;
 
   @override
@@ -174,16 +175,18 @@ class CartaoLeadTime extends StatelessWidget {
               ),
             ],
           ),
-          if (gargalo != null) ...[
+          if (faseMaisDemorada != null) ...[
             const Divider(height: 14),
             Row(
               children: [
-                const Icon(Icons.warning_amber_rounded, size: 15, color: TemasCores.avisoTextoForte),
+                const Icon(Icons.hourglass_bottom_rounded,
+                    size: 15, color: TemasCores.avisoTextoForte),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
-                    'Gargalo: ${gargalo!['nome_fase_padrao']} '
-                    '(${gargalo!['tempo_estimado']} min no ${gargalo!['posto_trabalho'] ?? 'Posto'})',
+                    'Fase mais demorada: ${faseMaisDemorada!['nome_fase_padrao']} '
+                    '(${faseMaisDemorada!['tempo_estimado']} min no '
+                    '${faseMaisDemorada!['posto_trabalho'] ?? 'Posto'})',
                     style: const TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.bold,

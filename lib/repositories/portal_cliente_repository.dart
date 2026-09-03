@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../core/paginacao.dart';
 import '../models/cliente_model.dart';
 import '../models/encomenda_model.dart';
+import '../models/notificacao_model.dart';
 import '../models/pedido_model.dart';
 import 'base_repository.dart';
 
@@ -329,12 +330,16 @@ class PortalClienteRepository extends BaseRepository {
 
   // --- NOTIFICAÇÕES ---
 
-  /// Fluxo das notificações do utilizador autenticado.
+  /// Fluxo das notificações do utilizador autenticado, das mais recentes para
+  /// as mais antigas.
   ///
   /// Devolve a lista completa a cada alteração, e não apenas a linha nova — é
   /// como o `stream()` do Supabase funciona. Quem consome tem de saber quais já
-  /// mostrou; ver [marcarNotificacaoLida].
-  Stream<List<Map<String, dynamic>>> escutarNotificacoes() {
+  /// mostrou ao vivo; ver [marcarNotificacaoLida].
+  ///
+  /// A ordenação é feita aqui e não no servidor porque `stream()` só ordena
+  /// pela chave primária.
+  Stream<List<NotificacaoModel>> escutarNotificacoes() {
     final id = utilizadorAtualId;
     if (id == null) return const Stream.empty();
 
@@ -342,13 +347,39 @@ class PortalClienteRepository extends BaseRepository {
         .from('notificacoes')
         .stream(primaryKey: ['id'])
         .eq('utilizador_id', id)
-        .map(comoLista);
+        .map((linhas) {
+      final notificacoes = comoLista(linhas).map(NotificacaoModel.fromJson).toList();
+      notificacoes.sort((a, b) {
+        final da = a.criadaEm;
+        final db = b.criadaEm;
+        if (da == null || db == null) return 0;
+        return db.compareTo(da);
+      });
+      return notificacoes;
+    });
   }
 
   /// Marca uma notificação como lida.
   Future<void> marcarNotificacaoLida(Object notificacaoId) {
     return guarda('marcar a notificação como lida', () async {
       await client.from('notificacoes').update({'lida': true}).eq('id', notificacaoId);
+    });
+  }
+
+  /// Marca como lidas todas as notificações por ler do utilizador.
+  ///
+  /// O filtro por `lida` evita reescrever linhas que já estão certas — sem ele,
+  /// cada utilização reemitia o stream inteiro sem nada ter mudado.
+  Future<void> marcarTodasNotificacoesLidas() {
+    return guarda('marcar as notificações como lidas', () async {
+      final id = utilizadorAtualId;
+      if (id == null) return;
+
+      await client
+          .from('notificacoes')
+          .update({'lida': true})
+          .eq('utilizador_id', id)
+          .eq('lida', false);
     });
   }
 

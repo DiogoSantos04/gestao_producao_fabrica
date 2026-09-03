@@ -5,6 +5,7 @@ import 'core/sessao.dart';
 import 'core/supabase_config.dart';
 import 'core/temas_cores.dart';
 import 'screens/login_screen.dart';
+import 'screens/portal_cliente/rastreio_cliente_screen.dart';
 
 /// Navegador global.
 ///
@@ -59,6 +60,28 @@ class _MyAppState extends State<MyApp> {
   void initState() {
     super.initState();
     _vigilante.iniciar();
+
+    // O rastreio fica empilhado sobre o login, e não no lugar dele, para quem
+    // chega pela ligação do email poder recuar e entrar na conta a partir daí.
+    final codigo = _codigoRastreioDoEndereco();
+    if (codigo != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        chaveNavegador.currentState?.push(
+          MaterialPageRoute(
+            builder: (_) => RastreioClienteScreen(codigoInicial: codigo),
+          ),
+        );
+      });
+    }
+  }
+
+  /// Código de rastreio pedido no endereço (`?codigo=TRC-XXXXXX`).
+  ///
+  /// É a ligação que o email de arranque da produção leva. Fora da web,
+  /// [Uri.base] não tem parâmetros e isto não faz nada.
+  static String? _codigoRastreioDoEndereco() {
+    final valor = Uri.base.queryParameters['codigo']?.trim();
+    return (valor == null || valor.isEmpty) ? null : valor;
   }
 
   @override

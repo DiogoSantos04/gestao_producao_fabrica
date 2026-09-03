@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/iniciais.dart';
 import '../../core/mensagens.dart';
 import '../../core/temas_cores.dart';
+import '../../models/notificacao_model.dart';
 import '../../repositories/base_repository.dart';
 import '../../repositories/portal_cliente_repository.dart';
 import '../../services/auth_service.dart';
@@ -12,6 +13,7 @@ import '../login_screen.dart';
 import 'rastreio_cliente_screen.dart';
 import 'historico_cliente_screen.dart';
 import 'solicitar_encomenda_screen.dart';
+import 'widgets/painel_notificacoes.dart';
 
 class ClienteShellScreen extends StatefulWidget {
   const ClienteShellScreen({super.key});
@@ -25,15 +27,32 @@ class _ClienteShellScreenState extends State<ClienteShellScreen> {
   final PortalClienteRepository _repositorio = PortalClienteRepository();
   final _supabase = Supabase.instance.client;
 
-  /// Notificações já mostradas nesta sessão.
+  /// Notificações já anunciadas ao vivo nesta sessão.
   ///
   /// O `stream()` do Supabase reemite a **lista completa** a cada alteração, e
   /// não apenas a linha nova. Sem este registo, uma notificação nova fazia
-  /// reaparecer o SnackBar de todas as anteriores que ainda estivessem por ler.
+  /// reaparecer o aviso de todas as anteriores que ainda estivessem por ler.
   final Set<Object> _notificacoesApresentadas = {};
+
+  /// Caixa de notificações do cliente, tal como o servidor a tem.
+  ///
+  /// É a lista inteira, e não só as por ler: o sino serve tanto para avisar
+  /// como para consultar o que já passou.
+  List<NotificacaoModel> _notificacoes = [];
 
   // Chave global para comunicar com o ecrã de Solicitar Encomenda
   final GlobalKey<SolicitarEncomendaScreenState> _solicitarKey = GlobalKey();
+
+  /// Chave do separador de rastreio, para uma notificação poder mandar abrir a
+  /// encomenda de que fala.
+  final GlobalKey<RastreioClienteScreenState> _rastreioKey = GlobalKey();
+
+  /// Entregas à espera de confirmação, para o emblema do menu.
+  ///
+  /// Quem confirma é o histórico, que é onde as encomendas vivem; aqui só se
+  /// guarda a contagem que ele reporta, para o pedido ser visível sem obrigar a
+  /// entrar no separador.
+  int _porConfirmar = 0;
 
   int _indiceAtual = 0; // 0: Início, 1: Histórico, 2: Novo Pedido, 3: Perfil
 
@@ -42,7 +61,7 @@ class _ClienteShellScreenState extends State<ClienteShellScreen> {
   bool _carregandoPerfil = true;
 
   StreamSubscription<Map<String, dynamic>?>? _utilizadorStreamSubscription;
-  StreamSubscription<List<Map<String, dynamic>>>? _notificacoesStreamSubscription;
+  StreamSubscription<List<NotificacaoModel>>? _notificacoesStreamSubscription;
 
   final List<Map<String, dynamic>> _menuItens = [
     {'titulo': 'Início / Rastreio', 'icone': Icons.search_outlined},
@@ -110,20 +129,22 @@ class _ClienteShellScreenState extends State<ClienteShellScreen> {
       (notificacoes) {
         if (!mounted) return;
 
+        // A primeira emissão traz a caixa inteira, incluindo o que já lá estava
+        // por ler de sessões anteriores. Anunciar tudo isso ao entrar seria uma
+        // rajada de avisos; só se anuncia depois de a caixa inicial ser
+        // conhecida, e o que ficou por ler fica visível no contador do sino.
+        final bool primeiraEmissao = _notificacoesApresentadas.isEmpty && _notificacoes.isEmpty;
+        setState(() => _notificacoes = notificacoes);
+
         for (final n in notificacoes) {
-          final Object? id = n['id'] as Object?;
-          if (id == null || n['lida'] == true) continue;
+          if (n.lida) continue;
 
-          // Uma notificação só é mostrada uma vez por sessão, mesmo que a
-          // marcação de lida no servidor falhe: o contrário dava um ciclo de
-          // SnackBars a cada nova emissão do stream.
-          if (!_notificacoesApresentadas.add(id)) continue;
+          // Uma notificação só é anunciada uma vez por sessão: sem este registo,
+          // cada nova emissão do stream repetia o aviso de todas as por ler.
+          if (!_notificacoesApresentadas.add(n.id)) continue;
+          if (primeiraEmissao) continue;
 
-          _exibirNotificacaoAoVivo(
-            id,
-            n['titulo']?.toString() ?? '',
-            n['mensagem']?.toString() ?? '',
-          );
+          _exibirNotificacaoAoVivo(n);
         }
       },
       onError: (erro) {
@@ -132,27 +153,54 @@ class _ClienteShellScreenState extends State<ClienteShellScreen> {
     );
   }
 
-  void _exibirNotificacaoAoVivo(Object notificacaoId, String titulo, String mensagem) {
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
+  /// Aviso momentâneo de uma notificação acabada de chegar.
+  ///
+  /// Deixou de marcar a notificação como lida. Antes, um aviso que ninguém
+  /// visse — porque o separador estava noutro sítio, ou o cliente longe do ecrã
+  /// — ficava lido na mesma e desaparecia para sempre. Ler é agora um ato
+  /// deliberado, no sino.
+  void _exibirNotificacaoAoVivo(NotificacaoModel notificacao) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          duration: const Duration(seconds: 8),
-          backgroundColor: TemasCores.clienteAcentoForte,
+          duration: const Duration(seconds: 6),
+          backgroundColor: TemasCores.marcaEscura,
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          // Encostado ao fundo à direita nos ecrãs largos, para não tapar o
+          // conteúdo ao centro; em ecrã estreito ocupa a largura toda.
+          width: MediaQuery.of(context).size.width > 950 ? 420 : null,
+          margin: MediaQuery.of(context).size.width > 950
+              ? null
+              : const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          action: notificacao.codigoRastreio == null
+              ? null
+              : SnackBarAction(
+                  label: 'Ver',
+                  textColor: TemasCores.clienteAcentoClaro,
+                  onPressed: () => _abrirEncomendaDaNotificacao(notificacao),
+                ),
           content: Row(
             children: [
-              const Icon(Icons.notifications_active, color: TemasCores.avisoBorda, size: 28),
+              Icon(notificacao.evento.icone, color: notificacao.evento.cor, size: 26),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(titulo, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                    Text(mensagem, style: const TextStyle(fontSize: 12)),
+                    Text(
+                      notificacao.titulo,
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                    ),
+                    Text(
+                      notificacao.mensagem,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 12),
+                    ),
                   ],
                 ),
               ),
@@ -160,14 +208,45 @@ class _ClienteShellScreenState extends State<ClienteShellScreen> {
           ),
         ),
       );
+    });
+  }
 
-      // A marcação era disparada sem `await` nem tratamento de erro: falhando,
-      // a notificação voltava na emissão seguinte do stream.
-      try {
-        await _repositorio.marcarNotificacaoLida(notificacaoId);
-      } on RepositoryException catch (e) {
-        debugPrint('Não foi possível marcar a notificação como lida: ${e.mensagem}');
-      }
+  int get _notificacoesPorLer => _notificacoes.where((n) => !n.lida).length;
+
+  void _abrirPainelNotificacoes({required bool ancorarAoSino}) {
+    mostrarPainelNotificacoes(
+      context,
+      notificacoes: _notificacoes,
+      ancorarAoSino: ancorarAoSino,
+      aoAbrirEncomenda: _abrirEncomendaDaNotificacao,
+      aoMarcarTodasLidas: () async {
+        try {
+          await _repositorio.marcarTodasNotificacoesLidas();
+        } on RepositoryException catch (e) {
+          if (mounted) context.mostrarSnack(e.mensagem, cor: TemasCores.erro);
+        }
+      },
+    );
+  }
+
+  /// Leva o cliente ao rastreio da encomenda a que o aviso diz respeito.
+  ///
+  /// Marcar como lida acontece aqui, e não ao mostrar: uma notificação está
+  /// lida quando o cliente a atendeu.
+  void _abrirEncomendaDaNotificacao(NotificacaoModel notificacao) {
+    final codigo = notificacao.codigoRastreio;
+    if (codigo == null) return;
+
+    setState(() => _indiceAtual = 0);
+    // O separador de rastreio só está montado depois de o `IndexedStack`
+    // reconstruir com o novo índice.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _rastreioKey.currentState?.consultarCodigo(codigo);
+    });
+
+    if (notificacao.lida) return;
+    _repositorio.marcarNotificacaoLida(notificacao.id).catchError((Object e) {
+      debugPrint('Não foi possível marcar a notificação como lida: $e');
     });
   }
 
@@ -478,8 +557,13 @@ class _ClienteShellScreenState extends State<ClienteShellScreen> {
     final bool eDesktop = larguraEcra > 950;
 
     final List<Widget> telas = [
-      const RastreioClienteScreen(),
+      RastreioClienteScreen(key: _rastreioKey),
       HistoricoClienteScreen(
+        aoAlterarPorConfirmar: (total) {
+          if (mounted && total != _porConfirmar) {
+            setState(() => _porConfirmar = total);
+          }
+        },
         onRepetirEncomenda: (tipoProdutoId, quantidade) {
           // Preenche os dados no formulário através da chave global
           _solicitarKey.currentState?.preencherParaRepeticao(
@@ -522,6 +606,16 @@ class _ClienteShellScreenState extends State<ClienteShellScreen> {
                   ),
                 ],
               ),
+              actions: [
+                Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: SinoNotificacoes(
+                    porLer: _notificacoesPorLer,
+                    corIcone: TemasCores.textoPrimario,
+                    onPressed: () => _abrirPainelNotificacoes(ancorarAoSino: false),
+                  ),
+                ),
+              ],
             )
           : null,
       drawer: !eDesktop ? Drawer(child: _buildSidebar(dentroDrawer: true)) : null,
@@ -586,6 +680,14 @@ class _ClienteShellScreenState extends State<ClienteShellScreen> {
                     ],
                   ),
                 ),
+                // Dentro do Drawer o sino ficaria a duplicar o da AppBar, que
+                // está sempre à vista — aqui é preciso abrir a gaveta para lá
+                // chegar.
+                if (!dentroDrawer)
+                  SinoNotificacoes(
+                    porLer: _notificacoesPorLer,
+                    onPressed: () => _abrirPainelNotificacoes(ancorarAoSino: true),
+                  ),
               ],
             ),
           ),
@@ -644,6 +746,25 @@ class _ClienteShellScreenState extends State<ClienteShellScreen> {
                                 ),
                               ),
                             ),
+                            // O pedido de confirmação deixou de ocupar o topo do
+                            // ecrã de rastreio; é este emblema que o mantém à
+                            // vista sem entrar no separador.
+                            if (index == 1 && _porConfirmar > 0)
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: TemasCores.sucessoForte,
+                                  borderRadius: BorderRadius.circular(9),
+                                ),
+                                child: Text(
+                                  '$_porConfirmar',
+                                  style: const TextStyle(
+                                    color: TemasCores.textoInverso,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
                           ],
                         ),
                       ),

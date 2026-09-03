@@ -843,7 +843,7 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
               runSpacing: 12,
               children: [
                 const Text(
-                  'Análise de Paragens (Pareto)',
+                  'Análise de Paragens',
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
@@ -1183,37 +1183,48 @@ class _DashboardPrincipalScreenState extends State<DashboardPrincipalScreen> {
 
   /// Extrai a referência da encomenda, o posto e o operador de uma incidência.
   ///
-  /// A incidência liga-se a estes dados através de `historico_producao`, pelo que
-  /// as junções vêm encadeadas e podem faltar em qualquer nível.
+  /// A incidência guarda `encomenda_id` e `posto_trabalho_id` próprios, mas nem
+  /// sempre: quando a paragem nasce no terminal do operador, o que está
+  /// preenchido é o `historico_producao_id`. Por isso lê-se primeiro a ligação
+  /// direta e só depois a encadeada, em vez de assumir uma delas.
   ({String encRef, String posto, String operador}) _dadosAlerta(
     Map<String, dynamic> inc,
   ) {
-    final hist = inc['historico_producao'];
-    if (hist == null) {
-      return (
-        encRef: 'N/A',
-        posto: 'Não especificado',
-        operador: 'Desconhecido',
-      );
-    }
+    final hist = inc['historico_producao'] as Map<String, dynamic>?;
 
-    final encData = hist['encomendas'];
-    final encId = hist['encomenda_id'];
-    final faseData = hist['fases_padrao'];
-    final userData = hist['utilizadores'];
+    // Encomenda: código de rastreio da ligação direta, depois o da via
+    // histórico, e em último recurso o id cru — melhor `#12` do que `N/A`.
+    final String encRef = _primeiroTexto([
+      (inc['encomendas'] as Map<String, dynamic>?)?['codigo_rastreio'],
+      (hist?['encomendas'] as Map<String, dynamic>?)?['codigo_rastreio'],
+      _comCardinal(inc['encomenda_id']),
+      _comCardinal(hist?['encomenda_id']),
+    ]) ?? 'N/A';
 
-    return (
-      encRef: encData != null
-          ? (encData['codigo_rastreio'] ?? 'N/A')
-          : (encId != null ? '#$encId' : 'N/A'),
-      posto: faseData != null
-          ? (faseData['posto_trabalho'] ?? 'Não especificado')
-          : 'Não especificado',
-      operador: userData != null
-          ? (userData['nome_utilizador'] ?? 'Desconhecido')
-          : 'Desconhecido',
-    );
+    // Posto: o posto físico onde a paragem foi aberta; se faltar, o posto que
+    // a fase do roteiro indica.
+    final String posto = _primeiroTexto([
+      (inc['postos_trabalho'] as Map<String, dynamic>?)?['nome_posto'],
+      (hist?['fases_padrao'] as Map<String, dynamic>?)?['posto_trabalho'],
+    ]) ?? 'Não especificado';
+
+    final String operador = _primeiroTexto([
+      (hist?['utilizadores'] as Map<String, dynamic>?)?['nome_utilizador'],
+    ]) ?? 'Desconhecido';
+
+    return (encRef: encRef, posto: posto, operador: operador);
   }
+
+  /// O primeiro valor não vazio da lista, já como texto. Nulo se não houver.
+  String? _primeiroTexto(List<dynamic> candidatos) {
+    for (final c in candidatos) {
+      final texto = c?.toString().trim();
+      if (texto != null && texto.isNotEmpty) return texto;
+    }
+    return null;
+  }
+
+  String? _comCardinal(dynamic id) => id == null ? null : '#$id';
 
   /// Cartão de uma paragem ativa no chão de fábrica.
   Widget _buildCartaoAlerta(Map<String, dynamic> inc) {

@@ -610,6 +610,10 @@ class EncomendasRepository extends BaseRepository {
             motivo,
             data_registo,
             historico_producao_id,
+            encomenda_id,
+            posto_trabalho_id,
+            encomendas!encomenda_id (codigo_rastreio),
+            postos_trabalho!posto_trabalho_id (nome_posto),
             historico_producao (
               encomenda_id,
               encomendas (codigo_rastreio),

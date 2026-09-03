@@ -277,9 +277,6 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
       );
     }
 
-    final int totalIgnoradas =
-        _desempenhoFases.fold(0, (soma, d) => soma + d.amostrasIgnoradas);
-
     // A escala é comum a todas as barras, senão duas fases com durações muito
     // diferentes pareciam iguais.
     final double maxMinutos = _desempenhoFases.fold<double>(
@@ -294,11 +291,10 @@ class _RelatoriosAdminScreenState extends State<RelatoriosAdminScreen> {
         const Text('Desempenho por Fase (Planeado vs. Real)',
             style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: TemasCores.textoPrimario)),
         const SizedBox(height: 4),
-        Text(
+        const Text(
           'Tempo estimado no roteiro contra a média medida no histórico, '
-          'da fase com maior desvio para a menor.'
-          '${totalIgnoradas > 0 ? ' $totalIgnoradas conclusão(ões) fora de escala ignoradas.' : ''}',
-          style: const TextStyle(fontSize: 11, color: TemasCores.textoTerciario),
+          'da fase com maior desvio para a menor.',
+          style: TextStyle(fontSize: 11, color: TemasCores.textoTerciario),
         ),
         const SizedBox(height: 16),
         ..._desempenhoFases.take(10).map((d) => _construirLinhaDesempenho(d, maxMinutos)),

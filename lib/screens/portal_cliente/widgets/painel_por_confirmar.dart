@@ -19,10 +19,20 @@ import '../../../repositories/portal_cliente_repository.dart';
 /// Não substitui o email; é o caminho que não depende de nada externo. Quem
 /// entra no portal vê o pedido, e confirma sem procurar códigos de rastreio.
 ///
+/// Vive no histórico, junto das encomendas de que fala. Esteve à cabeça do
+/// ecrã de rastreio enquanto foi o único sítio onde o pedido aparecia — hoje é
+/// o sino que avisa, e um bloco a meio da pesquisa passou a ser só ruído.
+///
 /// Sem nada pendente ocupa zero espaço: um painel vazio a dizer "não tem nada"
 /// só empurraria para baixo o conteúdo que o cliente veio ver.
 class PainelPorConfirmar extends StatefulWidget {
-  const PainelPorConfirmar({super.key});
+  const PainelPorConfirmar({super.key, this.aoAlterarTotal});
+
+  /// Chamado sempre que o número de entregas por confirmar muda.
+  ///
+  /// É o que alimenta o emblema no menu lateral: sem ele, o pedido só se via
+  /// entrando no histórico, e quem não entrasse nunca saberia que existia.
+  final void Function(int total)? aoAlterarTotal;
 
   @override
   State<PainelPorConfirmar> createState() => _PainelPorConfirmarState();
@@ -81,6 +91,7 @@ class _PainelPorConfirmarState extends State<PainelPorConfirmar> {
         _clienteId = clienteId;
         _pendentes = pendentes;
       });
+      widget.aoAlterarTotal?.call(pendentes.length);
 
       _ligarRealtime();
     } on RepositoryException catch (e) {
@@ -146,6 +157,7 @@ class _PainelPorConfirmarState extends State<PainelPorConfirmar> {
         _pendentes = _pendentes.where((p) => p.id != enc.id).toList();
         _aConfirmar = null;
       });
+      widget.aoAlterarTotal?.call(_pendentes.length);
 
       context.mostrarMensagem(
         'Receção da encomenda ${enc.codigoRastreio} confirmada. Obrigado!',

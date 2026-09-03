@@ -13,6 +13,7 @@ import '../../repositories/base_repository.dart';
 import '../../repositories/portal_cliente_repository.dart';
 import '../../services/pdf_service.dart';
 import '../../widgets/etiqueta_estado.dart';
+import 'widgets/painel_por_confirmar.dart';
 
 /// Histórico de encomendas do cliente autenticado.
 class HistoricoClienteScreen extends StatefulWidget {
@@ -22,7 +23,16 @@ class HistoricoClienteScreen extends StatefulWidget {
   /// dados: a conversão para `String` a meio do caminho não servia nada.
   final void Function(int tipoProdutoId, int quantidade)? onRepetirEncomenda;
 
-  const HistoricoClienteScreen({super.key, this.onRepetirEncomenda});
+  /// Chamado quando muda o número de entregas à espera de confirmação.
+  ///
+  /// Sobe até à barra lateral, que é onde o emblema aparece.
+  final void Function(int total)? aoAlterarPorConfirmar;
+
+  const HistoricoClienteScreen({
+    super.key,
+    this.onRepetirEncomenda,
+    this.aoAlterarPorConfirmar,
+  });
 
   @override
   State<HistoricoClienteScreen> createState() => HistoricoClienteScreenState();
@@ -295,49 +305,57 @@ class HistoricoClienteScreenState extends State<HistoricoClienteScreen> implemen
 
     return Scaffold(
       backgroundColor: TemasCores.fundoEcraFrio,
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: TemasCores.clienteAcento))
-          : Padding(
-              padding: EdgeInsets.all(estreito ? 16.0 : 40.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+      body: Padding(
+        padding: EdgeInsets.all(estreito ? 16.0 : 40.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Fora do indicador de carregamento de propósito: o pedido de
+            // confirmação não depende de o histórico ter chegado, e o emblema
+            // do menu tem de aparecer mesmo que a lista falhe.
+            PainelPorConfirmar(aoAlterarTotal: widget.aoAlterarPorConfirmar),
+            if (_isLoading)
+              const Expanded(
+                child: Center(child: CircularProgressIndicator(color: TemasCores.clienteAcento)),
+              )
+            else ...[
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Histórico de Encomendas',
-                              style: TextStyle(
-                                fontSize: estreito ? 22 : 28,
-                                fontWeight: FontWeight.bold,
-                                color: TemasCores.textoPrimarioFrio,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            const Text(
-                              'Consulte todas as suas encomendas, avalie a qualidade, repita um pedido ou baixe o certificado.',
-                              style: TextStyle(fontSize: 14, color: TemasCores.textoSecundarioFrio),
-                            ),
-                          ],
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Histórico de Encomendas',
+                          style: TextStyle(
+                            fontSize: estreito ? 22 : 28,
+                            fontWeight: FontWeight.bold,
+                            color: TemasCores.textoPrimarioFrio,
+                          ),
                         ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.refresh),
-                        color: TemasCores.clienteAcento,
-                        tooltip: 'Recarregar',
-                        onPressed: _carregarHistorico,
-                      ),
-                    ],
+                        const SizedBox(height: 4),
+                        const Text(
+                          'Consulte todas as suas encomendas, avalie a qualidade, repita um pedido ou baixe o certificado.',
+                          style: TextStyle(fontSize: 14, color: TemasCores.textoSecundarioFrio),
+                        ),
+                      ],
+                    ),
                   ),
-                  SizedBox(height: estreito ? 20 : 32),
-                  Expanded(child: _construirCorpo(estreito)),
+                  IconButton(
+                    icon: const Icon(Icons.refresh),
+                    color: TemasCores.clienteAcento,
+                    tooltip: 'Recarregar',
+                    onPressed: _carregarHistorico,
+                  ),
                 ],
               ),
-            ),
+              SizedBox(height: estreito ? 20 : 32),
+              Expanded(child: _construirCorpo(estreito)),
+            ],
+          ],
+        ),
+      ),
     );
   }
 

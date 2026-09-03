@@ -9,7 +9,6 @@ import '../../repositories/base_repository.dart';
 import '../../repositories/portal_cliente_repository.dart';
 import '../../widgets/dialogo_suporte.dart';
 import '../../widgets/etiqueta_estado.dart';
-import 'widgets/painel_por_confirmar.dart';
 
 /// Consulta pública do estado de fabrico de uma encomenda.
 ///
@@ -19,13 +18,20 @@ import 'widgets/painel_por_confirmar.dart';
 /// também `clientes(nome_cliente)`: com códigos de formato enumerável, bastava
 /// tentar códigos para descobrir que cliente encomendou o quê — ver bug (C).
 class RastreioClienteScreen extends StatefulWidget {
-  const RastreioClienteScreen({super.key});
+  const RastreioClienteScreen({super.key, this.codigoInicial});
+
+  /// Código a consultar mal o ecrã abre, sem o cliente ter de o copiar.
+  ///
+  /// É por aqui que entra a ligação enviada no email de arranque da produção
+  /// (`?codigo=` no endereço do portal): quem a segue vê o estado da encomenda
+  /// diretamente, que é o ponto de o rastreio ser público.
+  final String? codigoInicial;
 
   @override
-  State<RastreioClienteScreen> createState() => _RastreioClienteScreenState();
+  State<RastreioClienteScreen> createState() => RastreioClienteScreenState();
 }
 
-class _RastreioClienteScreenState extends State<RastreioClienteScreen> {
+class RastreioClienteScreenState extends State<RastreioClienteScreen> {
   final PortalClienteRepository _repositorio = PortalClienteRepository();
   final _codigoController = TextEditingController();
 
@@ -44,12 +50,40 @@ class _RastreioClienteScreenState extends State<RastreioClienteScreen> {
   Timer? _agendamentoRecarga;
 
   @override
+  void initState() {
+    super.initState();
+
+    final codigo = widget.codigoInicial?.trim().toUpperCase();
+    if (codigo == null || codigo.isEmpty) return;
+
+    _codigoController.text = codigo;
+    // Depois do primeiro frame: a consulta acaba em `setState`, e o ecrã ainda
+    // não está montado enquanto `initState` corre.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _buscarRastreio();
+    });
+  }
+
+  @override
   void dispose() {
     _agendamentoRecarga?.cancel();
     final canal = _canal;
     if (canal != null) Supabase.instance.client.removeChannel(canal);
     _codigoController.dispose();
     super.dispose();
+  }
+
+  /// Consulta um código vindo de fora do ecrã.
+  ///
+  /// É o que liga a notificação ao rastreio: o separador já está montado dentro
+  /// do `IndexedStack` do portal, por isso não basta reconstruí-lo com outro
+  /// [RastreioClienteScreen.codigoInicial] — é preciso pedir-lhe a consulta.
+  void consultarCodigo(String codigo) {
+    final valor = codigo.trim().toUpperCase();
+    if (valor.isEmpty) return;
+
+    _codigoController.text = valor;
+    _buscarRastreio();
   }
 
   Future<void> _buscarRastreio({bool silencioso = false}) async {
@@ -204,113 +238,265 @@ class _RastreioClienteScreenState extends State<RastreioClienteScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // O ecrã tem dois donos: é empilhado a partir do login (rastreio público) e
+    // é também o primeiro separador do portal. Só no primeiro caso há para onde
+    // recuar, por isso o botão segue o que a navegação permite em vez de um
+    // parâmetro que os dois sítios teriam de manter certo.
+    final bool podeVoltar = Navigator.of(context).canPop();
+
     return Scaffold(
       backgroundColor: TemasCores.fundoEcraFrio,
-      body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(32.0),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 650),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+      body: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            // Abaixo desta largura o campo e o botão deixam de caber lado a
+            // lado sem cortar o texto do código.
+            final bool estreito = constraints.maxWidth < 560;
+
+            return Column(
               children: [
-                // As entregas por confirmar aparecem antes de tudo o resto: é
-                // o único pedido que o portal faz ao cliente, e enterrá-lo por
-                // baixo da pesquisa era o mesmo que não o fazer. Só com sessão
-                // iniciada — este ecrã também serve o rastreio público, onde
-                // não há cliente identificado.
-                if (_temSessao) const PainelPorConfirmar(),
-                Container(
-                  width: 72,
-                  height: 72,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [TemasCores.clienteAcentoClaro, TemasCores.clienteAcentoForte],
-                    ),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: const Icon(Icons.local_shipping_outlined, size: 34, color: TemasCores.textoInverso),
-                ),
-                const SizedBox(height: 20),
-                const Text(
-                  'Rastreio de Encomendas',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: TemasCores.textoPrimarioFrio),
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Insira o código de rastreio para acompanhar o estado do seu pedido em tempo real.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: TemasCores.textoSecundarioFrio, fontSize: 14),
-                ),
-                const SizedBox(height: 28),
-
-                // Card de Pesquisa
-                Card(
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    side: const BorderSide(color: TemasCores.borda),
-                  ),
-                  color: TemasCores.superficie,
-                  child: Padding(
-                    padding: const EdgeInsets.all(8.0),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: _codigoController,
-                            decoration: const InputDecoration(
-                              hintText: 'Código de Rastreio (Ex: TRC-XXXXXX)',
-                              border: InputBorder.none,
-                              prefixIcon: Icon(Icons.search, color: TemasCores.textoTerciarioFrio),
-                              contentPadding: EdgeInsets.symmetric(vertical: 14),
-                            ),
-                            textCapitalization: TextCapitalization.characters,
-                            onSubmitted: (_) => _buscarRastreio(),
-                          ),
+                if (podeVoltar)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
+                      child: TextButton.icon(
+                        onPressed: () => Navigator.of(context).maybePop(),
+                        style: TextButton.styleFrom(
+                          foregroundColor: TemasCores.textoApoioFrio,
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
                         ),
-                        ElevatedButton(
-                          onPressed: _isLoading ? null : _buscarRastreio,
-                          style: ElevatedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
-                            backgroundColor: TemasCores.clienteAcento,
-                            foregroundColor: TemasCores.textoInverso,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                          ),
-                          child: const Icon(Icons.arrow_forward),
+                        icon: const Icon(Icons.arrow_back_rounded, size: 20),
+                        label: const Text('Voltar'),
+                      ),
+                    ),
+                  ),
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: EdgeInsets.fromLTRB(
+                      estreito ? 20 : 32,
+                      podeVoltar ? 8 : 32,
+                      estreito ? 20 : 32,
+                      32,
+                    ),
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 650),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _construirCabecalho(estreito),
+                            SizedBox(height: estreito ? 20 : 28),
+                            _construirPesquisa(estreito),
+                            const SizedBox(height: 20),
+                            if (_isLoading)
+                              const Padding(
+                                padding: EdgeInsets.only(top: 8),
+                                child: Center(
+                                  child: CircularProgressIndicator(color: TemasCores.clienteAcento),
+                                ),
+                              ),
+                            if (_erro != null) _construirErro(_erro!),
+                            if (_encomenda != null) _construirResultado(_encomenda!),
+                            // Sem pesquisa feita o ecrã ficava vazio por baixo da
+                            // caixa. A ajuda ocupa esse espaço com a única coisa
+                            // que falta ao cliente: onde encontrar o código.
+                            if (!_isLoading && _erro == null && _encomenda == null)
+                              _construirAjudaInicial(),
+                          ],
                         ),
-                      ],
+                      ),
                     ),
                   ),
                 ),
-                const SizedBox(height: 28),
-
-                if (_isLoading) const Center(child: CircularProgressIndicator(color: TemasCores.clienteAcento)),
-
-                if (_erro != null)
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: TemasCores.erroFundo,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: TemasCores.erroBorda),
-                    ),
-                    child: Text(
-                      _erro!,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(color: TemasCores.erroTextoForte, fontWeight: FontWeight.bold),
-                    ),
-                  ),
-
-                if (_encomenda != null) _construirResultado(_encomenda!),
               ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _construirCabecalho(bool estreito) {
+    final double lado = estreito ? 60 : 72;
+
+    return Column(
+      children: [
+        Container(
+          width: lado,
+          height: lado,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [TemasCores.clienteAcentoClaro, TemasCores.clienteAcentoForte],
             ),
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: const [
+              BoxShadow(color: TemasCores.sombraTenue, blurRadius: 16, offset: Offset(0, 6)),
+            ],
+          ),
+          child: Icon(
+            Icons.local_shipping_outlined,
+            size: estreito ? 28 : 34,
+            color: TemasCores.textoInverso,
           ),
         ),
+        const SizedBox(height: 20),
+        Text(
+          'Rastreio de Encomendas',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: estreito ? 22 : 26,
+            fontWeight: FontWeight.bold,
+            color: TemasCores.textoPrimarioFrio,
+          ),
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          'Insira o código de rastreio para acompanhar o estado do seu pedido em tempo real.',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: TemasCores.textoSecundarioFrio, fontSize: 14),
+        ),
+      ],
+    );
+  }
+
+  /// Caixa de pesquisa. Em ecrãs estreitos o botão passa para baixo do campo,
+  /// com o rótulo por extenso — uma seta sozinha num telemóvel não diz o que faz.
+  Widget _construirPesquisa(bool estreito) {
+    final bool temTexto = _codigoController.text.trim().isNotEmpty;
+
+    final Widget campo = TextField(
+      controller: _codigoController,
+      autofocus: false,
+      decoration: InputDecoration(
+        hintText: 'Código de rastreio (ex.: TRC-XXXXXX)',
+        border: InputBorder.none,
+        prefixIcon: const Icon(Icons.qr_code_2_rounded, color: TemasCores.textoTerciarioFrio),
+        suffixIcon: temTexto
+            ? IconButton(
+                tooltip: 'Limpar',
+                icon: const Icon(Icons.close_rounded, size: 18, color: TemasCores.textoTerciarioFrio),
+                onPressed: () {
+                  _codigoController.clear();
+                  setState(() {
+                    _encomenda = null;
+                    _erro = null;
+                    _codigoEmCurso = null;
+                  });
+                },
+              )
+            : null,
+        contentPadding: const EdgeInsets.symmetric(vertical: 14),
+      ),
+      textCapitalization: TextCapitalization.characters,
+      textInputAction: TextInputAction.search,
+      onChanged: (_) => setState(() {}),
+      onSubmitted: (_) => _buscarRastreio(),
+    );
+
+    final Widget botao = ElevatedButton.icon(
+      onPressed: _isLoading ? null : _buscarRastreio,
+      style: ElevatedButton.styleFrom(
+        elevation: 0,
+        padding: EdgeInsets.symmetric(vertical: 16, horizontal: estreito ? 20 : 24),
+        minimumSize: estreito ? const Size.fromHeight(48) : null,
+        backgroundColor: TemasCores.clienteAcento,
+        foregroundColor: TemasCores.textoInverso,
+        disabledBackgroundColor: TemasCores.clienteAcentoClaro,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+      icon: _isLoading
+          ? const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2, color: TemasCores.textoInverso),
+            )
+          : const Icon(Icons.search_rounded, size: 20),
+      label: Text(estreito ? 'Rastrear encomenda' : 'Rastrear'),
+    );
+
+    return Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: TemasCores.superficie,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: TemasCores.borda),
+        boxShadow: const [
+          BoxShadow(color: TemasCores.sombraTenue, blurRadius: 12, offset: Offset(0, 4)),
+        ],
+      ),
+      child: estreito
+          ? Column(
+              children: [
+                campo,
+                const SizedBox(height: 8),
+                botao,
+              ],
+            )
+          : Row(
+              children: [
+                Expanded(child: campo),
+                const SizedBox(width: 8),
+                botao,
+              ],
+            ),
+    );
+  }
+
+  Widget _construirErro(String mensagem) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: TemasCores.erroFundo,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: TemasCores.erroBorda),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.error_outline_rounded, size: 20, color: TemasCores.erroTextoForte),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              mensagem,
+              style: const TextStyle(
+                color: TemasCores.erroTextoForte,
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Ajuda mostrada enquanto não há pesquisa feita.
+  Widget _construirAjudaInicial() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: TemasCores.clienteAcentoFundo,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: TemasCores.clienteAcentoFundoForte),
+      ),
+      child: const Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.info_outline_rounded, size: 20, color: TemasCores.clienteAcentoForte),
+          SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'O código de rastreio começa por TRC- e consta da confirmação da '
+              'sua encomenda. O estado mostrado atualiza-se sozinho à medida que '
+              'a produção avança.',
+              style: TextStyle(fontSize: 13, color: TemasCores.clienteAcentoEscuro, height: 1.4),
+            ),
+          ),
+        ],
       ),
     );
   }
