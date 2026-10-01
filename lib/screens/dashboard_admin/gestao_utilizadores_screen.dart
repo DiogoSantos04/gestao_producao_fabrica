@@ -4,7 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' show RealtimeChannel;
 import '../../core/breakpoints.dart';
 import '../../core/temas_cores.dart';
 import '../../core/mensagens.dart';
-import 'dialogos/dialogo_adicionar_funcionario.dart';
+import 'dialogos/dialogo_adicionar_utilizador.dart';
 import 'dialogos/dialogo_editar_utilizador.dart';
 import 'dialogos/dialogo_rejeitar_registo.dart';
 import 'widgets/cartao_kpi.dart';
@@ -521,7 +521,9 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
       padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
       child: Row(
         children: [
-          _buildColunaOrdenavel('Nome do Funcionário', 'nome_utilizador', 3),
+          // A tabela lista todos os perfis, clientes incluídos — o cabeçalho
+          // dizia "Funcionário" desde quando só se criavam funcionários aqui.
+          _buildColunaOrdenavel('Nome', 'nome_utilizador', 3),
           _buildColunaOrdenavel('Email', 'email', 4),
           _buildColunaOrdenavel('Perfil', 'perfil', 2),
           _buildColunaOrdenavel('Estado da Conta', 'estado_conta', 2),
@@ -563,7 +565,7 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
   }
 
   Future<void> _abrirDialogAdicionar() async {
-    final mensagem = await DialogoAdicionarFuncionario.mostrar(
+    final mensagem = await DialogoAdicionarUtilizador.mostrar(
       context,
       repositorio: _utilizadoresRepo,
     );

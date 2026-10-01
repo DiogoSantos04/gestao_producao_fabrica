@@ -14,7 +14,6 @@ import 'widgets/linha_cliente.dart';
 import 'widgets/painel_detalhe_cliente.dart';
 import '../../models/cliente_model.dart';
 import '../../repositories/clientes_repository.dart';
-import '../../repositories/utilizadores_repository.dart';
 import '../../widgets/estado_erro.dart';
 import '../../widgets/rodape_paginacao.dart';
 
@@ -27,7 +26,6 @@ class ClientesScreen extends StatefulWidget {
 
 class _ClientesScreenState extends State<ClientesScreen> {
   final _clientesRepo = ClientesRepository();
-  final _utilizadoresRepo = UtilizadoresRepository();
   RealtimeChannel? _clientesSubscription;
 
   /// Os clientes já carregados — a primeira página mais o que o scroll trouxe.
@@ -241,10 +239,14 @@ class _ClientesScreenState extends State<ClientesScreen> {
   /// Cria a ficha do cliente e, se pedido, a conta de acesso que lhe fica
   /// associada.
   ///
-  /// A credencial é criada primeiro de propósito: é ela que produz a linha em
-  /// `utilizadores` para onde `clientes.utilizador_id` aponta. Se falhar, não se
-  /// chega a criar ficha nenhuma — melhor não ter cliente do que ter um cliente
-  /// que se dizia com acesso e não tem.
+  /// Com acesso ao portal, os dois passos vão juntos para a Edge Function
+  /// `criar-cliente`: criar a credencial aqui exigia um `signUp`, que em Flutter
+  /// web substitui a sessão do administrador pela do cliente novo (o
+  /// `BroadcastChannel` do gotrue atravessa o isolamento entre instâncias de
+  /// `SupabaseClient`). O insert que vinha a seguir morria em violação de RLS e
+  /// deixava a credencial órfã. Ver `ClientesRepository.criarComAcesso`.
+  ///
+  /// Sem acesso ao portal não há Auth pelo meio: fica o insert direto.
   Future<void> _inserirCliente({
     required String nome,
     required String email,
@@ -258,26 +260,29 @@ class _ClientesScreenState extends State<ClientesScreen> {
     try {
       setState(() => _isLoading = true);
 
-      String? utilizadorId;
       if (passwordAcesso != null) {
-        utilizadorId = await _utilizadoresRepo.criarCredencialCliente(
+        await _clientesRepo.criarComAcesso(
           nome: nome,
           email: email,
+          contacto: contacto,
+          nif: nif,
+          pessoaContacto: pessoaContacto,
+          morada: morada,
+          ativo: ativo,
           password: passwordAcesso,
         );
+      } else {
+        await _clientesRepo.criar({
+          'nome_cliente': nome,
+          'email': email,
+          'contacto': contacto,
+          'nif': nif,
+          'pessoa_contacto': pessoaContacto,
+          'morada': morada,
+          'ativo': ativo,
+        });
       }
-
-      await _clientesRepo.criar({
-        'nome_cliente': nome,
-        'email': email,
-        'contacto': contacto,
-        'nif': nif,
-        'pessoa_contacto': pessoaContacto,
-        'morada': morada,
-        'ativo': ativo,
-        'utilizador_id': ?utilizadorId,
-      });
-      _mostrarMensagem(utilizadorId == null
+      _mostrarMensagem(passwordAcesso == null
           ? 'Cliente criado com sucesso!'
           : 'Cliente criado e já disponível em Utilizadores!');
       _carregarClientes();

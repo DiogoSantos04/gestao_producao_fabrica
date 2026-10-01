@@ -125,6 +125,46 @@ class ClientesRepository extends BaseRepository {
     });
   }
 
+  /// Cria a ficha do cliente e a sua conta de acesso ao portal, num só passo.
+  ///
+  /// Delegado na Edge Function `criar-cliente` por uma razão concreta: criar a
+  /// credencial aqui obrigava a um `signUp`, e em Flutter web um `signUp`
+  /// — mesmo num `SupabaseClient` isolado — propaga a sessão nova pelo
+  /// `BroadcastChannel` do gotrue, cuja chave deriva só do URL do projeto. O
+  /// administrador ficava autenticado como o cliente que acabara de criar e a
+  /// escrita seguinte em `clientes` morria em violação de RLS. Ver o cabeçalho
+  /// de `supabase/functions/criar-cliente/index.ts`.
+  ///
+  /// A função é transacional na prática: se a ficha não for gravada, a
+  /// credencial criada é apagada do Auth, em vez de ficar a queimar o email.
+  Future<void> criarComAcesso({
+    required String nome,
+    required String email,
+    required String contacto,
+    required String nif,
+    required String pessoaContacto,
+    required String morada,
+    required bool ativo,
+    required String password,
+  }) {
+    return guarda('criar o cliente', () async {
+      await invocarFuncao(
+        'criar-cliente',
+        corpo: {
+          'nome': nome,
+          'email': email,
+          'contacto': contacto,
+          'nif': nif,
+          'pessoa_contacto': pessoaContacto,
+          'morada': morada,
+          'ativo': ativo,
+          'password': password,
+        },
+        erroGenerico: 'Não foi possível criar o cliente.',
+      );
+    });
+  }
+
   Future<void> atualizar({required int id, required Map<String, dynamic> dados}) {
     return guarda('atualizar o cliente', () async {
       await client.from('clientes').update(dados).eq('id', id);

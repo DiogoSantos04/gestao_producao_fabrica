@@ -1,6 +1,5 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../core/sessao_local.dart';
-import '../core/supabase_config.dart';
 import '../models/utilizador_model.dart';
 import 'base_repository.dart';
 
@@ -101,82 +100,41 @@ class UtilizadoresRepository extends BaseRepository {
     });
   }
 
-  /// Cria a conta de um funcionário sem afetar a sessão do administrador.
+  /// Cria a conta de um membro do pessoal interno, já ativa e com o perfil dado.
   ///
-  /// Usa um cliente Supabase isolado e temporário: um `signUp` no cliente
-  /// partilhado substituiria a sessão ativa pela do novo utilizador.
-  Future<void> criarFuncionario({
+  /// Delegado na Edge Function `criar-utilizador` por uma razão concreta: criar a
+  /// credencial aqui obrigava a um `signUp`, e em Flutter web um `signUp` — mesmo
+  /// num `SupabaseClient` temporário — propaga a sessão nova pelo
+  /// `BroadcastChannel` do gotrue, cuja chave deriva só do URL do projeto. O
+  /// administrador ficava autenticado como a conta que acabara de criar. Ver o
+  /// cabeçalho de `supabase/functions/criar-utilizador/index.ts`.
+  ///
+  /// [PerfilUtilizador.cliente] não é aceite: uma conta de cliente sem ficha em
+  /// `clientes` não aparece na carteira. Esse caminho é
+  /// `ClientesRepository.criarComAcesso`, que cria conta e ficha juntas.
+  Future<void> criarUtilizador({
     required String nome,
     required String email,
     required String password,
+    required PerfilUtilizador perfil,
   }) {
-    return guarda('criar o funcionário', () async {
-      await _criarCredencial(nome: nome, email: email, password: password, perfil: 'Operador');
-    });
-  }
-
-  /// Cria a conta de acesso de um cliente e devolve o UUID do Auth.
-  ///
-  /// Existe para a aba Clientes: um cliente criado lá passa a ter logo linha em
-  /// `utilizadores` (perfil `Cliente`, ativo), que é o que permite ligar
-  /// `clientes.utilizador_id` — a coluna tem chave estrangeira para
-  /// `utilizadores`, que por sua vez a tem para `auth.users`. Sem credencial no
-  /// Auth não há linha de perfil possível, e por isso isto não pode ser um
-  /// simples trigger do lado da base de dados.
-  Future<String> criarCredencialCliente({
-    required String nome,
-    required String email,
-    required String password,
-  }) {
-    return guarda('criar a conta de acesso do cliente', () async {
-      return _criarCredencial(nome: nome, email: email, password: password, perfil: 'Cliente');
-    });
-  }
-
-  /// Cria credencial no Auth e promove a linha de perfil ao papel indicado.
-  ///
-  /// Usa um cliente Supabase isolado e temporário: um `signUp` no cliente
-  /// partilhado substituiria a sessão ativa pela do novo utilizador.
-  Future<String> _criarCredencial({
-    required String nome,
-    required String email,
-    required String password,
-    required String perfil,
-  }) async {
-    final tempClient = SupabaseClient(
-      SupabaseConfig.url,
-      SupabaseConfig.publishableKey,
-      // Fluxo 'implicit' evita o PKCE, que exigiria asyncStorage neste cliente
-      // isolado. Aqui só criamos a conta, não persistimos sessão.
-      authOptions: const AuthClientOptions(authFlowType: AuthFlowType.implicit),
-    );
-    try {
-      final AuthResponse res = await tempClient.auth.signUp(
-        email: email,
-        password: password,
-        data: {'nome_utilizador': nome},
-      );
-      final novoUser = res.user;
-      if (novoUser == null) {
-        throw const RepositoryException('Não foi possível criar a credencial de acesso.');
+    return guarda('criar o utilizador', () async {
+      if (perfil == PerfilUtilizador.cliente || perfil == PerfilUtilizador.desconhecido) {
+        throw const RepositoryException(
+          'As contas de cliente criam-se no ecrã de Clientes, para nascerem já com ficha.',
+        );
       }
-
-      // A linha de perfil já foi criada pelo trigger, como 'Cliente'/'Pendente'.
-      // A promoção ao papel final é feita pelo cliente partilhado, que é o que
-      // tem a sessão do administrador: o cliente temporário está autenticado
-      // como o próprio utilizador criado e o trigger `trg_impedir_autopromocao`
-      // recusaria a alteração — que é exatamente o que se quer, porque é o que
-      // impede uma conta de se promover a si mesma.
-      await client.from('utilizadores').update({
-        'nome_utilizador': nome,
-        'perfil': perfil,
-        'estado_conta': 'Ativo',
-      }).eq('utilizador_id', novoUser.id);
-
-      return novoUser.id;
-    } finally {
-      await tempClient.dispose();
-    }
+      await invocarFuncao(
+        'criar-utilizador',
+        corpo: {
+          'nome': nome,
+          'email': email,
+          'password': password,
+          'perfil': perfil.valorBd,
+        },
+        erroGenerico: 'Não foi possível criar o utilizador.',
+      );
+    });
   }
 
   /// Regista um pedido de acesso feito pelo próprio, a aguardar aprovação.

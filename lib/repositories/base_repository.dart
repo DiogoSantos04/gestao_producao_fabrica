@@ -57,6 +57,32 @@ abstract class BaseRepository {
     }
   }
 
+  /// Invoca uma Edge Function preservando a mensagem de negócio que ela devolva.
+  ///
+  /// `invoke` levanta em qualquer estado de falha e põe o corpo já descodificado
+  /// em `details` — é lá que está o texto escrito para o utilizador ("Já existe
+  /// uma conta com este email."). O `toString()` da exceção só traria o estado
+  /// HTTP, e [guarda] substituiria tudo pelo texto genérico do `catch` final.
+  ///
+  /// [erroGenerico] é o que se mostra quando a função falha sem corpo utilizável
+  /// — tipicamente porque não respondeu.
+  Future<dynamic> invocarFuncao(
+    String nome, {
+    required Map<String, dynamic> corpo,
+    required String erroGenerico,
+  }) async {
+    try {
+      final resposta = await client.functions.invoke(nome, body: corpo);
+      return resposta.data;
+    } on FunctionException catch (e) {
+      final detalhes = e.details;
+      final mensagem = (detalhes is Map && detalhes['erro'] is String)
+          ? detalhes['erro'] as String
+          : erroGenerico;
+      throw RepositoryException(mensagem, e);
+    }
+  }
+
   /// Normaliza a resposta do Supabase para uma lista de mapas tipada.
   List<Map<String, dynamic>> comoLista(dynamic resposta) {
     if (resposta is List) {
