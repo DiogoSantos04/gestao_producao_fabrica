@@ -21,9 +21,23 @@ class OrdemNaFila {
   /// Fração do roteiro já percorrida, entre 0.0 e 1.0.
   final double progresso;
 
-  const OrdemNaFila({required this.encomenda, required this.progresso});
+  /// Fases do roteiro já fechadas — por outros postos, quando a ordem chega a
+  /// este — e o total. Vão para o rótulo da barra: sem elas, uma ordem acabada
+  /// de chegar com a barra a 40% parecia trabalho feito neste posto.
+  final int fasesConcluidas;
+  final int totalFases;
+
+  const OrdemNaFila({
+    required this.encomenda,
+    required this.progresso,
+    this.fasesConcluidas = 0,
+    this.totalFases = 0,
+  });
 
   EstadoOrdem get estado => encomenda.estado;
+
+  /// O operador já carregou em "Iniciar" nesta fase.
+  bool get iniciada => encomenda.dataInicioTrabalho != null;
 
   /// Uma ordem em WIP Hold continua visível — escondê-la deixaria o operador
   /// sem saber para onde foi o trabalho —, mas não pode ser iniciada até o
@@ -99,6 +113,29 @@ class DetalheTarefa {
   bool get bloqueada =>
       encomenda.estado == EstadoOrdem.emHold ||
       incidencias.any((i) => i.estaAberta);
+
+  /// Tempo de paragem em WIP Hold dentro de [[inicio], [agora]].
+  ///
+  /// Substitui `segundos_parados_fase` no cronómetro: esse contador acumula
+  /// todas as paragens da fase desde a chegada ao posto, e com o cronómetro a
+  /// contar do início do trabalho uma paragem anterior (aplicada pelo admin com
+  /// a ordem ainda em fila) era descontada a tempo que nunca contou. Só entra a
+  /// parte de cada paragem que se sobrepõe ao intervalo; uma paragem ainda sem
+  /// line clearance conta até [agora].
+  Duration tempoParadoEntre(DateTime inicio, DateTime agora) {
+    var total = Duration.zero;
+    for (final i in incidencias) {
+      final de = i.inicio;
+      if (de == null) continue;
+      final ate = i.lineClearanceValidado ? i.dataLineClearance : agora;
+      if (ate == null) continue;
+
+      final a = de.isAfter(inicio) ? de : inicio;
+      final b = ate.isBefore(agora) ? ate : agora;
+      if (b.isAfter(a)) total += b.difference(a);
+    }
+    return total;
+  }
 }
 
 /// Uma linha do histórico do operador: a fase concluída e as paragens que a
@@ -205,12 +242,15 @@ class ResumoDeTurno {
   /// Dia do turno em hora local, à meia-noite.
   final DateTime dia;
   final int fasesConcluidas;
-  final int fasesComParagem;
+
+  /// Incidências distintas do dia: as registadas pelo operador nesse dia e as
+  /// associadas às fases que ele concluiu. É a mesma contagem que o PDF faz.
+  final int incidencias;
 
   const ResumoDeTurno({
     required this.dia,
     required this.fasesConcluidas,
-    required this.fasesComParagem,
+    required this.incidencias,
   });
 }
 
@@ -320,6 +360,7 @@ class OperadorRepository extends BaseRepository {
               fase_atual_id,
               cancelada,
               em_suspenso,
+              data_inicio_trabalho,
               tipos_produto:tipos_produtos_id (nome_tipo_produto),
               clientes:cliente_id (nome_cliente)
             ''')
@@ -350,15 +391,19 @@ class OperadorRepository extends BaseRepository {
         }
       }
 
-      final ordens = encomendas
-          .map((e) => OrdemNaFila(
-                encomenda: e,
-                progresso: progressoNoRoteiro(
-                  roteiro: roteiros[e.tipoProdutoId] ?? const [],
-                  faseAtualId: e.faseAtualId,
-                ),
-              ))
-          .toList();
+      final ordens = encomendas.map((e) {
+        final roteiro = roteiros[e.tipoProdutoId] ?? const <int>[];
+        final indice = roteiro.indexOf(e.faseAtualId ?? -1);
+        return OrdemNaFila(
+          encomenda: e,
+          progresso: progressoNoRoteiro(
+            roteiro: roteiro,
+            faseAtualId: e.faseAtualId,
+          ),
+          fasesConcluidas: indice < 0 ? 0 : indice,
+          totalFases: roteiro.length,
+        );
+      }).toList();
 
       return FilaDeTrabalho(posto: posto, ordens: ordens);
     });
@@ -590,8 +635,10 @@ class OperadorRepository extends BaseRepository {
   /// pela encomenda marcaria como bloqueadas todas as fases dessa ordem,
   /// incluindo as que decorreram sem problema nenhum.
   ///
-  /// Uma paragem numa fase ainda não concluída não aparece em lado nenhum — o
-  /// histórico lista fases concluídas, e essa ainda está a decorrer.
+  /// Uma paragem numa fase ainda não concluída não fica associada a nenhuma
+  /// linha do histórico — essa fase ainda está a decorrer. O relatório de turno
+  /// não depende disto: lê as incidências pelo autor, em
+  /// [obterIncidenciasRegistadas].
   static Map<int, List<IncidenciaModel>> associarParagens(
     List<HistoricoModel> historico,
     List<IncidenciaModel> paragens,
@@ -643,27 +690,54 @@ class OperadorRepository extends BaseRepository {
       );
 
       final historico = dados.map(HistoricoModel.fromJson).toList();
-      final porRegisto = await _associarParagensDasOrdens(historico);
 
-      // `LinkedHashMap` por omissão: a ordem de inserção segue a da query, pelo
-      // que os turnos saem já do mais recente para o mais antigo.
-      final turnos = <DateTime, ResumoDeTurno>{};
-      for (final h in historico) {
-        final momento = h.momento?.toLocal();
-        if (momento == null) continue;
-        final dia = DateTime(momento.year, momento.month, momento.day);
-        final anterior = turnos[dia];
-        final temParagem = (porRegisto[h.id] ?? const []).isNotEmpty;
+      final resultados = await Future.wait<dynamic>([
+        _associarParagensDasOrdens(historico),
+        client
+            .from('incidencias')
+            .select('id, data_registo, created_at')
+            .eq('registado_por', utilizador),
+      ]);
+      final porRegisto = resultados[0] as Map<int, List<IncidenciaModel>>;
+      final registadas =
+          comoLista(resultados[1]).map(IncidenciaModel.fromJson).toList();
 
-        turnos[dia] = ResumoDeTurno(
-          dia: dia,
-          fasesConcluidas: (anterior?.fasesConcluidas ?? 0) + 1,
-          fasesComParagem:
-              (anterior?.fasesComParagem ?? 0) + (temParagem ? 1 : 0),
-        );
+      DateTime? diaLocal(DateTime? m) {
+        if (m == null) return null;
+        final l = m.toLocal();
+        return DateTime(l.year, l.month, l.day);
       }
 
-      return turnos.values.toList();
+      final fasesPorDia = <DateTime, int>{};
+      final incidenciasPorDia = <DateTime, Set<int>>{};
+      for (final h in historico) {
+        final dia = diaLocal(h.momento);
+        if (dia == null) continue;
+        fasesPorDia[dia] = (fasesPorDia[dia] ?? 0) + 1;
+        final ids = incidenciasPorDia.putIfAbsent(dia, () => <int>{});
+        for (final p in porRegisto[h.id] ?? const <IncidenciaModel>[]) {
+          ids.add(p.id);
+        }
+      }
+      // Um dia em que o operador só parou a linha também é um turno: sem isto
+      // não aparecia na lista, e o PDF desse dia não podia ser descarregado.
+      for (final i in registadas) {
+        final dia = diaLocal(i.inicio);
+        if (dia == null) continue;
+        incidenciasPorDia.putIfAbsent(dia, () => <int>{}).add(i.id);
+      }
+
+      final dias = {...fasesPorDia.keys, ...incidenciasPorDia.keys}.toList()
+        ..sort((a, b) => b.compareTo(a));
+
+      return [
+        for (final dia in dias)
+          ResumoDeTurno(
+            dia: dia,
+            fasesConcluidas: fasesPorDia[dia] ?? 0,
+            incidencias: incidenciasPorDia[dia]?.length ?? 0,
+          ),
+      ];
     });
   }
 
@@ -712,6 +786,38 @@ class OperadorRepository extends BaseRepository {
       }
 
       return registos;
+    });
+  }
+
+  /// Incidências que o operador registou em [[desde], [ate]), com a ordem, o
+  /// posto e o motivo.
+  ///
+  /// É a fonte das incidências do relatório de turno. Antes só se chegava a
+  /// elas por [associarParagens], que exige uma fase concluída **depois** da
+  /// paragem — e o WIP Hold impede precisamente essa conclusão até o admin
+  /// aprovar o line clearance, normalmente já fora do turno.
+  Future<List<IncidenciaModel>> obterIncidenciasRegistadas({
+    required DateTime desde,
+    required DateTime ate,
+  }) {
+    return guarda('carregar as incidências do turno', () async {
+      final utilizador = utilizadorAtualId;
+      if (utilizador == null) return const <IncidenciaModel>[];
+
+      final dados = await client
+          .from('incidencias')
+          .select('''
+            *,
+            reason_codes:reason_code_id (categoria, descricao),
+            encomendas:encomenda_id (codigo_rastreio),
+            postos_trabalho:posto_trabalho_id (nome_posto)
+          ''')
+          .eq('registado_por', utilizador)
+          .gte('data_registo', desde.toUtc().toIso8601String())
+          .lt('data_registo', ate.toUtc().toIso8601String())
+          .order('data_registo', ascending: true);
+
+      return comoLista(dados).map(IncidenciaModel.fromJson).toList();
     });
   }
 

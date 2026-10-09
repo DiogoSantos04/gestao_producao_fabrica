@@ -33,6 +33,14 @@ class EncomendaModel {
   /// `add_data_inicio_fase_encomendas` cujo backfill não encontrou referência.
   final DateTime? dataInicioFase;
 
+  /// Momento em que o operador carregou em "Iniciar" na fase atual, escrito
+  /// pela RPC `iniciar_trabalho_fase` e reposto a nulo quando a fase muda.
+  ///
+  /// É a origem do cronómetro do terminal. [dataInicioFase] não serve para
+  /// isso: marca a chegada da ordem ao posto, e o tempo em fila contava como
+  /// tempo de trabalho antes de alguém lhe tocar.
+  final DateTime? dataInicioTrabalho;
+
   /// Segundos que a fase atual esteve parada em WIP Hold.
   ///
   /// Acumulado pelo servidor a cada line clearance e reposto a zero quando a
@@ -75,6 +83,7 @@ class EncomendaModel {
     this.dataCancelamento,
     this.emSuspenso = false,
     this.dataInicioFase,
+    this.dataInicioTrabalho,
     this.segundosParadosFase = 0,
     this.dataConfirmacaoRececao,
     this.nomeCliente,
@@ -109,6 +118,7 @@ class EncomendaModel {
       dataCancelamento: _data(json['data_cancelamento']),
       emSuspenso: json['em_suspenso'] == true,
       dataInicioFase: _data(json['data_inicio_fase']),
+      dataInicioTrabalho: _data(json['data_inicio_trabalho']),
       segundosParadosFase: _inteiro(json['segundos_parados_fase']) ?? 0,
       dataConfirmacaoRececao: _data(json['data_confirmacao_rececao']),
       nomeCliente: cliente?['nome_cliente'] as String?,

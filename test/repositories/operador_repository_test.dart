@@ -4,6 +4,7 @@ import 'package:gestao_producao_fabrica/models/fase_model.dart';
 import 'package:gestao_producao_fabrica/models/historico_model.dart';
 import 'package:gestao_producao_fabrica/models/incidencia_model.dart';
 import 'package:gestao_producao_fabrica/repositories/operador_repository.dart';
+import 'package:gestao_producao_fabrica/services/relatorio_turno.dart';
 
 /// Registo de histórico mínimo, identificado por [id], da encomenda [encomenda],
 /// concluído em [momento].
@@ -360,6 +361,149 @@ void main() {
         {'id': 2, 'line_clearance_validado': true},
       ]);
       expect(d.bloqueada, isFalse);
+    });
+  });
+
+  group('OrdemNaFila.iniciada', () {
+    OrdemNaFila ordem(Map<String, dynamic> extra) => OrdemNaFila(
+          encomenda: EncomendaModel.fromJson({'id': 1, 'fase_atual_id': 30, ...extra}),
+          // Duas fases já feitas noutros postos: a barra do roteiro não é zero.
+          progresso: 0.5,
+          fasesConcluidas: 2,
+          totalFases: 4,
+        );
+
+    test('ordem acabada de chegar não está iniciada, mesmo com roteiro avançado', () {
+      // O bug: "Em Progresso" vinha de `progresso > 0`, que conta as fases
+      // feitas noutros postos.
+      expect(ordem(const {}).iniciada, isFalse);
+    });
+
+    test('fica iniciada quando o servidor regista data_inicio_trabalho', () {
+      expect(
+        ordem({'data_inicio_trabalho': '2026-10-09T16:40:00Z'}).iniciada,
+        isTrue,
+      );
+    });
+  });
+
+  group('DetalheTarefa.tempoParadoEntre', () {
+    final inicio = DateTime.utc(2026, 10, 9, 10);
+    final agora = DateTime.utc(2026, 10, 9, 12);
+
+    DetalheTarefa comParagens(List<Map<String, dynamic>> paragens) {
+      return DetalheTarefa(
+        encomenda: EncomendaModel.fromJson({'id': 1, 'fase_atual_id': 10}),
+        fases: const [],
+        incidencias: paragens.map(IncidenciaModel.fromJson).toList(),
+      );
+    }
+
+    test('paragem resolvida antes do início não é descontada', () {
+      // Hold aplicado pelo admin com a ordem ainda em fila: não é tempo que o
+      // cronómetro do operador tenha contado.
+      final d = comParagens([
+        {
+          'id': 1,
+          'data_registo': '2026-10-09T08:00:00Z',
+          'line_clearance_validado': true,
+          'data_line_clearance': '2026-10-09T09:00:00Z',
+        },
+      ]);
+      expect(d.tempoParadoEntre(inicio, agora), Duration.zero);
+    });
+
+    test('paragem dentro do trabalho é descontada por inteiro', () {
+      final d = comParagens([
+        {
+          'id': 1,
+          'data_registo': '2026-10-09T10:30:00Z',
+          'line_clearance_validado': true,
+          'data_line_clearance': '2026-10-09T11:00:00Z',
+        },
+      ]);
+      expect(d.tempoParadoEntre(inicio, agora), const Duration(minutes: 30));
+    });
+
+    test('paragem que atravessa o início só conta a parte depois dele', () {
+      final d = comParagens([
+        {
+          'id': 1,
+          'data_registo': '2026-10-09T09:30:00Z',
+          'line_clearance_validado': true,
+          'data_line_clearance': '2026-10-09T10:15:00Z',
+        },
+      ]);
+      expect(d.tempoParadoEntre(inicio, agora), const Duration(minutes: 15));
+    });
+
+    test('paragem ainda aberta conta até agora', () {
+      final d = comParagens([
+        {'id': 1, 'data_registo': '2026-10-09T11:30:00Z'},
+      ]);
+      expect(d.tempoParadoEntre(inicio, agora), const Duration(minutes: 30));
+    });
+  });
+
+  group('construirRelatorioTurno — incidências', () {
+    IncidenciaModel registada(int id, String momento) => IncidenciaModel.fromJson({
+          'id': id,
+          'encomenda_id': 100,
+          'data_registo': momento,
+          'estado': 'PENDENTE',
+          'reason_codes': {'categoria': 'Manutenção', 'descricao': 'Avaria mecânica'},
+          'encomendas': {'codigo_rastreio': 'TRC-1'},
+          'postos_trabalho': {'nome_posto': 'Corte'},
+        });
+
+    test('incidência em fase por concluir entra no relatório', () {
+      // O bug: sem fase concluída depois da paragem — impossível em WIP Hold —
+      // o relatório dava 0 alertas.
+      final p = construirRelatorioTurno(
+        nomeOperador: 'Op',
+        dia: DateTime(2026, 10, 9),
+        registos: const [],
+        incidencias: [registada(48, '2026-10-09T16:46:00Z')],
+      );
+
+      expect(p.totalIncidencias, 1);
+      expect(p.linhasIncidencias.single[1], 'TRC-1');
+      expect(p.linhasIncidencias.single[2], 'Corte');
+      expect(p.linhasIncidencias.single[3], 'Avaria mecânica');
+      expect(p.linhasIncidencias.single[5], 'Pendente');
+    });
+
+    test('a mesma incidência pelas duas vias conta uma vez', () {
+      final inc = registada(48, '2026-10-09T10:00:00Z');
+      final p = construirRelatorioTurno(
+        nomeOperador: 'Op',
+        dia: DateTime(2026, 10, 9),
+        registos: [
+          RegistoDeTurno(
+            registo: _historico(1, 100, '2026-10-09T12:00:00Z'),
+            paragens: [inc],
+          ),
+        ],
+        incidencias: [inc],
+      );
+
+      expect(p.totalIncidencias, 1);
+    });
+
+    test('incidência antiga sem autor continua a contar pela fase concluída', () {
+      final p = construirRelatorioTurno(
+        nomeOperador: 'Op',
+        dia: DateTime(2026, 10, 9),
+        registos: [
+          RegistoDeTurno(
+            registo: _historico(1, 100, '2026-10-09T12:00:00Z'),
+            paragens: [_paragem(7, 100, '2026-10-09T11:00:00Z')],
+          ),
+        ],
+      );
+
+      expect(p.totalIncidencias, 1);
+      expect(p.linhasIncidencias, isEmpty);
     });
   });
 

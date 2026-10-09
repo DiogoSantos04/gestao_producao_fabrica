@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/breakpoints.dart';
 import '../../core/ecra_recarregavel.dart';
 import '../../core/temas_cores.dart';
+import '../../models/incidencia_model.dart';
 import '../../repositories/operador_repository.dart';
 import '../../services/pdf_service.dart';
 import '../../services/relatorio_turno.dart';
@@ -85,7 +86,7 @@ class _RelatoriosOperadorScreenState extends State<RelatoriosOperadorScreen>
       _turnosDoMes.fold(0, (soma, t) => soma + t.fasesConcluidas);
 
   int get _paragensDoMes =>
-      _turnosDoMes.fold(0, (soma, t) => soma + t.fasesComParagem);
+      _turnosDoMes.fold(0, (soma, t) => soma + t.incidencias);
 
   static String _nomeFicheiro(DateTime d) {
     String d2(int n) => n.toString().padLeft(2, '0');
@@ -315,7 +316,7 @@ class _RelatoriosOperadorScreenState extends State<RelatoriosOperadorScreen>
                       padding: const EdgeInsets.only(top: 4.0),
                       child: Text(
                         'Dia: $data • Avanços: ${turno.fasesConcluidas} '
-                        '• Bloqueios reportados: ${turno.fasesComParagem}',
+                        '• Incidências: ${turno.incidencias}',
                         style: const TextStyle(
                           fontSize: 12,
                           color: TemasCores.textoSecundarioFrio,
@@ -355,13 +356,21 @@ class _RelatoriosOperadorScreenState extends State<RelatoriosOperadorScreen>
     setState(() => _aGerar = turno.dia);
 
     try {
-      final registos = await _repo.obterRegistosDoDia(turno.dia);
+      final inicioDia = DateTime(turno.dia.year, turno.dia.month, turno.dia.day);
+      final resultados = await Future.wait<dynamic>([
+        _repo.obterRegistosDoDia(turno.dia),
+        _repo.obterIncidenciasRegistadas(
+          desde: inicioDia,
+          ate: inicioDia.add(const Duration(days: 1)),
+        ),
+      ]);
 
       await PdfService.descarregarRelatorioTurno(
         construirRelatorioTurno(
           nomeOperador: _nomeOperador ?? 'Operador',
           dia: turno.dia,
-          registos: registos,
+          registos: resultados[0] as List<RegistoDeTurno>,
+          incidencias: resultados[1] as List<IncidenciaModel>,
         ),
       );
     } catch (e) {

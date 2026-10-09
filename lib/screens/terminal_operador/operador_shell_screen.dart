@@ -7,6 +7,7 @@ import '../../core/ecra_recarregavel.dart';
 import '../../core/iniciais.dart';
 import '../../core/mensagens.dart';
 import '../../core/temas_cores.dart';
+import '../../models/incidencia_model.dart';
 import '../../repositories/operador_repository.dart';
 import '../../services/auth_service.dart';
 import '../../services/pdf_service.dart';
@@ -248,7 +249,20 @@ class _OperadorShellScreenState extends State<OperadorShellScreen> {
       // Os registos do dia, cortados no início da sessão: o relatório de fecho
       // é do turno que agora acaba, e não de tudo o que o operador fez hoje —
       // uma segunda sessão no mesmo dia repetiria o trabalho da primeira.
-      final doDia = await _repo.obterRegistosDoDia(agora);
+      final resultados = await Future.wait<dynamic>([
+        _repo.obterRegistosDoDia(agora),
+        // As incidências são lidas pelo autor e não pelas fases concluídas:
+        // uma ordem em WIP Hold não pode fechar a fase, pelo que a paragem do
+        // turno nunca chegava ao relatório. O limite superior fica um minuto à
+        // frente para não perder uma registada no próprio instante do fecho.
+        _repo.obterIncidenciasRegistadas(
+          desde: _inicioSessao,
+          ate: agora.add(const Duration(minutes: 1)),
+        ),
+      ]);
+      final doDia = resultados[0] as List<RegistoDeTurno>;
+      final incidencias = resultados[1] as List<IncidenciaModel>;
+
       final daSessao = doDia.where((r) {
         final momento = r.registo.momento?.toLocal();
         return momento != null && !momento.isBefore(_inicioSessao);
@@ -259,6 +273,7 @@ class _OperadorShellScreenState extends State<OperadorShellScreen> {
           nomeOperador: _nomeUtilizador,
           dia: agora,
           registos: daSessao,
+          incidencias: incidencias,
         ),
       );
     } catch (_) {

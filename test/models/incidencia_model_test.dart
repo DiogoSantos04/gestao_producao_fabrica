@@ -15,7 +15,8 @@ void main() {
       expect(i.postoTrabalhoId, isNull);
       expect(i.reasonCodeId, isNull);
       expect(i.descricaoOperador, isNull);
-      expect(i.estado, 'EM_ABERTO');
+      expect(i.estado, 'PENDENTE');
+      expect(i.registadoPor, isNull);
       expect(i.tipoManutencao, isNull);
       expect(i.tecnicoId, isNull);
       expect(i.entidadeExterna, isNull);
@@ -30,8 +31,9 @@ void main() {
       expect(i.descricaoReasonCode, isNull);
     });
 
-    test('estado nulo cai em EM_ABERTO — a linha fica bloqueada, não livre', () {
-      expect(IncidenciaModel.fromJson({'id': 1, 'estado': null}).estado, 'EM_ABERTO');
+    test('estado nulo cai em PENDENTE — o estado inicial que a BD aceita', () {
+      // 'EM_ABERTO' era o default antigo e viola a check constraint da coluna.
+      expect(IncidenciaModel.fromJson({'id': 1, 'estado': null}).estado, 'PENDENTE');
     });
 
     test('os booleanos só são verdadeiros com true explícito', () {

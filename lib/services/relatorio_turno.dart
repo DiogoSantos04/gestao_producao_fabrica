@@ -1,3 +1,4 @@
+import '../models/incidencia_model.dart';
 import '../repositories/operador_repository.dart';
 import 'pdf_service.dart';
 
@@ -8,13 +9,19 @@ import 'pdf_service.dart';
 /// geram este relatório — a área de relatórios e o fecho de sessão — têm de
 /// produzir exatamente o mesmo documento.
 ///
-/// Tudo é derivado de [registos]: os totais que antes vinham de um agregado
-/// separado saem agora da mesma lista que preenche a tabela, pelo que o resumo
-/// no topo do PDF não pode discordar do detalhe em baixo.
+/// Tudo é derivado de [registos] e [incidencias]: os totais saem das mesmas
+/// listas que preenchem as tabelas, pelo que o resumo no topo do PDF não pode
+/// discordar do detalhe em baixo.
+///
+/// [incidencias] são as que o operador registou no período
+/// ([OperadorRepository.obterIncidenciasRegistadas]). O total junta-as às
+/// paragens associadas às fases concluídas, sem contar duas vezes a mesma: as
+/// incidências antigas, sem autor gravado, só se encontram pela segunda via.
 ParametrosRelatorioTurno construirRelatorioTurno({
   required String nomeOperador,
   required DateTime dia,
   required List<RegistoDeTurno> registos,
+  List<IncidenciaModel> incidencias = const [],
 }) {
   final metricas = MetricasDoDia.apurar(registos);
 
@@ -36,11 +43,31 @@ ParametrosRelatorioTurno construirRelatorioTurno({
     ];
   }).toList();
 
+  final idsIncidencias = <int>{
+    for (final r in registos)
+      for (final p in r.paragens) p.id,
+    for (final i in incidencias) i.id,
+  };
+
+  final linhasIncidencias = incidencias.map((i) {
+    final momento = i.inicio?.toLocal();
+    final observacoes = i.descricaoOperador?.trim();
+    return [
+      momento == null ? '--:--' : horaCurta(momento),
+      i.codigoRastreio ?? 'Sem codigo',
+      i.nomePosto ?? '-',
+      i.rotulo ?? '-',
+      (observacoes == null || observacoes.isEmpty) ? '-' : observacoes,
+      estadoIncidenciaLegivel(i.estado),
+    ];
+  }).toList();
+
   return ParametrosRelatorioTurno(
     nomeOperador: nomeOperador,
     dataTurno: dataCurta(dia),
     totalFases: registos.length,
-    totalIncidencias: registos.where((r) => r.bloqueado).length,
+    totalIncidencias: idsIncidencias.length,
+    linhasIncidencias: linhasIncidencias,
     ordensDistintas: metricas.ordensDistintas,
     primeiraConclusao:
         metricas.primeira == null ? null : horaCurta(metricas.primeira!),
@@ -52,6 +79,26 @@ ParametrosRelatorioTurno construirRelatorioTurno({
     intervalosIgnorados: metricas.intervalosIgnorados,
     linhas: linhas,
   );
+}
+
+/// Estado da incidência em português corrente, para o papel.
+String estadoIncidenciaLegivel(String estado) {
+  switch (estado.toUpperCase()) {
+    case 'PENDENTE':
+      return 'Pendente';
+    case 'EM_ANALISE':
+      return 'Em analise';
+    case 'EM_INTERVENCAO':
+      return 'Em intervencao';
+    case 'AGUARDA_LINE_CLEARANCE':
+      return 'Aguarda line clearance';
+    case 'RESOLVIDO':
+      return 'Resolvida';
+    case 'CANCELADO':
+      return 'Cancelada';
+    default:
+      return estado;
+  }
 }
 
 String _d2(int n) => n.toString().padLeft(2, '0');

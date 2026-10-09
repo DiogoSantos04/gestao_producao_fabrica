@@ -3,9 +3,11 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/breakpoints.dart';
 import '../../core/ecra_recarregavel.dart';
+import '../../core/mensagens.dart';
 import '../../core/realtime.dart';
 import '../../core/temas_cores.dart';
 import '../../models/estado_ordem.dart';
+import '../../repositories/base_repository.dart';
 import '../../repositories/encomendas_repository.dart';
 import '../../repositories/operador_repository.dart';
 import '../../widgets/estado_erro.dart';
@@ -90,6 +92,24 @@ class _FilaTrabalhoScreenState extends State<FilaTrabalhoScreen>
   }
 
   Future<void> _abrirOrdem(OrdemNaFila ordem) async {
+    // "Iniciar" grava o início do trabalho antes de abrir a ordem: é daí que o
+    // cronómetro conta. Uma ordem já iniciada abre sem nova escrita.
+    if (!ordem.iniciada) {
+      try {
+        await _encomendasRepo.iniciarTrabalho(ordem.encomenda.id);
+      } catch (e) {
+        if (!mounted) return;
+        context.mostrarMensagem(
+          e is RepositoryException ? e.mensagem : descreverErro(e),
+          eErro: true,
+        );
+        // O estado no servidor pode ter mudado (hold, cancelamento, avanço).
+        _carregar(mostrarSpinner: false);
+        return;
+      }
+      if (!mounted) return;
+    }
+
     final resultado = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
         builder: (_) => DetalheTarefaScreen(
@@ -99,7 +119,9 @@ class _FilaTrabalhoScreenState extends State<FilaTrabalhoScreen>
       ),
     );
 
-    if (resultado == true) _carregar();
+    // Recarrega sempre: mesmo a voltar atrás sem concluir, a ordem passou a
+    // iniciada e o cartão tem de o mostrar.
+    _carregar(mostrarSpinner: resultado == true);
   }
 
   @override
@@ -367,14 +389,19 @@ class _CartaoOrdem extends StatelessWidget {
         entrega.isBefore(DateTime(hoje.year, hoje.month, hoje.day))) {
       return ('Atrasado', TemasCores.erro);
     }
-    if (ordem.progresso > 0) return ('Em Progresso', TemasCores.alertaMedio);
+    // "Em Progresso" é o operador ter carregado em "Iniciar" nesta fase. Vinha
+    // da barra do roteiro, que conta as fases feitas noutros postos: uma ordem
+    // acabada de chegar aparecia já em progresso sem ninguém lhe ter tocado.
+    if (ordem.iniciada) return ('Em Progresso', TemasCores.alertaMedio);
     return ('Pronto a Iniciar', TemasCores.operadorAcentoForte);
   }
 
   @override
   Widget build(BuildContext context) {
     final (etiqueta, cor) = _etiqueta;
-    final percentagem = (ordem.progresso * 100).round();
+    final rotuloRoteiro = ordem.totalFases == 0
+        ? 'Roteiro'
+        : 'Roteiro: ${ordem.fasesConcluidas} de ${ordem.totalFases} fases concluídas';
 
     return Card(
       elevation: 0,
@@ -433,15 +460,19 @@ class _CartaoOrdem extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text(
-                  'Progresso Global',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: TemasCores.textoTerciario,
+                Flexible(
+                  child: Text(
+                    rotuloRoteiro,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: TemasCores.textoTerciario,
+                    ),
                   ),
                 ),
                 Text(
-                  '$percentagem%',
+                  '${(ordem.progresso * 100).round()}%',
                   style: const TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.bold,
@@ -479,7 +510,9 @@ class _CartaoOrdem extends StatelessWidget {
                 size: 16,
               ),
               label: Text(
-                ordem.bloqueada ? 'Aguarda Line Clearance' : 'Iniciar',
+                ordem.bloqueada
+                    ? 'Aguarda Line Clearance'
+                    : (ordem.iniciada ? 'Continuar' : 'Iniciar'),
                 style: const TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.bold,

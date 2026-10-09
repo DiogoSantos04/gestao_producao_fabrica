@@ -948,6 +948,19 @@ class EncomendasRepository extends BaseRepository {
     });
   }
 
+  /// Marca o início do trabalho do operador na fase atual.
+  ///
+  /// Idempotente no servidor: numa ordem já iniciada devolve o início original
+  /// em vez de reiniciar o cronómetro. Recusa ordens em WIP Hold, canceladas ou
+  /// concluídas.
+  Future<void> iniciarTrabalho(int encomendaId) {
+    return guarda('iniciar o trabalho na ordem', () async {
+      await client.rpc('iniciar_trabalho_fase', params: {
+        'p_encomenda_id': encomendaId,
+      });
+    });
+  }
+
   /// Suspende a ordem criando a incidência correspondente.
   Future<void> aplicarWipHold({
     required int encomendaId,

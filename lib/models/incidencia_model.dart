@@ -15,6 +15,9 @@ class IncidenciaModel {
   final String? descricaoOperador;
   final String estado;
 
+  /// Quem registou a incidência. Nulo nas anteriores à coluna `registado_por`.
+  final String? registadoPor;
+
   // Intervenção técnica
   final String? tipoManutencao;
   final String? tecnicoId;
@@ -59,7 +62,8 @@ class IncidenciaModel {
     this.postoTrabalhoId,
     this.reasonCodeId,
     this.descricaoOperador,
-    this.estado = 'EM_ABERTO',
+    this.estado = 'PENDENTE',
+    this.registadoPor,
     this.tipoManutencao,
     this.tecnicoId,
     this.entidadeExterna,
@@ -98,7 +102,9 @@ class IncidenciaModel {
       postoTrabalhoId: (json['posto_trabalho_id'] as num?)?.toInt(),
       reasonCodeId: (json['reason_code_id'] as num?)?.toInt(),
       descricaoOperador: json['descricao_operador'] as String?,
-      estado: (json['estado'] as String?) ?? 'EM_ABERTO',
+      // 'EM_ABERTO' não existe na check constraint de `incidencias.estado`.
+      estado: (json['estado'] as String?) ?? 'PENDENTE',
+      registadoPor: json['registado_por'] as String?,
       tipoManutencao: json['tipo_manutencao'] as String?,
       tecnicoId: json['tecnico_id'] as String?,
       entidadeExterna: json['entidade_externa'] as String?,

@@ -52,9 +52,12 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
     super.dispose();
   }
 
-  /// Início da fase, tal como registado pelo servidor em
-  /// `encomendas.data_inicio_fase`.
-  DateTime? get _inicioFase => _tarefa?.encomenda.dataInicioFase?.toLocal();
+  /// Início do trabalho na fase, registado pelo servidor em
+  /// `encomendas.data_inicio_trabalho` quando o operador carrega em "Iniciar".
+  ///
+  /// Não é `data_inicio_fase`: essa marca a chegada ao posto, e o cronómetro
+  /// arrancava com a ordem ainda em fila — chegava ao operador já atrasada.
+  DateTime? get _inicioFase => _tarefa?.encomenda.dataInicioTrabalho?.toLocal();
 
   /// Tempo estimado da fase em curso, em minutos, ou `null` se não estiver
   /// definido no roteiro.
@@ -83,18 +86,22 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
   /// a marcar menos tempo do que o efetivamente decorrido.
   void _atualizarDecorrido() {
     final inicio = _inicioFase;
-    if (inicio == null) {
+    final tarefa = _tarefa;
+    if (inicio == null || tarefa == null) {
       _segundosDecorridos = 0;
       return;
     }
+    final agora = DateTime.now();
+
     // O tempo que a fase passou parada em WIP Hold não é tempo de produção: sem
     // o descontar, uma avaria de duas horas empurrava o Andon para atraso sem
-    // que ninguém tivesse trabalhado devagar.
-    final parados = _tarefa?.encomenda.segundosParadosFase ?? 0;
+    // que ninguém tivesse trabalhado devagar. Só conta a paragem posterior ao
+    // início do trabalho — ver [DetalheTarefa.tempoParadoEntre].
+    final parados = tarefa.tempoParadoEntre(inicio, agora).inSeconds;
 
     // Os relógios do terminal e do servidor podem divergir; um valor negativo
     // mostraria um cronómetro a contar para trás.
-    final decorrido = DateTime.now().difference(inicio).inSeconds - parados;
+    final decorrido = agora.difference(inicio).inSeconds - parados;
     _segundosDecorridos = decorrido > 0 ? decorrido : 0;
   }
 
@@ -830,7 +837,11 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
     Color cor = TemasCores.infoForte;
     String estado = 'SEM TEMPO ESTIMADO';
 
-    if (estimado != null) {
+    if (_inicioFase == null) {
+      // Sem início registado não há tempo decorrido a avaliar: dizer "DENTRO
+      // DO PRAZO" com o relógio parado seria afirmar algo que não se mediu.
+      estado = 'TRABALHO NÃO INICIADO';
+    } else if (estimado != null) {
       final racio = _segundosDecorridos / (estimado * 60);
       if (racio > 1.0) {
         cor = TemasCores.erroForte;

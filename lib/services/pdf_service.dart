@@ -61,6 +61,10 @@ class ParametrosRelatorioTurno {
   /// Uma linha por fase concluída: hora, código, produto, fase, paragem.
   final List<List<String>> linhas;
 
+  /// Uma linha por incidência registada pelo operador no período: hora,
+  /// código, posto, motivo, observações, estado.
+  final List<List<String>> linhasIncidencias;
+
   const ParametrosRelatorioTurno({
     required this.nomeOperador,
     required this.dataTurno,
@@ -68,6 +72,7 @@ class ParametrosRelatorioTurno {
     required this.totalIncidencias,
     required this.ordensDistintas,
     required this.linhas,
+    this.linhasIncidencias = const [],
     this.primeiraConclusao,
     this.ultimaConclusao,
     this.intervaloMedio,
@@ -257,6 +262,8 @@ class PdfService {
           _indicadoresTurno(p),
           pw.SizedBox(height: 24),
           _detalheTurno(p),
+          pw.SizedBox(height: 24),
+          _incidenciasTurno(p),
         ],
       ),
     );
@@ -396,6 +403,42 @@ class PdfService {
               'considerados pausas e excluídos do intervalo médio.',
               style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600),
             ),
+          ),
+      ],
+    );
+  }
+
+  /// Incidências registadas pelo operador no turno, independentemente de a
+  /// fase já ter sido concluída — uma ordem em WIP Hold não fecha a fase, e era
+  /// por isso que a incidência desaparecia do relatório.
+  static pw.Widget _incidenciasTurno(ParametrosRelatorioTurno p) {
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        pw.Text('Incidências Registadas no Turno',
+            style: const pw.TextStyle(
+                fontSize: 14, fontWeight: pw.FontWeight.bold, color: PdfColors.blueGrey800)),
+        pw.SizedBox(height: 8),
+        if (p.linhasIncidencias.isEmpty)
+          pw.Text('Sem incidências registadas neste turno.',
+              style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey600))
+        else
+          pw.TableHelper.fromTextArray(
+            headers: const ['Hora', 'Codigo', 'Posto', 'Motivo', 'Observacoes', 'Estado'],
+            data: p.linhasIncidencias,
+            headerStyle: const pw.TextStyle(
+                fontWeight: pw.FontWeight.bold, color: PdfColors.white, fontSize: 10),
+            headerDecoration: const pw.BoxDecoration(color: PdfColors.red800),
+            cellStyle: const pw.TextStyle(fontSize: 9),
+            cellHeight: 22,
+            columnWidths: const {
+              0: pw.FlexColumnWidth(1.0),
+              1: pw.FlexColumnWidth(1.6),
+              2: pw.FlexColumnWidth(1.6),
+              3: pw.FlexColumnWidth(2.6),
+              4: pw.FlexColumnWidth(2.6),
+              5: pw.FlexColumnWidth(1.6),
+            },
           ),
       ],
     );
