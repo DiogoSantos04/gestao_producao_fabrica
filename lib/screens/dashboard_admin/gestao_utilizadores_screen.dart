@@ -332,28 +332,44 @@ class _GestaoUtilizadoresScreenState extends State<GestaoUtilizadoresScreen> {
           'Gestão de Utilizadores',
           style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: TemasCores.textoPrimario),
         ),
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            IconButton(
-              onPressed: _carregarUtilizadores,
-              icon: const Icon(Icons.refresh),
-              tooltip: 'Atualizar lista',
-              color: TemasCores.adminAcento,
-            ),
-            const SizedBox(width: 8),
-            ElevatedButton.icon(
-              onPressed: _abrirDialogAdicionar,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: TemasCores.adminAcento,
-                foregroundColor: TemasCores.textoInverso,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              ),
-              icon: const Icon(Icons.add, size: 18),
-              label: const Text('Adicionar Novo Utilizador', style: TextStyle(fontWeight: FontWeight.bold)),
-            ),
-          ],
+        // Mesmo na sua própria linha, num telemóvel o rótulo completo não
+        // cabe ao lado do botão de atualizar: abaixo de 400px usa-se o
+        // rótulo curto, e o `Flexible` corta com reticências em vez de
+        // transbordar se nem esse couber.
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final estreito = constraints.maxWidth < 400;
+            return Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  onPressed: _carregarUtilizadores,
+                  icon: const Icon(Icons.refresh),
+                  tooltip: 'Atualizar lista',
+                  color: TemasCores.adminAcento,
+                ),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: ElevatedButton.icon(
+                    onPressed: _abrirDialogAdicionar,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: TemasCores.adminAcento,
+                      foregroundColor: TemasCores.textoInverso,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    icon: const Icon(Icons.add, size: 18),
+                    label: Text(
+                      estreito ? 'Novo Utilizador' : 'Adicionar Novo Utilizador',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
         ),
       ],
     );

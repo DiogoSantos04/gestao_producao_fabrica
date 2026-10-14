@@ -880,27 +880,37 @@ class _DetalheTarefaScreenState extends State<DetalheTarefaScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        estado,
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 13,
-                          color: cor,
+                  // `Wrap` em vez de `Row`: num telemóvel o estado e a
+                  // estimativa não cabem lado a lado e a `Row` transbordava.
+                  // Assim a estimativa desce para a linha seguinte. O
+                  // `SizedBox` de largura total mantém o `spaceBetween` a
+                  // empurrar a estimativa para a direita quando cabe.
+                  SizedBox(
+                    width: double.infinity,
+                    child: Wrap(
+                      alignment: WrapAlignment.spaceBetween,
+                      spacing: 8,
+                      runSpacing: 2,
+                      children: [
+                        Text(
+                          estado,
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                            color: cor,
+                          ),
                         ),
-                      ),
-                      Text(
-                        estimado == null
-                            ? 'Estimativa não definida'
-                            : 'Estimado: $estimado min',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: TemasCores.textoSecundarioFrio,
+                        Text(
+                          estimado == null
+                              ? 'Estimativa não definida'
+                              : 'Estimado: $estimado min',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: TemasCores.textoSecundarioFrio,
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                   const SizedBox(height: 4),
                   Text(
